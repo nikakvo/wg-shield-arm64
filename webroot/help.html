@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>WG Shield — Help</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" media="print" onload="this.media='all'">
+  <style>
+    :root {
+      --bg: #000; --bg2: #04080b; --surface: #060b0f; --surface2: #07151d;
+      --border: #153040; --border2: #22506a;
+      --acc: #7dd3fc; --amber: #ff6a1f; --red: #ff4d6a; --dnsc: #00ff88; --ipset: #00aaff; --vhs: #fcee0a;
+      --text: #e3f2f9; --dim: #7a98a8; --hi: #f4fbff;
+      --mono: 'Share Tech Mono', ui-monospace, 'Roboto Mono', Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html { scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 70px); }
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.7; min-height: 100vh; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 40px); }
+    .header { background: #04080b; border-bottom: 1px solid var(--border); padding: 12px 16px; padding-top: calc(env(safe-area-inset-top, 0px) + 12px); display: flex; align-items: center; justify-content: space-between; gap: 10px; position: sticky; top: 0; z-index: 10; }
+    .h-title { font-family: var(--mono); font-size: 14px; color: var(--acc); letter-spacing: 1.5px; text-transform: uppercase; }
+    .h-sub { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 1px; }
+    .back-btn { background: transparent; border: 1px solid var(--acc); border-radius: 3px; color: var(--acc); padding: 7px 14px; font-size: 11px; font-family: var(--mono); letter-spacing: 1px; cursor: pointer; }
+    .back-btn:active { background: var(--acc); color: #000; }
+    :focus-visible { outline: 1px solid var(--acc); outline-offset: 2px; }
+    .toc { margin: 14px 14px 0; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 12px 14px; }
+    .toc-title { font-size: 9px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .14em; color: var(--dim); margin-bottom: 8px; }
+    .toc a { display: block; color: var(--acc); text-decoration: none; font-size: 12.5px; font-family: var(--mono); padding: 3px 0; }
+    .sec-title { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--dim); font-family: var(--mono); padding: 26px 16px 8px; }
+    .sec-title::before { content: '// '; color: var(--acc); opacity: .6; }
+    .box { margin: 0 14px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 14px 16px; }
+    .box p { margin-bottom: 10px; } .box p:last-child { margin-bottom: 0; }
+    .box h3 { font-family: var(--mono); font-size: 13px; color: var(--acc); font-weight: normal; letter-spacing: .5px; margin: 16px 0 6px; }
+    .box h3:first-child { margin-top: 0; }
+    .box ul, .box ol { margin: 6px 0 10px 18px; } .box li { margin-bottom: 5px; }
+    strong { color: var(--hi); font-weight: 600; }
+    code { font-family: var(--mono); font-size: 12px; color: var(--amber); background: var(--surface2); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; word-break: break-all; }
+    pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 12px; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--text); margin: 8px 0; white-space: pre; }
+    pre .cm { color: var(--dim); }
+    .tw { overflow-x: auto; margin: 6px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; padding: 7px 8px 7px 0; color: var(--dim); font-weight: normal; font-family: var(--mono); text-transform: uppercase; letter-spacing: .06em; font-size: 9.5px; border-bottom: 1px solid var(--border); }
+    td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    td:first-child { color: var(--hi); font-family: var(--mono); white-space: nowrap; padding-right: 12px; }
+    .pill { display: inline-block; font-family: var(--mono); font-size: 9px; letter-spacing: .8px; padding: 0 6px; border-radius: 2px; border: 1px solid; text-transform: uppercase; white-space: nowrap; }
+    .ok { color: var(--acc); border-color: rgba(125,211,252,.45); } .warn { color: var(--amber); border-color: rgba(255,106,31,.45); }
+    .bad { color: var(--red); border-color: rgba(255,77,106,.45); } .skip { color: var(--dim); border-color: var(--border); }
+    .note { border-left: 2px solid var(--acc); background: rgba(125,211,252,.06); padding: 10px 12px; border-radius: 0 4px 4px 0; margin: 10px 0; font-size: 13px; }
+    .note.warn { border-left-color: var(--amber); background: rgba(255,106,31,.07); }
+    .flow { font-family: var(--mono); font-size: 12px; color: var(--text); text-align: center; line-height: 1.9; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 10px; margin: 8px 0; }
+    .flow b { color: var(--acc); font-weight: normal; }
+    .flow .dn { color: var(--dnsc); } .flow .ip { color: var(--ipset); } .flow .vh { color: var(--vhs); }
+    .footer { text-align: center; padding: 28px 16px 8px; font-size: 10px; font-family: var(--mono); color: var(--dim); }
+    .footer a { color: var(--acc); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="h-title">◈ Help</div>
+    <div class="h-sub">wg shield · arm64</div>
+  </div>
+  <button class="back-btn" onclick="goBack()">‹ BACK</button>
+</div>
+
+<div class="toc">
+  <div class="toc-title">contents</div>
+  <a href="#what">1 · What this module does</a>
+  <a href="#start">2 · Quick start</a>
+  <a href="#how">3 · How it works</a>
+  <a href="#states">4 · States and the banner</a>
+  <a href="#dash">5 · Dashboard</a>
+  <a href="#tunnels">6 · Tunnels and import</a>
+  <a href="#settings">7 · Kill switch and pause</a>
+  <a href="#set">8 · With DNSCrypt Proxy, ipset and VPN Hotspot</a>
+  <a href="#limits">9 · IPv6 and other limits</a>
+  <a href="#cli">10 · Command line</a>
+  <a href="#trouble">11 · Troubleshooting</a>
+  <a href="#files">12 · Files, update, uninstall</a>
+</div>
+
+<div class="sec-title" id="what">1 · what this module does</div>
+<div class="box">
+  <p>WG Shield runs a <strong>WireGuard tunnel in the kernel</strong>, with no app. It starts at boot, survives killing apps from recents, follows Wi-Fi ↔ mobile switches by itself and has a <strong>kill switch</strong>: while a tunnel is on but not working, nothing leaves the phone around it.</p>
+  <p>Android does not see a VPN. There is no VPN key icon, apps see a normal network, and nothing depends on Android's VPN service — the tunnel is plain Linux routing below it. Calls over the mobile network (VoLTE, Wi-Fi calling), SMS and MMS keep using the carrier's own networks.</p>
+  <p>Tunnels come from the official WireGuard app: export them there, import them here, then switch one on.</p>
+  <div class="tw"><table>
+    <tr><th>needs</th><th></th></tr>
+    <tr><td>Kernel</td><td>WireGuard built in (<code>CONFIG_WIREGUARD</code>). The installer checks it and stops if it is missing.</td></tr>
+    <tr><td>Tunnels</td><td>wg-quick format as the WireGuard app or a VPN provider exports them (a zip or single <code>.conf</code> files): one <code>[Peer]</code>, <code>AllowedIPs</code> with <code>0.0.0.0/0</code>, an <code>Endpoint</code> as an IPv4 address or a host name. An IPv6 address with <code>::/0</code> carries IPv6 too. Proton VPN's configs work as downloaded.</td></tr>
+    <tr><td>Root</td><td>SukiSU Ultra, KernelSU, APatch or Magisk (WebUI through MMRL / KSU WebUI Standalone).</td></tr>
+  </table></div>
+  <div class="note warn">Tested on a Poco F6 Pro with Xiaomi.eu HyperOS 3 (Android 16) and an android13-5.15 GKI kernel. Other ROMs name and number their networks the same way (it is Android's own netd), but that is not tested.</div>
+</div>
+
+<div class="sec-title" id="start">2 · quick start</div>
+<div class="box">
+  <ol>
+    <li>Flash the zip, reboot.</li>
+    <li>WireGuard app: <strong>⋮ → Export tunnels</strong>. The zip lands in Download.</li>
+    <li>This WebUI → <strong>Tunnels</strong> → Import from Download → <strong>Import</strong>. Then delete the file with <strong>✕</strong>: it holds your private keys.</li>
+    <li>Disconnect the tunnel in the WireGuard app — one key, one tunnel.</li>
+    <li>Switch a tunnel on. The route at the top shows <strong>Phone → tunnel → Internet</strong> with a moving line within a few seconds.</li>
+    <li>Dashboard → Exit → <strong>Check</strong>, or open DNS Test: the server's address shows, and your own DNS resolvers.</li>
+  </ol>
+  <p>The manager's <strong>Action</strong> button turns the last used tunnel on or off without opening the WebUI.</p>
+</div>
+
+<div class="sec-title" id="how">3 · how it works</div>
+<div class="box">
+  <div class="flow">
+    app on the phone<br>↓<br>
+    <b>routing rules</b> (before Android's own)<br>↓<br>
+    <b>wgs0</b> — the kernel tunnel, encrypted<br>↓<br>
+    your Wi-Fi or mobile network → VPN server → internet
+  </div>
+  <h3>The pieces</h3>
+  <p>One interface, <code>wgs0</code>, always the same name whichever tunnel is on. A routing table (<code>51820</code>) that sends everything into it, with an <strong>unreachable</strong> route underneath: if the tunnel disappears, traffic has nowhere to go — it never falls back to your normal connection.</p>
+  <p>Routing rules with priorities 5000–5021 sit in front of Android's (which start at 10000):</p>
+  <div class="tw"><table>
+    <tr><th>rule</th><th>what for</th></tr>
+    <tr><td>5000</td><td>The tunnel's own encrypted packets to the server go out through your network.</td></tr>
+    <tr><td>5010–5012</td><td>Local destinations stay local: your Wi-Fi LAN (router, printer, SSH from a laptop), hotspot devices.</td></tr>
+    <tr><td>5020</td><td>Everything not bound to one network → the tunnel.</td></tr>
+    <tr><td>5021</td><td>Everything bound to the current default network (Wi-Fi or mobile) → the tunnel.</td></tr>
+  </table></div>
+  <p>Traffic an app binds to <em>another</em> network keeps Android's routing — that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working.</p>
+  <h3>Watchdog</h3>
+  <p>A background loop checks every 10 seconds (every 2 seconds during the first minute after boot): the right tunnel is loaded, Android's current default network (it gets a new number on every reconnect), the server route follows it, no rule is missing. Anything off is put back and written to the log.</p>
+  <h3>At boot</h3>
+  <p>If a tunnel was on when the phone went down and the kill switch is on, a blocking rule is in place before Android starts its network. Nothing leaves the phone until the tunnel is up.</p>
+</div>
+
+<div class="sec-title" id="states">4 · states and the banner</div>
+<div class="box">
+  <div class="tw"><table>
+    <tr><th>state</th><th>meaning</th></tr>
+    <tr><td><span class="pill ok">protected</span></td><td>The tunnel is up: a handshake within the last 180 s.</td></tr>
+    <tr><td><span class="pill warn">connecting</span></td><td>Just switched on, waiting for the first handshake (or for a network).</td></tr>
+    <tr><td><span class="pill bad">down</span></td><td>No handshake for more than 180 s. Kill switch on: no internet. Off: direct connection until it answers again.</td></tr>
+    <tr><td><span class="pill warn">paused</span></td><td>You paused it, or another VPN app is connected. Direct connection.</td></tr>
+    <tr><td><span class="pill bad">error</span></td><td>The tunnel cannot be built (file gone, kernel refused it). Direct connection — the banner says why.</td></tr>
+    <tr><td><span class="pill skip">off</span></td><td>No tunnel switched on. Your normal connection, nothing installed.</td></tr>
+  </table></div>
+  <div class="note">"Down" appears up to 3 minutes after the server stops answering: WireGuard itself counts a session as dead only after 180 s. Your traffic stops at once — only the label waits.</div>
+</div>
+
+<div class="sec-title" id="dash">5 · dashboard</div>
+<div class="box">
+  <h3>Route</h3>
+  <p>Where the phone's traffic goes right now. Moving blue line: through the tunnel. Red cut: kill switch holds. Orange: straight to your connection.</p>
+  <h3>Exit</h3>
+  <p><strong>Check</strong> asks an IP service once and shows the address websites see, with its place and provider.</p>
+  <h3>Tunnel</h3>
+  <p>The active tunnel, its server, the last handshake, data received and sent, and which network carries the tunnel.</p>
+  <h3>Networking set</h3>
+  <p>Whether DNSCrypt Proxy, ipset and VPN Hotspot are installed and what they are doing (see 8).</p>
+</div>
+
+<div class="sec-title" id="tunnels">6 · tunnels and import</div>
+<div class="box">
+  <p>Every imported tunnel is a row with a switch. <strong>One at a time</strong>: switching one on switches the other off; the interface stays <code>wgs0</code>, only keys, server and address change. All off = your normal connection.</p>
+  <p>Import reads the WireGuard app's export zip, or single <code>.conf</code> files, from Download. Files that do not fit (several peers, no full tunnel, an IPv6 endpoint) are skipped and the Log says why. Importing a tunnel with a name that already exists replaces it. Names keep letters, digits, <code>. _ -</code>; other characters become <code>_</code>.</p>
+  <p>From a file the module uses only the WireGuard keys and addresses. <code>DNS</code> is ignored (DNS is left to the system or DNSCrypt Proxy), as are <code>PostUp</code>, <code>Table</code> and the like. A tunnel without <code>PersistentKeepalive</code> gets 25 s, so the health check always has fresh handshakes.</p>
+  <div class="note warn">Private keys are stored in <code>/data/adb/wg-shield/tunnels/</code>, readable only by root. They never appear in the WebUI, the log, the status or the Report. The export in Download is readable by apps — delete it after importing.</div>
+</div>
+
+<div class="sec-title" id="settings">7 · kill switch and pause</div>
+<div class="box">
+  <h3>Kill switch</h3>
+  <p><strong>On</strong> (default): while a tunnel is switched on but not working, the phone has no internet at all. <strong>Off</strong>: the phone uses your connection directly while the tunnel is down, and goes back into the tunnel by itself when it answers again.</p>
+  <p>The kill switch never blocks when <em>you</em> turn the tunnel off, pause it, or when it cannot be built at all (error).</p>
+  <h3>Pause</h3>
+  <p>15 minutes, 1 hour or 4 hours on your normal connection, then the tunnel comes back. <strong>Resume now</strong> ends it early. A reboot ends a pause.</p>
+  <h3>Another VPN app</h3>
+  <p>While any VPN app is connected (WireGuard, Proton VPN, v2rayNG…) WG Shield steps aside and shows <span class="pill warn">paused</span>. It comes back when that VPN disconnects. That way the app stays a fallback, and two tunnels never fight over one key.</p>
+</div>
+
+<div class="sec-title" id="set">8 · with dnscrypt proxy, ipset and vpn hotspot</div>
+<div class="box">
+  <div class="flow">
+    app DNS → <span class="dn">DNSCrypt Proxy</span> on the phone → <b>tunnel</b> → encrypted resolvers<br>
+    app traffic → <span class="ip">ipset</span> blocklists → <b>tunnel</b>
+  </div>
+  <h3>DNSCrypt Proxy</h3>
+  <p>WG Shield never sets DNS. DNSCrypt Proxy keeps answering every DNS query on the phone; its own connections to the resolvers simply go through the tunnel. Its IP mode decides whether the phone has IPv6 at all (see 9).</p>
+  <h3>ipset</h3>
+  <p>Its lists apply as always. A tunnel server must never be listed, or the tunnel cannot connect: check the server's address with ipset's <strong>Check</strong> tool, and add it to its allowlist if needed.</p>
+  <h3>VPN Hotspot</h3>
+  <p>VPN Hotspot (1.0-r13 or newer) reads WG Shield's status and sends hotspot devices through the same tunnel whenever it is up. Switching the server here needs nothing there. When you turn WG Shield off or pause it, hotspot devices go direct like the phone. While the tunnel connects or is down, they follow VPN Hotspot's own kill switch (no internet when it is on). Older versions of VPN Hotspot only follow Android's VPN and do not see WG Shield.</p>
+</div>
+
+<div class="sec-title" id="limits">9 · ipv6 and other limits</div>
+<div class="box">
+  <ul>
+    <li><strong>IPv6.</strong> A tunnel with an IPv6 address and <code>AllowedIPs</code> containing <code>::/0</code> carries IPv6 too (Dashboard → IPv6: <em>through the tunnel</em>). A tunnel without it blocks the phone's IPv6 while it is on (<em>unreachable</em>), so nothing goes around it — apps switch to IPv4 at once. DNSCrypt Proxy's <code>ipv4</code> mode turns IPv6 off on the whole phone; then every tunnel carries IPv4 only. Switch it to <code>dual</code> and the tunnel picks IPv6 up by itself within seconds.</li>
+    <li><strong>The server is reached over IPv4.</strong> Proton's commented-out IPv6 <code>Endpoint</code> line is only another way to reach the server, not needed for IPv6 inside the tunnel — leave it commented.</li>
+    <li><strong>One peer, full tunnel.</strong> Split tunnels and several peers are not supported.</li>
+    <li><strong>Host-name endpoints</strong> (e.g. a home server on dynamic DNS) are looked up when the tunnel starts, with one plain DNS query to Quad9 sent outside the tunnel — before the tunnel is up there is no other way. If such a tunnel stops answering, the name is looked up again (at most once a minute), so an address change at home is followed by itself. IPv6 endpoints are not supported.</li>
+    <li><strong>Same LAN on both sides.</strong> Addresses of your own Wi-Fi network always stay local. If a home VPN uses the same range as your Wi-Fi (both <code>192.168.1.x</code>), devices behind that VPN cannot be reached while you are on that Wi-Fi.</li>
+    <li><strong>No per-app bypass.</strong> Everything the phone sends goes through the tunnel, except traffic bound to another network (IMS, MMS).</li>
+    <li><strong>Hotspot devices</strong> are routed by VPN Hotspot, not by WG Shield (see 8); they get IPv4 only.</li>
+  </ul>
+</div>
+
+<div class="sec-title" id="cli">10 · command line</div>
+<div class="box">
+  <p>Every WebUI action is a <code>ctl.sh</code> command. From Termux: <code>su -c '…'</code> with the whole command in single quotes.</p>
+<pre>sh /data/adb/modules/wg-shield/ctl.sh status          <span class="cm"># state, tunnel, handshake</span>
+sh /data/adb/modules/wg-shield/ctl.sh list            <span class="cm"># imported tunnels</span>
+sh /data/adb/modules/wg-shield/ctl.sh import &lt;zip|conf&gt;
+sh /data/adb/modules/wg-shield/ctl.sh up [name]       <span class="cm"># last used when no name</span>
+sh /data/adb/modules/wg-shield/ctl.sh switch &lt;name&gt;
+sh /data/adb/modules/wg-shield/ctl.sh down            <span class="cm"># normal connection</span>
+sh /data/adb/modules/wg-shield/ctl.sh pause &lt;minutes&gt;
+sh /data/adb/modules/wg-shield/ctl.sh resume
+sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1
+sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;
+sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]
+sh /data/adb/modules/wg-shield/ctl.sh diag            <span class="cm"># report, no keys</span></pre>
+  <p>The <code>wg</code> tool is on the path too: <code>su -c 'wg show wgs0'</code> (private key hidden).</p>
+</div>
+
+<div class="sec-title" id="trouble">11 · troubleshooting</div>
+<div class="box">
+  <h3>No internet</h3>
+  <p>State <span class="pill bad">down</span>? The server does not answer and the kill switch holds. Switch to another tunnel, or pause. Stays <span class="pill warn">connecting</span>? Check the server is not blocked by ipset (see 8), then send the <strong>Report</strong>.</p>
+  <h3>Paused and I did not pause it</h3>
+  <p>A VPN app is connected — the banner names it. Disconnect it.</p>
+  <h3>Import skipped a tunnel</h3>
+  <p>The Log names the file and the reason: a key that is not a real key (for example one replaced by <code>*****</code>), several peers, not a full tunnel, a bad endpoint.</p>
+  <h3>"Rules changed by someone else — repaired"</h3>
+  <p>Something removed one of the module's routing rules; the watchdog put it back. Once is harmless. If it repeats every few seconds, another module fights over the same rules — send the Report.</p>
+  <h3>Something is wrong and I need internet now</h3>
+  <p>Action button in the manager (off), or <code>ctl.sh down</code>. If the module itself misbehaves: disable it in the manager and reboot — nothing of it stays active.</p>
+  <h3>Watchdog not running</h3>
+  <p>Reboot. If it stays stopped, the Log says why.</p>
+</div>
+
+<div class="sec-title" id="files">12 · files, update, uninstall</div>
+<div class="box">
+  <div class="tw"><table>
+    <tr><th>file</th><th></th></tr>
+    <tr><td>/data/adb/wg-shield.conf</td><td>Settings: active and last tunnel, kill switch (kept on update)</td></tr>
+    <tr><td>/data/adb/wg-shield/tunnels/</td><td>Imported tunnels with their keys, root only (kept on update)</td></tr>
+    <tr><td>/data/adb/wg-shield/wg-shield.log</td><td>Log (<strong>Clear</strong> in the Log tab empties it)</td></tr>
+    <tr><td>/data/adb/wg-shield-state/</td><td>Runtime state, cleared at boot; <code>status</code> is read by the sibling modules</td></tr>
+  </table></div>
+  <p><strong>Update:</strong> flash the new zip, reboot. Tunnels and settings stay.</p>
+  <p><strong>Uninstall:</strong> the tunnel and every rule are removed, then settings, log and <strong>all imported tunnels with their keys</strong> are deleted.</p>
+</div>
+
+<div class="footer">WG Shield Arm64 · by Tears Burn · <a href="index.html">back to dashboard</a><br><br>"WireGuard" and the "WireGuard" logo are registered trademarks of Jason A. Donenfeld.<br>WG Shield is not affiliated with or endorsed by the WireGuard project.</div>
+
+<script>
+function goBack() { if (history.length > 1) history.back(); else location.href = 'index.html'; }
+</script>
+</body>
+</html>

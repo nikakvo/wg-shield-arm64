@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>WG Shield</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!-- Non-blocking font: the page must work with no internet at all -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" media="print" onload="this.media='all'">
+  <style>
+    /* Same house style as DNSCrypt Proxy Arm64, ipset-arm64 and VPN Hotspot
+       Arm64 (one set); this module's own colour is sky blue, warnings orange,
+       errors red. Sibling rows keep their own colours. */
+    :root {
+      --acc:    #7dd3fc;
+      --acc-a:  rgba(125,211,252,0.45);
+      --acc-t:  rgba(125,211,252,0.08);
+      --amber:  #ff6a1f;
+      --red:    #ff4d6a;
+      --vhs:    #fcee0a;
+      --dnsc:   #00ff88;
+      --ipset:  #00aaff;
+      --border: #153040;
+      --line:   #0b1a22;
+      --muted:  #7493a3;
+      --text:   #e3f2f9;
+      --dim:    #020608;
+      --panel:  #060b0f;
+      --mono:   'Share Tech Mono', ui-monospace, 'Roboto Mono', Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; }
+    body { background: #000; font-family: var(--mono); color: var(--text); display: flex; flex-direction: column; overflow: hidden; }
+    body::before {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(125,211,252,0.02) 2px, rgba(125,211,252,0.02) 4px);
+    }
+    button, input { font-family: var(--mono); }
+    :focus-visible { outline: 1px solid var(--acc); outline-offset: 2px; }
+
+    /* header */
+    header { padding: 6px 8px; padding-top: calc(env(safe-area-inset-top, 0px) + 6px); background: #04080b; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
+    .hdr-top { display: flex; align-items: baseline; gap: 8px; }
+    .htitle { font-size: clamp(11px, 3vw, 14px); color: var(--acc); letter-spacing: 1.5px; text-transform: uppercase; }
+    #hdr-ver { flex: 1; font-size: 9px; color: var(--muted); letter-spacing: .5px; }
+    #clock { font-size: 11px; color: var(--muted); white-space: nowrap; }
+    .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+    a.button { --nb: var(--acc); padding: 7px 0; color: var(--acc); border: 1px solid var(--acc); text-decoration: none; font-size: clamp(9px, 2.8vw, 11px); letter-spacing: .5px; white-space: nowrap; text-transform: uppercase; text-align: center; overflow: hidden; text-overflow: ellipsis; }
+    a.button:active { background: var(--acc); color: #000; }
+    a.button.alt { --nb: var(--muted); border-color: var(--muted); color: var(--muted); }
+
+    /* banner */
+    #busy-bar { position: relative; height: 2px; overflow: hidden; flex-shrink: 0; }
+    #busy-bar::after { content: ''; position: absolute; top: 0; bottom: 0; left: -40%; width: 40%; background: var(--acc); opacity: 0; }
+    #busy-bar.on::after { opacity: .9; animation: busySlide 1s linear infinite; }
+    @keyframes busySlide { from { left: -40%; } to { left: 100%; } }
+    #banner { padding: 4px 12px; font-size: 10px; letter-spacing: .4px; text-align: center; border-bottom: 1px solid var(--border); flex-shrink: 0; background: #07151d; color: var(--acc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #banner.b-warn { background: #1f0c00; color: var(--amber); }
+    #banner.b-error { background: #1a0005; color: var(--red); }
+    #banner.b-idle { background: var(--dim); color: var(--muted); }
+    .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: middle; animation: livePulse 1.4s ease-in-out infinite; }
+    #banner.b-idle .live-dot, #banner.b-error .live-dot { animation: none; }
+    @keyframes livePulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+    /* cut corner: the set's shapes are square; this module's are clipped */
+    .clip { --nb: var(--border); position: relative; clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%); }
+    .clip::after { content: ''; position: absolute; top: 0; right: 0; width: 9px; height: 9px; pointer-events: none;
+      background: linear-gradient(to bottom left, transparent calc(50% - 0.8px), var(--nb) calc(50% - 0.8px), var(--nb) calc(50% + 0.8px), transparent calc(50% + 0.8px)); }
+    .glitch { text-shadow: none; }   /* crisp: no colour fringes */
+
+    /* route strip: the one thing this page is about */
+    .route { display: grid; grid-template-columns: 1fr 34px 1.25fr 34px 1fr; align-items: center; padding: 14px 12px 12px; border-bottom: 1px solid var(--border); background: var(--panel); flex-shrink: 0; }
+    .node { --nb: var(--border); border: 1px solid var(--nb); padding: 7px 6px; text-align: center; min-width: 0; }
+    .node .n1 { font-size: clamp(10px, 3vw, 13px); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .node .n2 { font-size: 8.5px; color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .node.on { --nb: var(--acc-a); background: var(--acc-t); }
+    .node.on .n1 { color: var(--acc); }
+    .node.warn { --nb: rgba(255,106,31,.45); }
+    .node.warn .n1 { color: var(--amber); }
+    .node.off { opacity: .45; }
+    .link { position: relative; height: 12px; overflow: hidden; }
+    .link::before { content: ''; position: absolute; left: 2px; right: 2px; top: 5px; height: 2px; background: var(--border); }
+    .link.flow::before { left: -18px; background: repeating-linear-gradient(90deg, var(--acc) 0 6px, transparent 6px 10px); animation: flow 0.9s linear infinite; will-change: transform; }
+    .link.plain::before { background: var(--amber); }
+    .link.cut::before { background: var(--red); left: 2px; right: 55%; }
+    .link.cut::after { content: '✕'; position: absolute; left: 45%; top: -4px; color: var(--red); font-size: 13px; }
+    @keyframes flow { from { transform: translateX(0); } to { transform: translateX(20px); } }
+    @media (prefers-reduced-motion: reduce) { .link.flow::before, .live-dot, #busy-bar.on::after { animation: none; } }
+
+    /* stats */
+    .stats { display: flex; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .sc { flex: 1; padding: 6px 8px; background: var(--dim); display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .sc .lbl { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sc .val { font-size: clamp(12px, 3.4vw, 18px); color: var(--acc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .val.a, .v.a { color: var(--amber) !important; } .val.r, .v.r { color: var(--red) !important; } .val.m, .v.m { color: var(--muted) !important; }
+
+    /* tabs / panes */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); background: #03070a; flex-shrink: 0; }
+    .tab { flex: 1; padding: 9px 0; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--muted); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; cursor: pointer; }
+    .tab.active { color: var(--acc); border-bottom-color: var(--acc); }
+    .tab .tab-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-left: 5px; vertical-align: middle; }
+    .tab .tab-dot.bad { background: var(--red); } .tab .tab-dot.warn { background: var(--amber); }
+    main { flex: 1; min-height: 0; position: relative; }
+    .pane { position: absolute; inset: 0; overflow-y: auto; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 40px); display: none; -webkit-overflow-scrolling: touch; }
+    .pane.active { display: block; }
+    ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-thumb { background: var(--border); }
+
+    .section { border-bottom: 1px solid var(--border); padding: 12px 14px 14px; }
+    .section-title { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.4px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 7px; }
+    .section-title .s-accent { display: inline-block; width: 3px; height: 10px; border-radius: 1px; background: var(--acc); }
+    .section-title .s-note { margin-left: auto; text-transform: none; letter-spacing: .3px; font-size: 8px; }
+    .d-stat { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 10px; }
+    .d-stat:last-child { border-bottom: none; }
+    .d-stat .k { color: var(--muted); white-space: nowrap; }
+    .d-stat .v { color: var(--acc); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { padding: 16px 0; text-align: center; color: var(--muted); font-size: 10px; line-height: 1.6; }
+    .note { font-size: 9px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
+    .note b { color: var(--text); font-weight: normal; }
+
+    .row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 10px; }
+    .row:last-child { border-bottom: none; }
+    .row .rn { flex: 1; min-width: 0; }
+    .row .rn b { display: block; color: var(--text); font-weight: normal; font-size: 11px; }
+    .row .rn span { display: block; color: var(--muted); font-size: 9px; margin-top: 2px; line-height: 1.45; }
+    .pill { flex-shrink: 0; font-size: 8px; letter-spacing: .8px; padding: 2px 7px; border-radius: 2px; border: 1px solid; text-transform: uppercase; }
+    .pill.ok   { color: var(--acc);   border-color: var(--acc-a); background: var(--acc-t); }
+    .pill.warn { color: var(--amber); border-color: rgba(255,106,31,.45); background: rgba(255,106,31,.08); }
+    .pill.bad  { color: var(--red);   border-color: rgba(255,77,106,.45); background: rgba(255,77,106,.08); }
+    .pill.skip { color: var(--muted); border-color: var(--border); }
+    .pill.dnsc { color: var(--dnsc);  border-color: rgba(0,255,136,.35); background: rgba(0,255,136,.06); }
+    .pill.ipset { color: var(--ipset); border-color: rgba(0,170,255,.4); background: rgba(0,170,255,.06); }
+    .pill.vhs { color: var(--vhs); border-color: rgba(252,238,10,.4); background: rgba(252,238,10,.06); }
+    .sib { border-left: 2px solid; padding-left: 9px; }
+    .sib.dnsc { border-left-color: var(--dnsc); } .sib.ipset { border-left-color: var(--ipset); } .sib.vhs { border-left-color: var(--vhs); }
+    .sib.dnsc b { color: var(--dnsc) !important; } .sib.ipset b { color: var(--ipset) !important; } .sib.vhs b { color: var(--vhs) !important; }
+
+    /* exit */
+    .exit-box { display: flex; align-items: center; gap: 10px; }
+    #exit-out { flex: 1; min-width: 0; }
+    #exit-ip { font-size: clamp(14px, 4.4vw, 20px); color: var(--acc); letter-spacing: .5px; }
+    #exit-sub { font-size: 9px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+    .btn-s { --nb: var(--acc-a); background: var(--acc-t); border: 1px solid var(--acc-a); color: var(--acc); font-size: 10px; letter-spacing: .8px; text-transform: uppercase; padding: 8px 12px; cursor: pointer; white-space: nowrap; }
+    .btn-s.m { --nb: var(--border); background: transparent; border-color: var(--border); color: var(--muted); }
+    .btn-s.r { border-color: rgba(255,77,106,.45); color: var(--red); }
+    .btn-s:disabled { opacity: .4; }
+
+    /* tunnels / files */
+    .tun .rn b { display: flex; align-items: center; gap: 6px; }
+    .tun.on .rn b { color: var(--acc); }
+    .tun .hs { font-size: 8px; letter-spacing: .6px; color: var(--acc); border: 1px solid var(--acc-a); padding: 0 5px; border-radius: 2px; text-transform: uppercase; }
+    .tun .hs.a { color: var(--amber); border-color: rgba(255,106,31,.45); }
+    .tun .hs.r { color: var(--red); border-color: rgba(255,77,106,.45); }
+    .x-btn { flex-shrink: 0; background: transparent; border: 1px dashed var(--border); color: var(--muted); font-size: 10px; width: 28px; height: 24px; cursor: pointer; border-radius: 2px; }
+    .x-btn.arm { border-style: solid; border-color: var(--red); color: #fff; background: rgba(255,77,106,.14); width: auto; padding: 0 7px; font-size: 9px; letter-spacing: .5px; text-transform: uppercase; }
+    .file-btns { display: flex; gap: 5px; flex-shrink: 0; }
+    .file-btns .btn-s { padding: 6px 9px; font-size: 9px; }
+    .warnbox { border-left: 2px solid var(--amber); background: rgba(255,106,31,.07); padding: 8px 10px; font-size: 9px; color: var(--text); line-height: 1.6; margin-top: 8px; }
+    .warnbox b { color: var(--amber); font-weight: normal; }
+
+    /* settings */
+    .sw { position: relative; width: 38px; height: 20px; flex-shrink: 0; }
+    .sw input { opacity: 0; width: 0; height: 0; }
+    .sw i { position: absolute; inset: 0; border: 1px solid var(--muted); border-radius: 10px; cursor: pointer; transition: .2s; }
+    .sw i::before { content: ''; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; border-radius: 50%; background: var(--muted); transition: .2s; }
+    .sw input:checked + i { border-color: var(--acc-a); background: var(--acc-t); }
+    .sw input:checked + i::before { transform: translateX(18px); background: var(--acc); }
+    .sw input:focus-visible + i { outline: 1px solid var(--acc); outline-offset: 2px; }
+    .sw.busy { opacity: .4; pointer-events: none; }
+    .seg { display: flex; margin-top: 8px; }
+    .seg button { flex: 1; background: transparent; border: 1px solid var(--border); color: var(--text); font-size: 9px; padding: 8px 4px; margin-left: -1px; text-transform: uppercase; letter-spacing: .8px; cursor: pointer; }
+    .seg button:first-child { border-radius: 2px 0 0 2px; margin-left: 0; }
+    .seg button:last-child { border-radius: 0 2px 2px 0; }
+    .seg button.on { color: var(--acc); border-color: var(--acc-a); background: var(--acc-t); position: relative; z-index: 1; }
+    .inrow { display: flex; gap: 6px; margin-top: 8px; }
+    .inrow input { flex: 1; min-width: 0; background: #000; border: 1px solid var(--border); color: var(--text); font-size: 11px; padding: 8px; border-radius: 2px; }
+    .inrow.hidden { display: none; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .term { background: var(--panel); border: 1px solid var(--border); border-radius: 3px; padding: 8px 10px; font-size: 9px; color: var(--text); overflow: auto; white-space: pre-wrap; word-break: break-all; line-height: 1.5; margin-top: 10px; max-height: 50vh; }
+    .term.hidden { display: none; }
+
+    /* log */
+    #tab-log { display: none; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+    #tab-log.active { display: flex; }
+    .log-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 8px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .fbtn { padding: 3px 7px; background: transparent; border: 1px solid var(--border); border-radius: 2px; font-size: 9px; color: var(--muted); cursor: pointer; }
+    .fbtn.on.INFO { color: var(--acc); border-color: var(--acc-a); }
+    .fbtn.on.WARN { color: var(--amber); border-color: rgba(255,106,31,.45); }
+    .fbtn.on.ERROR { color: var(--red); border-color: rgba(255,77,106,.45); }
+    .fbtn.clr { margin-left: 4px; color: var(--muted); }
+    .fbtn.clr:not(.arm) { border-style: dashed; }
+    .fbtn.clr.arm { background: rgba(255,77,106,.14); color: #fff; border-color: var(--red); }
+    #log-count { margin-left: auto; font-size: 9px; color: var(--muted); }
+    #log-body { flex: 1; min-height: 0; margin: 0; border: none; border-radius: 0; max-height: none; padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 36px); font-size: 9.5px; }
+    .ll { display: block; } .ll .t { color: var(--muted); }
+    .ll.INFO .m { color: var(--text); } .ll.WARN .m { color: var(--amber); } .ll.ERROR .m { color: var(--red); }
+
+    footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 4px 12px; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 4px); background: var(--dim); border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 9px; color: var(--muted); gap: 6px; z-index: 100; }
+    #foot-info { flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 36px); transform: translateX(-50%) translateY(10px); opacity: 0; transition: all .25s; background: #081218; border: 1px solid var(--border); color: var(--text); font-size: 10px; padding: 8px 14px; border-radius: 3px; pointer-events: none; z-index: 200; max-width: 90vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .toast.ok { border-color: var(--acc-a); color: var(--acc); } .toast.err { border-color: rgba(255,77,106,.5); color: var(--red); }
+    button { transition: transform .08s, filter .08s; }
+    button:active:not(:disabled) { transform: scale(.95); filter: brightness(1.5); }
+    button.working { animation: btnPulse .9s ease-in-out infinite; pointer-events: none; }
+    @keyframes btnPulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+    body.locked button:not(.tab):not(.fbtn:not(.clr)):not(.working), body.locked label.sw { opacity: .5; }
+    .fatal { margin: 30px 14px; padding: 16px; border: 1px solid rgba(255,77,106,.5); background: #1a0005; color: var(--red); font-size: 10px; line-height: 1.7; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-top">
+    <div class="htitle glitch">◈ WG Shield</div>
+    <div id="hdr-ver"></div>
+    <div id="clock">--:--:--</div>
+  </div>
+  <div class="btn-grid">
+    <a class="button clip" href="https://www.dnsleaktest.com/" target="_blank">DNS Test</a>
+    <a class="button clip" href="https://ipleak.net/" target="_blank">Leak Test</a>
+    <a class="button alt clip" href="help.html">Help</a>
+  </div>
+</header>
+
+<div id="busy-bar"></div>
+<div id="banner" class="b-idle"><span class="live-dot"></span>Connecting…</div>
+
+<div class="route" id="route" aria-label="Where the phone's traffic goes">
+  <div class="node clip off" id="rn-ph"><div class="n1">Phone</div><div class="n2" id="rn-ph2">—</div></div>
+  <div class="link" id="rl-1"></div>
+  <div class="node clip off" id="rn-tun"><div class="n1" id="rn-tun1">Tunnel</div><div class="n2" id="rn-tun2">—</div></div>
+  <div class="link" id="rl-2"></div>
+  <div class="node clip off" id="rn-net"><div class="n1">Internet</div><div class="n2" id="rn-net2">—</div></div>
+</div>
+
+<div class="stats">
+  <div class="sc"><div class="lbl">State</div><div class="val" id="s-state">—</div></div>
+  <div class="sc"><div class="lbl">Handshake</div><div class="val" id="s-hs">—</div></div>
+  <div class="sc"><div class="lbl">Kill switch</div><div class="val" id="s-ks">—</div></div>
+  <div class="sc"><div class="lbl">Network</div><div class="val" id="s-net">—</div></div>
+</div>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="dash" onclick="showTab('dash')">Dashboard<span class="tab-dot" id="dash-dot"></span></button>
+  <button class="tab" data-tab="tun" onclick="showTab('tun')">Tunnels</button>
+  <button class="tab" data-tab="set" onclick="showTab('set')">Settings</button>
+  <button class="tab" data-tab="log" onclick="showTab('log')">Log</button>
+</nav>
+
+<main>
+  <!-- ═════════════ DASHBOARD ═════════════ -->
+  <div class="pane active" id="tab-dash">
+    <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Exit<span class="s-note">what websites see</span></div>
+      <div class="exit-box">
+        <div id="exit-out"><div id="exit-ip" class="glitch v m">—</div><div id="exit-sub">Tap Check to ask an IP service (one small request).</div></div>
+        <button class="btn-s clip" id="exit-btn" onclick="checkExit()">Check</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Tunnel</div>
+      <div class="d-stat"><span class="k">Tunnel</span><span class="v" id="t-name">—</span></div>
+      <div class="d-stat"><span class="k">Server</span><span class="v" id="t-ep">—</span></div>
+      <div class="d-stat"><span class="k">Last handshake</span><span class="v" id="t-hs">—</span></div>
+      <div class="d-stat"><span class="k">Received / sent</span><span class="v" id="t-rxtx">—</span></div>
+      <div class="d-stat"><span class="k">IPv6</span><span class="v" id="t-v6">—</span></div>
+      <div class="d-stat"><span class="k">Interface / table</span><span class="v" id="t-if">—</span></div>
+      <div class="d-stat"><span class="k">Carried over</span><span class="v" id="t-net">—</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Networking set</div>
+      <div id="set-body"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Watchdog</div>
+      <div class="d-stat"><span class="k">Running</span><span class="v" id="w-run">—</span></div>
+      <div class="d-stat"><span class="k">Last check</span><span class="v" id="w-tick">—</span></div>
+    </div>
+  </div>
+
+  <!-- ═════════════ TUNNELS ═════════════ -->
+  <div class="pane" id="tab-tun">
+    <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Tunnels<span class="s-note" id="tun-note"></span></div>
+      <div id="tun-body"><div class="empty">Waiting for data…</div></div>
+      <div class="note">One tunnel at a time: switching one on switches the other off. All off = your normal connection, no kill switch.</div>
+    </div>
+    <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Import from Download<span class="s-note"><button class="fbtn" onclick="loadFiles()">Refresh</button></span></div>
+      <div id="file-body"><div class="empty">Looking for exports…</div></div>
+      <div class="warnbox"><b>Exports hold your private keys.</b> In the WireGuard app: ⋮ → Export tunnels (saved to Download). Import it here, then delete the file. Imported tunnels are kept where only root can read them.</div>
+    </div>
+  </div>
+
+  <!-- ═════════════ SETTINGS ═════════════ -->
+  <div class="pane" id="tab-set">
+    <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Protection</div>
+      <div class="row">
+        <div class="rn"><b>Kill switch</b><span>A tunnel is on but not working → no internet at all, never your mobile or Wi-Fi connection directly. Off: the phone goes direct until the tunnel answers again.</span></div>
+        <label class="sw" id="sw-ks"><input type="checkbox" id="cb-ks" onchange="setKs(this)"><i></i></label>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Pause<span class="s-note" id="pause-note"></span></div>
+      <div class="note" style="margin-top:0">Your normal connection for a while, then the tunnel comes back by itself. A reboot ends a pause.</div>
+      <div class="seg" id="pause-seg">
+        <button onclick="doPause(15)">15 min</button>
+        <button onclick="doPause(60)">1 hour</button>
+        <button onclick="doPause(240)">4 hours</button>
+      </div>
+      <div class="inrow hidden" id="resume-row"><button class="btn-s clip" style="flex:1" onclick="doResume()">Resume now</button></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Maintenance</div>
+      <div class="actions" style="grid-template-columns:1fr 1fr">
+        <button class="btn-s clip" onclick="doCheck()">Check now</button>
+        <button class="btn-s clip m" onclick="doDiag()">Report</button>
+      </div>
+      <div class="note">Check now: put the tunnel and its routing rules in the wanted state at once (the watchdog does it every 10 s). Report: everything needed to troubleshoot, ready to copy — private keys are never in it.</div>
+      <pre class="term hidden" id="diag-out"></pre>
+      <div class="inrow hidden" id="diag-row"><button class="btn-s clip" style="flex:1" onclick="copyDiag()">Copy report</button></div>
+    </div>
+  </div>
+
+  <!-- ═════════════ LOG ═════════════ -->
+  <div class="pane" id="tab-log">
+    <div class="log-bar">
+      <button class="fbtn on INFO" data-l="INFO" onclick="toggleLvl(this)">Info</button>
+      <button class="fbtn on WARN" data-l="WARN" onclick="toggleLvl(this)">Warn</button>
+      <button class="fbtn on ERROR" data-l="ERROR" onclick="toggleLvl(this)">Error</button>
+      <span id="log-count"></span>
+      <button class="fbtn clr" id="log-clear" onclick="clearLog(this)">Clear</button>
+    </div>
+    <pre class="term" id="log-body"></pre>
+  </div>
+</main>
+
+<footer>
+  <span id="foot-l">—</span>
+  <span id="foot-info"></span>
+  <span id="foot-r"></span>
+</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const MODDIR = '/data/adb/modules/wg-shield';
+const CTL = 'sh ' + MODDIR + '/ctl.sh';
+
+// ── Root bridge (same contract as the other modules of the set) ─────────
+let EXEC_MODE = null, _cbSeq = 0;
+function hasBridge() { return typeof ksu !== 'undefined' && ksu && typeof ksu.exec === 'function'; }
+function callbackExec(cmd, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const name = '__wgs_cb_' + (++_cbSeq) + '_' + Date.now();
+    let settled = false;
+    window[name] = (errno, stdout, stderr) => {
+      if (settled) return; settled = true;
+      try { delete window[name]; } catch (e) { window[name] = undefined; }
+      resolve({ errno: typeof errno === 'number' ? errno : 0, stdout: stdout == null ? '' : String(stdout), stderr: stderr == null ? '' : String(stderr) });
+    };
+    try { ksu.exec(cmd, '{}', name); }
+    catch (e) { settled = true; try { delete window[name]; } catch (_) {} reject(e); return; }
+    setTimeout(() => { if (settled) return; settled = true; try { delete window[name]; } catch (_) {} reject(new Error('exec timeout')); }, timeoutMs || 30000);
+  });
+}
+function legacyExec(cmd) { const r = ksu.exec(cmd); return { errno: 0, stdout: typeof r === 'string' ? r : (r && r.stdout) || '', stderr: '' }; }
+// The callback form runs off the page's thread; the legacy one blocks the
+// whole page until the command ends. A slow first root shell (cold start)
+// must not push the page into legacy mode for good, so the callback form
+// gets two generous tries before falling back.
+async function detectExecMode() {
+  if (!hasBridge()) throw new Error('no root bridge');
+  for (const t of [8000, 15000]) {
+    try { const r = await callbackExec('echo wgs_ok', t); if ((r.stdout || '').indexOf('wgs_ok') >= 0) return 'callback'; }
+    catch (e) { if (!/timeout/.test(String(e && e.message))) break; }
+  }
+  try { const l = legacyExec('echo wgs_ok'); if ((l.stdout || '').indexOf('wgs_ok') >= 0) return 'legacy'; } catch (e) {}
+  throw new Error('root shell unavailable');
+}
+function b64ToText(b64) {
+  if (!b64) return '';
+  try { const bin = atob(b64); return new TextDecoder('utf-8').decode(Uint8Array.from(bin, c => c.charCodeAt(0))); } catch (e) { return ''; }
+}
+async function sh(cmd, timeoutMs) {
+  const wrapped = '{ ' + cmd + '; } 2>&1 | base64 | tr -d "\\n\\r"';
+  const res = EXEC_MODE === 'callback' ? await callbackExec(wrapped, timeoutMs) : legacyExec(wrapped);
+  return b64ToText((res.stdout || '').trim());
+}
+
+// ── One action at a time, with visible feedback ─────────────────────────
+let _pressed = null, _pressedAt = 0, _busyN = 0, _fgEndedAt = 0;
+document.addEventListener('pointerdown', e => { const b = e.target.closest && e.target.closest('button'); if (b) { _pressed = b; _pressedAt = Date.now(); } }, true);
+const BG_CMD = /^(poll|files|log \d)/;
+const LOCK_FREE = '.tab, .fbtn:not(.clr)';
+document.addEventListener('click', e => {
+  const t = e.target.closest && e.target.closest('button, label.sw, input[type=checkbox]');
+  if (!t || t.matches(LOCK_FREE)) return;
+  if (_busyN > 0 || e.timeStamp < _fgEndedAt) {
+    _pressed = null; e.preventDefault(); e.stopImmediatePropagation();
+    if (_busyN > 0) toast('Wait — the previous action is still running', 'err');
+  }
+}, true);
+async function ctl(args, timeoutMs) {
+  const fg = !BG_CMD.test(args);
+  let btn = null;
+  if (fg) {
+    if (_pressed && Date.now() - _pressedAt < 60000 && document.body.contains(_pressed)) btn = _pressed;
+    _pressed = null;
+    if (btn) btn.classList.add('working');
+    if (++_busyN === 1) { $('busy-bar').classList.add('on'); document.body.classList.add('locked'); }
+  }
+  try { return await sh(CTL + ' ' + args, timeoutMs); }
+  finally {
+    if (fg) {
+      if (btn) btn.classList.remove('working');
+      if (--_busyN <= 0) { _busyN = 0; $('busy-bar').classList.remove('on'); document.body.classList.remove('locked'); _fgEndedAt = performance.now(); }
+    }
+  }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const num = v => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function q(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }   // shell single-quote
+function parseKV(text) {
+  const out = { t: [], file: [] };
+  (text || '').split('\n').forEach(line => {
+    const i = line.indexOf('=');
+    if (i <= 0) return;
+    const k = line.slice(0, i).trim(), v = line.slice(i + 1).trim();
+    if (k === 't' || k === 'file') out[k].push(v); else out[k] = v;
+  });
+  return out;
+}
+function fmtDur(sec) {
+  sec = num(sec); if (sec < 1) return '0s';
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  if (d) return `${d}d ${h}h`; if (h) return `${h}h ${m}m`; if (m) return `${m}m ${s}s`; return `${s}s`;
+}
+function fmtBytes(b) {
+  b = num(b); const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return (i ? b.toFixed(b < 10 ? 1 : 0) : b) + ' ' + u[i];
+}
+function netName(n) { return !n ? 'none' : /^wlan/.test(n) ? 'Wi-Fi' : /^rmnet|^ccmni|^v4-rmnet/.test(n) ? 'Mobile' : n; }
+let _toastTimer = null;
+function toast(msg, type) { const t = $('toast'); t.textContent = msg; t.className = 'toast show ' + (type || ''); clearTimeout(_toastTimer); _toastTimer = setTimeout(() => { t.className = 'toast'; }, 2600); }
+setInterval(() => { $('clock').textContent = new Date().toTimeString().slice(0, 8); }, 1000);
+
+// two-tap confirm for destructive buttons ("Sure?")
+function armed(b, label) {
+  if (b.classList.contains('arm')) { clearTimeout(b._t); b.classList.remove('arm'); b.textContent = b._label; return true; }
+  b._label = b.textContent; b.classList.add('arm'); b.textContent = label || 'Sure?';
+  b._t = setTimeout(() => { b.classList.remove('arm'); b.textContent = b._label; }, 3000);
+  return false;
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────
+let currentTab = 'dash';
+function showTab(name) {
+  currentTab = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  if (name === 'log') loadLog();
+  if (name === 'tun') loadFiles();
+}
+
+// ── Render ──────────────────────────────────────────────────────────────
+let ST = {};
+function setBanner(cls, msg) { const b = $('banner'); b.className = cls; b.innerHTML = '<span class="live-dot"></span>' + msg; }
+const ks = st => st.killswitch === '1';
+
+function renderBanner(st) {
+  if (st.watchdog !== 'running') { setBanner('b-error', 'Watchdog not running — nothing is being maintained. Reboot the phone.'); return; }
+  const tn = esc(st.tunnel);
+  switch (st.state) {
+    case 'up': setBanner('', `Protected · ${tn} · handshake ${fmtDur(st.handshake_age)} ago`); break;
+    case 'handshaking': setBanner('b-warn', st.reason === 'no_network' ? `No network yet — ${tn} starts when one is up` : st.reason === 'resolving' ? `Looking up ${esc((st.endpoint_host || '').replace(/:\d+$/, ''))} for ${tn}…` : `Connecting to ${tn}…`); break;
+    case 'down': setBanner(ks(st) ? 'b-error' : 'b-warn', `${tn} down — ` + (ks(st) ? 'kill switch holds: no internet' : 'direct connection (kill switch off)')); break;
+    case 'paused':
+      if (st.reason === 'user') setBanner('b-warn', `Paused · direct connection · back in ${fmtDur(st.pause_left)}`);
+      else setBanner('b-warn', 'Paused · another VPN is connected (' + esc(st.android_vpn || 'app') + ') — back when it disconnects');
+      break;
+    case 'error': setBanner('b-error', 'Error: ' + esc(st.reason) + ' — direct connection'); break;
+    case 'off': setBanner('b-idle', 'Off · your normal connection' + (st.t.length ? ' — switch a tunnel on in Tunnels' : ' — import tunnels in Tunnels')); break;
+    default: setBanner('b-idle', 'Waiting for the watchdog…');
+  }
+}
+
+function renderRoute(st) {
+  const set = (id, cls) => { $(id).className = 'node clip ' + cls; };
+  const setL = (id, cls) => { $(id).className = 'link ' + cls; };
+  $('rn-ph2').textContent = netName(st.default_net);
+  $('rn-tun1').textContent = st.tunnel || 'Tunnel';
+  $('rn-tun2').textContent = st.endpoint_host ? st.endpoint_host.replace(/:\d+$/, '') : st.endpoint ? st.endpoint.replace(/:\d+$/, '') : 'off';
+  $('rn-net2').textContent = EXIT.ip || (st.state === 'up' ? 'via tunnel' : '—');
+  switch (st.state) {
+    case 'up': set('rn-ph', 'on'); set('rn-tun', 'on'); set('rn-net', 'on'); setL('rl-1', 'flow'); setL('rl-2', 'flow'); break;
+    case 'handshaking': set('rn-ph', 'on'); set('rn-tun', 'warn'); set('rn-net', 'off'); setL('rl-1', ''); setL('rl-2', ''); $('rn-tun2').textContent = 'connecting'; break;
+    case 'down':
+      if (ks(st)) { set('rn-ph', 'on'); set('rn-tun', 'warn'); set('rn-net', 'off'); setL('rl-1', 'cut'); setL('rl-2', ''); }
+      else { set('rn-ph', 'warn'); set('rn-tun', 'off'); set('rn-net', 'warn'); setL('rl-1', 'plain'); setL('rl-2', 'plain'); }
+      $('rn-tun2').textContent = 'no handshake'; break;
+    case 'paused': case 'error': case 'off':
+      set('rn-ph', st.state === 'off' ? '' : 'warn'); set('rn-tun', 'off'); set('rn-net', st.state === 'off' ? '' : 'warn');
+      setL('rl-1', 'plain'); setL('rl-2', 'plain');
+      $('rn-tun2').textContent = st.state === 'off' ? 'off' : st.state === 'paused' ? 'paused' : 'error';
+      break;
+    default: set('rn-ph', 'off'); set('rn-tun', 'off'); set('rn-net', 'off'); setL('rl-1', ''); setL('rl-2', '');
+  }
+}
+
+function renderStats(st) {
+  const lbl = { up: 'Protected', handshaking: 'Connecting', down: 'Down', paused: 'Paused', error: 'Error', off: 'Off' };
+  const cls = { up: '', handshaking: 'a', down: ks(st) ? 'r' : 'a', paused: 'a', error: 'r', off: 'm' };
+  $('s-state').textContent = lbl[st.state] || '—'; $('s-state').className = 'val ' + (st.state in cls ? cls[st.state] : 'm');
+  const hs = st.handshake_age;
+  $('s-hs').textContent = hs && hs !== '-' ? fmtDur(hs) : '—';
+  $('s-hs').className = 'val ' + (!hs || hs === '-' ? 'm' : num(hs) > 180 ? 'r' : num(hs) > 135 ? 'a' : '');
+  $('s-ks').textContent = ks(st) ? 'On' : 'Off'; $('s-ks').className = 'val ' + (ks(st) ? '' : 'a');
+  $('s-net').textContent = netName(st.default_net); $('s-net').className = 'val ' + (st.default_net ? '' : 'm');
+}
+
+function renderTunnel(st) {
+  const on = ['up', 'handshaking', 'down'].includes(st.state);
+  $('t-name').textContent = st.tunnel || 'none'; $('t-name').className = 'v ' + (st.tunnel ? '' : 'm');
+  $('t-ep').textContent = !on ? '—' : st.endpoint_host ? st.endpoint_host + (st.endpoint ? ' (' + st.endpoint.replace(/:\d+$/, '') + ')' : '') : (st.endpoint || '—');
+  $('t-ep').className = 'v ' + (on ? '' : 'm');
+  $('t-hs').textContent = st.handshake_age && st.handshake_age !== '-' ? fmtDur(st.handshake_age) + ' ago' : (on ? 'none yet' : '—');
+  $('t-hs').className = 'v ' + (st.state === 'up' ? '' : on ? 'a' : 'm');
+  $('t-rxtx').textContent = on && st.rx ? fmtBytes(st.rx) + ' / ' + fmtBytes(st.tx) : '—'; $('t-rxtx').className = 'v ' + (on ? '' : 'm');
+  const v6 = { tunnel: ['through the tunnel', ''], blocked: ['blocked — this tunnel is IPv4 only', 'a'], off: ['off on this phone', 'm'] }[st.ipv6] || ['—', 'm'];
+  $('t-v6').textContent = on ? v6[0] : '—'; $('t-v6').className = 'v ' + (on ? v6[1] : 'm');
+  $('t-if').textContent = on ? `${st.iface} · ${st.table}` : 'not created'; $('t-if').className = 'v ' + (on ? '' : 'm');
+  $('t-net').textContent = on ? (st.default_net ? netName(st.default_net) + ' (' + st.default_net + ')' : 'no network') : '—';
+  $('t-net').className = 'v ' + (on && st.default_net ? '' : 'm');
+  $('w-run').textContent = st.watchdog === 'running' ? 'yes' : 'NO'; $('w-run').className = 'v ' + (st.watchdog === 'running' ? '' : 'r');
+  $('w-tick').textContent = st.tick_age !== undefined ? st.tick_age + ' s ago' : '—';
+  $('hdr-ver').textContent = st.version ? 'v' + st.version : '';
+  $('foot-l').textContent = (st.version ? 'v' + st.version : '') + (EXEC_MODE === 'legacy' ? ' · sync' : '');
+  $('foot-info').textContent = st.tunnel ? st.tunnel : '';
+  $('dash-dot').className = 'tab-dot' + (st.state === 'error' || (st.state === 'down' && ks(st)) ? ' bad' : st.state === 'down' ? ' warn' : '');
+}
+
+function renderSet(st) {
+  const row = (cls, name, state, pill, txt) => {
+    const p = state === 'absent' ? '<span class="pill skip">not installed</span>' : state === 'disabled' ? '<span class="pill warn">disabled</span>' : pill;
+    return `<div class="row sib ${cls}"><div class="rn"><b>${name}</b><span>${txt}</span></div>${p}</div>`;
+  };
+  const dnOk = st.dnscrypt_state && !/down|failsafe|hung/.test(st.dnscrypt_state);
+  const ipm = st.dnscrypt_ipmode;
+  const dnTxt = st.dnscrypt === 'on'
+    ? 'Resolves all DNS; its own queries go through this tunnel.' + (ipm && ipm !== 'ipv4' ? (st.ipv6 === 'tunnel' ? ' IPv6 mode ' + esc(ipm) + ': IPv6 goes through the tunnel too.' : st.ipv6 === 'blocked' ? ' IPv6 mode ' + esc(ipm) + ', but this tunnel is IPv4 only: IPv6 is blocked while it is on.' : '') : '')
+    : 'Without it, apps use your network\'s DNS — WG Shield never sets DNS itself.';
+  const vhsNew = num(st.vhs_code) >= 13;
+  const vhsTxt = st.vhs !== 'on' ? 'Shares the tunnel with hotspot devices.'
+    : !vhsNew ? 'This version does not see WG Shield\'s tunnel: with its kill switch on, hotspot devices get no internet while WG Shield is on. Update it to 1.0-r13 or newer.'
+    : st.vhs_source === 'wg-shield' ? 'Hotspot devices go through this tunnel too.'
+    : st.vhs_state === 'idle' ? 'Hotspot is off. When it is on, devices go through this tunnel too.'
+    : 'Hotspot devices follow this tunnel: through it when it is up, direct when you turn it off or pause it, blocked (kill switch) when it fails.';
+  const setHtml =
+    row('dnsc', 'DNSCrypt Proxy', st.dnscrypt, `<span class="pill ${dnOk ? 'dnsc' : 'warn'}">${esc(st.dnscrypt_state || 'unknown')}</span>`, dnTxt) +
+    row('ipset', 'ipset', st.ipset, '<span class="pill ipset">active</span>', st.ipset === 'on' ? 'Blocks listed IP ranges; a tunnel server must never be in its lists (check it with ipset\'s Check tool).' : 'IP blocklists.') +
+    row('vhs', 'VPN Hotspot', st.vhs, `<span class="pill ${st.vhs_state === 'vpn' ? 'vhs' : 'skip'}">${esc(st.vhs_state || 'idle')}</span>`, vhsTxt);
+  if ($('set-body')._h !== setHtml) { $('set-body').innerHTML = setHtml; $('set-body')._h = setHtml; }
+}
+
+let _tunSig = '', _tunBusy = false;
+function renderTunnels(st) {
+  if (_tunBusy) return;
+  const sig = JSON.stringify([st.t, st.active, st.state, st.reason]);
+  if (sig === _tunSig) {   // only the handshake age changed: update that badge, keep the list
+    const hb = document.querySelector('#tun-body .row.tun.on .hs');
+    if (hb && st.state === 'up') hb.textContent = fmtDur(st.handshake_age);
+    return;
+  }
+  _tunSig = sig;
+  $('tun-note').textContent = st.t.length ? st.t.length + (st.t.length === 1 ? ' tunnel' : ' tunnels') : '';
+  if (!st.t.length) { $('tun-body').innerHTML = '<div class="empty">No tunnels yet.<br>Import the WireGuard app\'s export below.</div>'; return; }
+  $('tun-body').innerHTML = st.t.map(line => {
+    const [name, ep, addr, valid, v6] = line.split('|');
+    const on = name === st.active;
+    let badge = '';
+    if (on) {
+      if (st.state === 'up') badge = `<span class="hs">${fmtDur(st.handshake_age)}</span>`;
+      else if (st.state === 'handshaking') badge = '<span class="hs a">connecting</span>';
+      else if (st.state === 'down') badge = '<span class="hs r">down</span>';
+      else if (st.state === 'paused') badge = '<span class="hs a">paused</span>';
+      else if (st.state === 'error') badge = '<span class="hs r">error</span>';
+    }
+    const sub = valid === '1' ? `${esc(ep)} · ${esc(addr)}${v6 === '1' ? ' · IPv6' : ''}` : 'invalid file — import it again';
+    return `<div class="row tun${on ? ' on' : ''}"><div class="rn"><b>${esc(name)} ${badge}</b><span>${sub}</span></div>` +
+      `<button class="x-btn" title="Delete" onclick="delTunnel(this, '${esc(name)}')">✕</button>` +
+      `<label class="sw"><input type="checkbox" ${on ? 'checked' : ''} ${valid === '1' ? '' : 'disabled'} onchange="toggleTunnel(this, '${esc(name)}')"><i></i></label></div>`;
+  }).join('');
+}
+
+function renderSettings(st) {
+  if (!$('sw-ks').classList.contains('busy')) $('cb-ks').checked = ks(st);
+  const paused = st.state === 'paused' && st.reason === 'user';
+  $('resume-row').classList.toggle('hidden', !paused);
+  $('pause-note').textContent = paused ? fmtDur(st.pause_left) + ' left' : (st.active ? '' : 'tunnel is off');
+  $('pause-note').className = 's-note ' + (paused ? 'v a' : '');
+}
+
+function render(st) {
+  // an exit result belongs to the tunnel it was measured on
+  const via = st.state === 'up' ? st.tunnel : '';
+  if (EXIT.ip && via !== EXIT.via) {
+    EXIT.ip = ''; $('exit-ip').textContent = '—'; $('exit-ip').className = 'glitch v m';
+    $('exit-sub').textContent = via ? 'The tunnel changed — tap Check to see the new exit.' : 'The route changed — tap Check again.';
+  }
+  ST = st;
+  renderBanner(st); renderRoute(st); renderStats(st); renderTunnel(st);
+  renderSet(st); renderTunnels(st); renderSettings(st);
+}
+
+// ── Poll every 4 s ──────────────────────────────────────────────────────
+let _polling = false;
+async function poll() {
+  if (_polling || document.hidden) return;
+  _polling = true;
+  try {
+    const st = parseKV(await ctl('poll', 20000));
+    if (st.ok === '1') render(st);
+  } catch (e) { setBanner('b-error', 'No answer from the module: ' + esc(e.message)); }
+  finally { _polling = false; }
+}
+
+// ── Tunnels ─────────────────────────────────────────────────────────────
+async function toggleTunnel(cb, name) {
+  const sw = cb.closest('.sw'); sw.classList.add('busy'); _tunBusy = true;
+  try {
+    const r = parseKV(await ctl(cb.checked ? 'up ' + q(name) : 'down', 30000));
+    if (r.ok !== '1') toast(r.error || 'Failed', 'err');
+    else if (!cb.checked) toast('Tunnel off — normal connection', 'ok');
+    else toast(r.state === 'up' ? name + ' connected' : name + ': ' + (r.state === 'handshaking' ? 'connecting…' : r.state + (r.reason ? ' (' + r.reason + ')' : '')), r.state === 'up' || r.state === 'handshaking' ? 'ok' : 'err');
+  } finally { sw.classList.remove('busy'); _tunBusy = false; _tunSig = ''; await poll(); }
+}
+async function delTunnel(b, name) {
+  if (!armed(b, 'Delete?')) return;
+  _tunBusy = true;
+  try {
+    const r = parseKV(await ctl('remove ' + q(name)));
+    toast(r.ok === '1' ? name + ' deleted' : (r.error || 'Not deleted'), r.ok === '1' ? 'ok' : 'err');
+  } finally { _tunBusy = false; _tunSig = ''; await poll(); }
+}
+async function loadFiles() {
+  const r = parseKV(await ctl('files', 20000));
+  if (r.ok !== '1') { $('file-body').innerHTML = '<div class="empty">Could not read Download.</div>'; return; }
+  if (!r.file.length) { $('file-body').innerHTML = '<div class="empty">No tunnel export in Download.<br>WireGuard app: ⋮ → Export tunnels.</div>'; return; }
+  $('file-body').innerHTML = r.file.map((line, i) => {
+    const [name, size, mtime, n] = line.split('|');
+    const when = new Date(num(mtime) * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+    return `<div class="row"><div class="rn"><b>${esc(name)}</b><span>${num(n)} ${num(n) === 1 ? 'config' : 'configs'} · ${fmtBytes(size)} · ${esc(when)}</span></div>` +
+      `<div class="file-btns"><button class="btn-s clip" data-i="${i}" onclick="importFile(this)">Import</button><button class="x-btn" data-i="${i}" title="Delete the file" onclick="delFile(this)">✕</button></div></div>`;
+  }).join('');
+  FILES = r.file.map(l => l.split('|')[0]);
+}
+let FILES = [];
+async function importFile(b) {
+  const name = FILES[num(b.dataset.i)]; if (!name) return;
+  const r = parseKV(await ctl('import ' + q(name), 60000));
+  const done = num(r.imported), skip = num(r.skipped);
+  if (r.ok === '1') toast(`Imported ${done}` + (skip ? `, skipped ${skip} (see Log)` : '') + ' — delete the file now', 'ok');
+  else toast(r.error || (skip ? `Nothing imported: ${skip} skipped (see Log)` : 'Import failed'), 'err');
+  _tunSig = ''; await poll(); await loadFiles();
+}
+async function delFile(b) {
+  const name = FILES[num(b.dataset.i)]; if (!name) return;
+  if (!armed(b, 'Delete?')) return;
+  const r = parseKV(await ctl('delfile ' + q(name)));
+  toast(r.ok === '1' ? name + ' deleted' : (r.error || 'Not deleted'), r.ok === '1' ? 'ok' : 'err');
+  await loadFiles();
+}
+
+// ── Settings ────────────────────────────────────────────────────────────
+async function setKs(cb) {
+  const sw = cb.closest('.sw'); sw.classList.add('busy');
+  try {
+    const r = parseKV(await ctl('set killswitch ' + (cb.checked ? '1' : '0')));
+    toast(r.ok === '1' ? 'Kill switch ' + (cb.checked ? 'on' : 'off') : (r.error || 'Not saved'), r.ok === '1' ? 'ok' : 'err');
+  } finally { sw.classList.remove('busy'); await poll(); }
+}
+async function doPause(min) {
+  const r = parseKV(await ctl('pause ' + min));
+  toast(r.ok === '1' ? 'Paused for ' + fmtDur(min * 60) : (r.error || 'Not paused'), r.ok === '1' ? 'ok' : 'err');
+  _tunSig = ''; await poll();
+}
+async function doResume() {
+  const r = parseKV(await ctl('resume', 30000));
+  toast(r.ok === '1' ? 'Resumed' : (r.error || 'Failed'), r.ok === '1' ? 'ok' : 'err');
+  _tunSig = ''; await poll();
+}
+async function doCheck() {
+  const r = parseKV(await ctl('status', 30000));
+  toast(r.ok === '1' ? 'Checked: ' + (r.state || '?') : (r.error || 'Failed'), r.ok === '1' ? 'ok' : 'err');
+  await poll();
+}
+async function doDiag() {
+  const t = await ctl('diag', 60000);
+  $('diag-out').textContent = t; $('diag-out').classList.remove('hidden'); $('diag-row').classList.remove('hidden');
+}
+function copyDiag() {
+  const t = $('diag-out').textContent;
+  const done = () => toast('Report copied', 'ok');
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, () => fallbackCopy(t, done));
+  else fallbackCopy(t, done);
+}
+function fallbackCopy(t, done) {
+  const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { toast('Copy failed — select the text by hand', 'err'); }
+  ta.remove();
+}
+
+// ── Exit address (on demand only) ───────────────────────────────────────
+const EXIT = {};
+async function checkExit() {
+  $('exit-sub').textContent = 'Asking…';
+  const r = parseKV(await ctl('exitip', 30000));
+  if (r.ok !== '1') {
+    $('exit-ip').textContent = 'no answer'; $('exit-ip').className = 'v r';
+    $('exit-sub').textContent = (r.error || 'The IP service did not answer.') + (ST.state === 'down' && ks(ST) ? ' The tunnel is down (kill switch).' : '');
+    return;
+  }
+  EXIT.ip = r.ip; EXIT.via = r.via ? ST.tunnel : '';
+  $('exit-ip').textContent = r.ip; $('exit-ip').className = 'glitch';
+  const place = [r.city, r.country].filter(Boolean).join(', ');
+  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' — ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection');
+  renderRoute(ST);
+}
+
+// ── Log ─────────────────────────────────────────────────────────────────
+const LVL = { INFO: true, WARN: true, ERROR: true };
+let LOGTXT = '';
+function toggleLvl(b) { LVL[b.dataset.l] = !LVL[b.dataset.l]; b.classList.toggle('on', LVL[b.dataset.l]); drawLog(); }
+let _logGen = 0;   // a load that started before Clear must not bring the old lines back
+async function loadLog() { const g = _logGen; const t = await ctl('log 300', 15000); if (g !== _logGen) return; LOGTXT = t; drawLog(); }
+async function clearLog(b) {
+  if (!armed(b)) return;
+  _logGen++;
+  const r = parseKV(await ctl('log clear', 15000));
+  if (r.ok === '1') { _logGen++; await loadLog(); toast('Log cleared', 'ok'); }
+  else toast(r.error || 'Could not clear the log', 'err');
+}
+function drawLog() {
+  const lines = LOGTXT.split('\n').filter(Boolean).reverse();
+  let shown = 0;
+  const html = lines.map(l => {
+    const m = /^(\S+ \S+) \[(\w+)\] (.*)$/.exec(l);
+    if (!m) return '';
+    if (!LVL[m[2]]) return '';
+    shown++;
+    const t = m[1].startsWith('boot') ? m[1] : m[1].slice(5);
+    return `<span class="ll ${m[2]}"><span class="t">${esc(t)}</span> <span class="m">${esc(m[3])}</span></span>`;
+  }).join('');
+  $('log-body').innerHTML = html || '<span class="ll"><span class="t">No entries.</span></span>';
+  $('log-count').textContent = shown + ' / ' + lines.length;
+}
+
+// ── Start ───────────────────────────────────────────────────────────────
+(async function init() {
+  try { EXEC_MODE = await detectExecMode(); }
+  catch (e) {
+    document.querySelector('main').innerHTML = '<div class="fatal">This page needs root access through your root manager (KernelSU, SukiSU, APatch or Magisk WebUI).<br><br>' + esc(e.message) + '</div>';
+    setBanner('b-error', 'No root bridge'); return;
+  }
+  await poll();
+  setInterval(poll, 4000);
+  setInterval(() => { if (currentTab === 'log' && !document.hidden) loadLog(); }, 6000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+})();
+</script>
+</body>
+</html>
