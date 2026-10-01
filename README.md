@@ -245,6 +245,6 @@ The build is reproducible: the `wg` in the release has SHA-256 `b460f9dddaa75b12
 
 ## License
 
-The module (scripts, WebUI) is MIT — see [LICENSE](LICENSE). `system/bin/wg` is built unmodified from [wireguard-tools](https://git.zx2c4.com/wireguard-tools/) v1.0.20250521 and is licensed under GPL-2.0; its source is at the link, and `build.sh` rebuilds it.
+The module (scripts, WebUI) is [MIT](LICENSE). `system/bin/wg` is built from wireguard-tools and is GPL-2.0 — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 "WireGuard" and the "WireGuard" logo are registered trademarks of Jason A. Donenfeld. WG Shield is not affiliated with or endorsed by the WireGuard project.
