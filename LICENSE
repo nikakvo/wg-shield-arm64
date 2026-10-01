@@ -19,9 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-system/bin/wg is not covered by this license: it is built unmodified from
-wireguard-tools (https://git.zx2c4.com/wireguard-tools/), v1.0.20250521,
-and is licensed under the GNU General Public License, version 2 (GPL-2.0).
