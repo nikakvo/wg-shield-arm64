@@ -1,6 +1,15 @@
 # Changelog
 
+## 1.0-r2
+
+**Module**
+- New card banner in the root manager (SukiSU-Ultra and other managers that support module banners).
+
+No functional changes - tunnel, kill switch and WebUI work exactly as in 1.0-r1. Updating is optional.
+
 Tested on Poco F6 Pro, Xiaomi.eu ROM (HyperOS 3, Android 16), kernel [GKI_Kernel_SukiSU](https://github.com/nikakvo/GKI_Kernel_SukiSU) (WireGuard built in), with Proton VPN WireGuard configs. Part of a set with DNSCrypt Proxy Arm64, ipset-arm64 and VPN Hotspot Arm64.
+
+---
 
 ## 1.0-r1
 
