@@ -207,20 +207,20 @@
 
 <div class="sec-title" id="cli">10 · command line</div>
 <div class="box">
-  <p>Every WebUI action is a <code>ctl.sh</code> command. From Termux: <code>su -c '…'</code> with the whole command in single quotes.</p>
-<pre>sh /data/adb/modules/wg-shield/ctl.sh status          <span class="cm"># state, tunnel, handshake</span>
-sh /data/adb/modules/wg-shield/ctl.sh list            <span class="cm"># imported tunnels</span>
-sh /data/adb/modules/wg-shield/ctl.sh import &lt;zip|conf&gt;
-sh /data/adb/modules/wg-shield/ctl.sh up [name]       <span class="cm"># last used when no name</span>
-sh /data/adb/modules/wg-shield/ctl.sh switch &lt;name&gt;
-sh /data/adb/modules/wg-shield/ctl.sh down            <span class="cm"># normal connection</span>
-sh /data/adb/modules/wg-shield/ctl.sh pause &lt;minutes&gt;
-sh /data/adb/modules/wg-shield/ctl.sh resume
-sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1
-sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;
-sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]
-sh /data/adb/modules/wg-shield/ctl.sh diag            <span class="cm"># report, no keys</span></pre>
-  <p>The <code>wg</code> tool is on the path too: <code>su -c 'wg show wgs0'</code> (private key hidden).</p>
+  <p>Every WebUI action is a <code>ctl.sh</code> command. From Termux:</p>
+<pre>su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh status'   <span class="cm"># state, tunnel, handshake</span>
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh list'   <span class="cm"># imported tunnels</span>
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh import &lt;zip|conf&gt;'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh up [name]'   <span class="cm"># last used when no name</span>
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh switch &lt;name&gt;'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh down'   <span class="cm"># normal connection</span>
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh pause &lt;minutes&gt;'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh resume'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm"># report, no keys</span></pre>
+  <p>The <code>wg</code> tool is on the path too: <code>su -c '/system/bin/wg show wgs0'</code> (private key hidden).</p>
 </div>
 
 <div class="sec-title" id="trouble">11 · troubleshooting</div>

@@ -169,7 +169,7 @@ internet
 | `  tunnels/` | Imported tunnels with their keys, root only (`0600`) |
 | `  logs/wg-shield.log` | Log |
 | `  state/` | Runtime state, cleared at boot; `status` is read by the sibling modules |
-| `system/bin/wg` | `wg` from [wireguard-tools](https://git.zx2c4.com/wireguard-tools/) v1.0.20250521, static arm64 — also on the path: `su -c 'wg show wgs0'` |
+| `system/bin/wg` | `wg` from [wireguard-tools](https://git.zx2c4.com/wireguard-tools/) v1.0.20250521, static arm64 — also on the path: `su -c '/system/bin/wg show wgs0'` |
 
 ### Status file (for other modules)
 
@@ -214,8 +214,8 @@ curl https://ifconfig.me          → the VPN's address
 Then block the server for a moment (the tunnel's *Server* on the Dashboard): internet stops at once — nothing goes around the tunnel.
 
 ```sh
-su -c 'iptables -I OUTPUT -d <server-ip> -j DROP'     # test
-su -c 'iptables -D OUTPUT -d <server-ip> -j DROP'     # undo — back within seconds
+su -c '/system/bin/iptables -I OUTPUT -d <server-ip> -j DROP'     # test
+su -c '/system/bin/iptables -D OUTPUT -d <server-ip> -j DROP'     # undo — back within seconds
 ```
 
 ---

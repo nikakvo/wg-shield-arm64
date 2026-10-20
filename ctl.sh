@@ -32,7 +32,7 @@ usage() {
 
 fail() { echo "ok=0"; echo "error=$*"; exit 1; }
 
-[ "$(id -u)" = 0 ] || fail "run as root: su -c 'sh $MODDIR/ctl.sh $*'"
+[ "$(id -u)" = 0 ] || fail "run as root: su -c '/system/bin/sh $MODDIR/ctl.sh $*'"
 mkdir -p "$STATE" "$TUNDIR"; chmod 700 "$DATA" "$TUNDIR" 2>/dev/null
 
 
