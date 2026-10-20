@@ -194,8 +194,10 @@ case "$cmd" in
             if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6"; else echo "t=$n|-|-|0|0"; fi
         done
         echo "dnscrypt=$(sib_state dnscrypt-proxy-android)"
-        echo "dnscrypt_state=$(sed -n 's/^state=//p' "$ADB/dnscrypt-proxy-state/health" 2>/dev/null | head -n1)"
-        echo "dnscrypt_ipmode=$(sed -n 's/^IP_MODE=//p' "$ADB/dnscrypt-proxy-android.conf" 2>/dev/null | head -n1)"
+        # DNSCrypt Proxy r22+ keeps everything in /data/adb/dnscrypt-proxy/, older versions at the top of /data/adb
+        h="$ADB/dnscrypt-proxy/state/health"; [ -f "$h" ] || h="$ADB/dnscrypt-proxy-state/health"
+        echo "dnscrypt_state=$(sed -n 's/^state=//p' "$h" 2>/dev/null | head -n1)"
+        echo "dnscrypt_ipmode=$(sed -n 's/^IP_MODE=//p' "$(dnsc_conf)" 2>/dev/null | tail -n1)"
         echo "ipset=$(sib_state ipset_arm64)"
         echo "vhs=$(sib_state vpn-hotspot)"
         echo "vhs_state=$(sed -n 's/^state=//p' "$ADB/vpn-hotspot-state/status" 2>/dev/null | head -n1)"

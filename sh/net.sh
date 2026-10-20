@@ -38,10 +38,27 @@ rules_del() {
 }
 
 # IPv6 through the tunnel (config with an IPv6 address and ::/0, and IPv6 on
-# in the kernel - DNSCrypt Proxy's ipv4 mode turns it off everywhere).
-# Sets V6ON=1 when wgs0 carries the tunnel's IPv6 address and route.
+# for the phone). Sets V6ON=1 when wgs0 carries the tunnel's IPv6 address
+# and route.
+#
+# DNSCrypt Proxy's "ipv4" IP mode means no IPv6 for the phone. Up to its
+# r21 it switched IPv6 off in the kernel; since r22 the kernel keeps IPv6
+# (the carrier's VoLTE network needs it) and DNSCrypt blocks it in the
+# firewall instead - so its setting is read as well. Settings file: r22
+# keeps it in /data/adb/dnscrypt-proxy/, r21 and older at the top of
+# /data/adb.
 PROC6="${WGS_PROC6:-/proc/sys/net/ipv6/conf}"
-v6_kernel_on() { [ "$(cat "$PROC6/all/disable_ipv6" 2>/dev/null)" = 0 ]; }
+DNSC_MOD="${WGS_MODULES:-/data/adb/modules}/dnscrypt-proxy-android"
+DNSC_ADB="${WGS_ADB:-/data/adb}"
+dnsc_conf() {
+    if [ -f "$DNSC_ADB/dnscrypt-proxy/settings.conf" ]; then echo "$DNSC_ADB/dnscrypt-proxy/settings.conf"
+    else echo "$DNSC_ADB/dnscrypt-proxy-android.conf"; fi
+}
+dnsc_ipv4_only() {
+    [ -d "$DNSC_MOD" ] && [ ! -f "$DNSC_MOD/disable" ] && [ ! -f "$DNSC_MOD/remove" ] || return 1
+    [ "$(sed -n 's/^IP_MODE=//p' "$(dnsc_conf)" 2>/dev/null | tail -n 1)" = ipv4 ]
+}
+v6_kernel_on() { [ "$(cat "$PROC6/all/disable_ipv6" 2>/dev/null)" = 0 ] && ! dnsc_ipv4_only; }
 v6_ensure() {
     V6ON=0
     [ "$T_V6" = 1 ] && [ -n "$T_ADDR6" ] || return 0
