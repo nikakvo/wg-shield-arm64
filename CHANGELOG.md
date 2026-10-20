@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0-r4
+
+One folder for everything.
+
+* **One folder.** Settings (`/data/adb/wg-shield.conf`) and the runtime state (`/data/adb/wg-shield-state/`) used to sit next to `/data/adb/wg-shield/`. Now everything is inside it: `settings.conf`, `tunnels/` (unchanged), `logs/` and `state/`. The update moves everything at the first boot and keeps any change made between flashing and rebooting. Tunnels and keys stay where they were
+* **Status file** for the other modules is now `/data/adb/wg-shield/state/status`. VPN Hotspot 1.0-r15 and DNSCrypt Proxy 2.1.18-r23 read it there. While an older VPN Hotspot (or DNSCrypt) is installed, WG Shield also keeps a copy at the old place, so hotspot devices keep going through the tunnel; once both are updated the old folder is removed
+* Reads VPN Hotspot's status from its new folder too (Networking set row)
+* README: command-line examples use the full form `su -c '/system/bin/sh …/ctl.sh …'`
+
+---
+
 ## 1.0-r3
 
 Works with DNSCrypt Proxy Arm64 2.1.18-r22.

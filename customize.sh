@@ -11,10 +11,17 @@ else
     abort "! This kernel has no WireGuard support (CONFIG_WIREGUARD) - not installed"
 fi
 
+# r4: one folder, /data/adb/wg-shield/. From r3 or older the settings are
+# COPIED here (the old version still runs with the old paths until the
+# reboot); the first boot moves the rest and keeps what changed meanwhile.
 DATA=/data/adb/wg-shield
-CONF=/data/adb/wg-shield.conf
-mkdir -p "$DATA/tunnels" /data/adb/wg-shield-state
+CONF=$DATA/settings.conf
+mkdir -p "$DATA/tunnels" "$DATA/state" "$DATA/logs"
 chmod 700 "$DATA" "$DATA/tunnels"
+if [ -f /data/adb/wg-shield.conf ] && [ ! -f "$CONF" ]; then
+    cp -p /data/adb/wg-shield.conf "$CONF"
+    ui_print "- New folder layout: everything now lives in $DATA (the old files are moved at the next boot)"
+fi
 if [ ! -f "$CONF" ]; then
     printf '%s\n' "# WG Shield Arm64 settings - edit with ctl.sh" "ACTIVE=" "LAST=" "KILLSWITCH=1" > "$CONF"
     ui_print "- Settings created (kill switch on)"
@@ -33,6 +40,6 @@ n=$(ls "$DATA/tunnels"/*.conf 2>/dev/null | wc -l)
 ui_print "- Imported tunnels: $n"
 ui_print ""
 ui_print "  Import the WireGuard app export (menu > Export tunnels):"
-ui_print "  su -c 'sh /data/adb/modules/wg-shield/ctl.sh import /sdcard/Download/<file>.zip'"
+ui_print "  su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh import /sdcard/Download/<file>.zip'"
 ui_print "  Then: ctl.sh list / ctl.sh up <name> / ctl.sh status"
 ui_print "  Disconnect the WireGuard app first - one key, one tunnel."

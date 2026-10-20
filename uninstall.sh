@@ -7,3 +7,7 @@ MODDIR=${0%/*}
 teardown
 rm -rf "$DATA" "$STATE"
 rm -f "$CONF" "$CONF".tmp.*
+# r3 and older (before the first boot of r4 moved them), and the
+# compatibility copy of the status file
+rm -rf "$LEGACY_STATE"
+rm -f "$LEGACY_CONF" "$LEGACY_CONF".tmp.*

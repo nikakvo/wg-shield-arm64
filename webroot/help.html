@@ -243,10 +243,11 @@ sh /data/adb/modules/wg-shield/ctl.sh diag            <span class="cm"># report,
 <div class="box">
   <div class="tw"><table>
     <tr><th>file</th><th></th></tr>
-    <tr><td>/data/adb/wg-shield.conf</td><td>Settings: active and last tunnel, kill switch (kept on update)</td></tr>
-    <tr><td>/data/adb/wg-shield/tunnels/</td><td>Imported tunnels with their keys, root only (kept on update)</td></tr>
-    <tr><td>/data/adb/wg-shield/wg-shield.log</td><td>Log (<strong>Clear</strong> in the Log tab empties it)</td></tr>
-    <tr><td>/data/adb/wg-shield-state/</td><td>Runtime state, cleared at boot; <code>status</code> is read by the sibling modules</td></tr>
+    <tr><td>/data/adb/wg-shield/</td><td>Everything the module keeps, in one folder:</td></tr>
+    <tr><td>settings.conf</td><td>Settings: active and last tunnel, kill switch (kept on update)</td></tr>
+    <tr><td>tunnels/</td><td>Imported tunnels with their keys, root only (kept on update)</td></tr>
+    <tr><td>logs/wg-shield.log</td><td>Log (<strong>Clear</strong> in the Log tab empties it)</td></tr>
+    <tr><td>state/</td><td>Runtime state, cleared at boot; <code>state/status</code> is read by the sibling modules</td></tr>
   </table></div>
   <p><strong>Update:</strong> flash the new zip, reboot. Tunnels and settings stay.</p>
   <p><strong>Uninstall:</strong> the tunnel and every rule are removed, then settings, log and <strong>all imported tunnels with their keys</strong> are deleted.</p>

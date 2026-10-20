@@ -3,12 +3,26 @@
 
 MODID=wg-shield
 MODDIR="${WGS_MODDIR:-/data/adb/modules/wg-shield}"
+# 1.0-r4: everything in ONE folder (up to r3: /data/adb/wg-shield.conf and
+# /data/adb/wg-shield-state/ next to it - see LEGACY_* and layout_migrate):
+#   /data/adb/wg-shield/
+#     settings.conf   active / last tunnel, kill switch
+#     tunnels/        imported tunnels with their keys (root only)
+#     logs/           wg-shield.log (+ .1)
+#     state/          runtime, cleared at boot; state/status = contract for
+#                     the sibling modules
 DATA="${WGS_DATA:-/data/adb/wg-shield}"
-STATE="${WGS_STATE:-/data/adb/wg-shield-state}"
-CONF="${WGS_CONFFILE:-/data/adb/wg-shield.conf}"
+STATE="${WGS_STATE:-$DATA/state}"
+CONF="${WGS_CONFFILE:-$DATA/settings.conf}"
 TUNDIR="$DATA/tunnels"
-LOG="$DATA/wg-shield.log"
+LOGDIR="$DATA/logs"
+LOG="$LOGDIR/wg-shield.log"
 LOG_MAX=262144
+
+WGS_ADB_DIR="${WGS_ADB:-/data/adb}"
+LEGACY_STATE="$WGS_ADB_DIR/wg-shield-state"
+LEGACY_CONF="$WGS_ADB_DIR/wg-shield.conf"
+LEGACY_LOG="$DATA/wg-shield.log"
 
 # Absolute paths on purpose: KSU runs module scripts in busybox "standalone"
 # mode, where busybox applets (its own `ip` lacks wireguard/suppress_prefixlength)
@@ -43,6 +57,7 @@ wlog() {  # wlog LEVEL message...
     [ "$QUIET_ON_SHUTDOWN" = 1 ] && shutting_down && return 0
     lvl=$1; shift
     [ -d "$DATA" ] || return 0
+    [ -d "$LOGDIR" ] || mkdir -p "$LOGDIR" 2>/dev/null
     if [ -f "$LOG" ] && [ "$(wc -c 2>/dev/null < "$LOG")" -gt "$LOG_MAX" ] 2>/dev/null; then
         mv -f "$LOG" "$LOG.1" 2>/dev/null
     fi
@@ -113,7 +128,36 @@ lock_release() {
 }
 
 # ---- status file (contract for the sibling modules) ----------------------------
-# /data/adb/wg-shield-state/status, rewritten atomically, key=value.
+# /data/adb/wg-shield/state/status (r4; /data/adb/wg-shield-state/status
+# before), rewritten atomically, key=value.
+#
+# Compatibility copy at the OLD path, only while a sibling that reads only
+# the old path is installed: VPN Hotspot before 1.0-r15 (it routes hotspot
+# devices through the tunnel only when it finds this file - without it they
+# would be blocked) and DNSCrypt Proxy before 2.1.18-r23 (its VPN row).
+# Once both are updated the old folder is removed.
+_sib_code() { # <module id> -> versionCode, empty if absent or disabled
+    d="${WGS_MODULES:-/data/adb/modules}/$1"
+    [ -f "$d/module.prop" ] && [ ! -f "$d/disable" ] && [ ! -f "$d/remove" ] || return 0
+    sed -n 's/^versionCode=//p' "$d/module.prop" 2>/dev/null | head -n 1
+}
+status_compat_needed() {
+    c=$(_sib_code vpn-hotspot)
+    [ -n "$c" ] && [ "$c" -lt 15 ] 2>/dev/null && return 0
+    c=$(_sib_code dnscrypt-proxy-android)
+    [ -n "$c" ] && [ "$c" -lt 48 ] 2>/dev/null && return 0
+    return 1
+}
+status_compat() {
+    [ "$LEGACY_STATE" != "$STATE" ] || return 0
+    if status_compat_needed; then
+        mkdir -p "$LEGACY_STATE" 2>/dev/null
+        cp -f "$STATE/status" "$LEGACY_STATE/status.tmp.$$" 2>/dev/null &&
+            mv -f "$LEGACY_STATE/status.tmp.$$" "$LEGACY_STATE/status"
+    elif [ -d "$LEGACY_STATE" ]; then
+        rm -rf "$LEGACY_STATE"
+    fi
+}
 status_write() {
     tmp="$STATE/status.tmp.$$"
     {
@@ -134,6 +178,36 @@ status_write() {
         echo "tx=$ST_TX"
         echo "updated=$(epoch_now)"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
+    status_compat
+}
+
+# ---- r4 layout migration -----------------------------------------------------
+# First thing post-fs-data does. The installer only COPIED the settings into
+# the new place - the old version keeps running with the old paths until the
+# reboot - so the newer copy wins, then the old files go. Idempotent.
+_lm_take() { # <old> <new> -> 0 if the old one was taken
+    [ -e "$1" ] || return 1
+    if [ ! -e "$2" ] || [ "$(stat -c %Y "$1" 2>/dev/null || echo 0)" -gt "$(stat -c %Y "$2" 2>/dev/null || echo 0)" ]; then
+        rm -rf "$2" 2>/dev/null
+        mv -f "$1" "$2" 2>/dev/null && return 0
+    fi
+    rm -rf "$1" 2>/dev/null
+    return 1
+}
+layout_migrate() {
+    [ -e "$LEGACY_CONF" ] || [ -e "$LEGACY_STATE" ] || [ -e "$LEGACY_LOG" ] || return 0
+    mkdir -p "$DATA" "$LOGDIR" "$STATE" 2>/dev/null
+    took=""
+    _lm_take "$LEGACY_CONF" "$CONF" && took="$took settings"
+    chmod 600 "$CONF" 2>/dev/null
+    rm -f "$LEGACY_CONF".tmp.* 2>/dev/null
+    if [ -f "$LEGACY_LOG" ]; then   # the old log is the history: keep it first
+        [ -f "$LEGACY_LOG.1" ] && mv -f "$LEGACY_LOG.1" "$LOG.1" 2>/dev/null
+        [ -f "$LOG" ] && cat "$LOG" >> "$LEGACY_LOG" 2>/dev/null
+        mv -f "$LEGACY_LOG" "$LOG" 2>/dev/null && took="$took log"
+    fi
+    [ "$LEGACY_STATE" != "$STATE" ] && rm -rf "$LEGACY_STATE" 2>/dev/null   # runtime only
+    wlog INFO "files moved into one folder, $DATA. Taken from the old places:${took:- nothing newer}"
 }
 
 module_desc() {  # keep the manager's description line in sync with the state

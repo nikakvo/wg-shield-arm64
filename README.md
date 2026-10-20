@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v1.0--r3-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v1.0--r4-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
 </p>
@@ -164,15 +164,16 @@ internet
 
 | Path | |
 |---|---|
-| `/data/adb/wg-shield.conf` | Settings: active and last tunnel, kill switch |
-| `/data/adb/wg-shield/tunnels/` | Imported tunnels with their keys, root only (`0600`) |
-| `/data/adb/wg-shield/wg-shield.log` | Log |
-| `/data/adb/wg-shield-state/` | Runtime state, cleared at boot; `status` is read by the sibling modules |
+| `/data/adb/wg-shield/` | Everything the module keeps, in one folder: |
+| `  settings.conf` | Settings: active and last tunnel, kill switch |
+| `  tunnels/` | Imported tunnels with their keys, root only (`0600`) |
+| `  logs/wg-shield.log` | Log |
+| `  state/` | Runtime state, cleared at boot; `status` is read by the sibling modules |
 | `system/bin/wg` | `wg` from [wireguard-tools](https://git.zx2c4.com/wireguard-tools/) v1.0.20250521, static arm64 — also on the path: `su -c 'wg show wgs0'` |
 
 ### Status file (for other modules)
 
-`/data/adb/wg-shield-state/status`, rewritten atomically on every watchdog pass:
+`/data/adb/wg-shield/state/status`, rewritten atomically on every watchdog pass (up to 1.0-r3: `/data/adb/wg-shield-state/status` - a copy is kept there only while VPN Hotspot older than 1.0-r15 or DNSCrypt Proxy older than 2.1.18-r23 is installed):
 
 ```
 state=up|handshaking|down|paused|off|error
@@ -187,19 +188,19 @@ default_net=…       android_vpn=…         updated=<epoch>
 ## Command line
 
 ```sh
-# as root
-sh /data/adb/modules/wg-shield/ctl.sh status
-sh /data/adb/modules/wg-shield/ctl.sh list
-sh /data/adb/modules/wg-shield/ctl.sh import /sdcard/Download/wireguard-export.zip
-sh /data/adb/modules/wg-shield/ctl.sh up [name]          # last used when no name
-sh /data/adb/modules/wg-shield/ctl.sh switch <name>
-sh /data/adb/modules/wg-shield/ctl.sh down               # normal connection
-sh /data/adb/modules/wg-shield/ctl.sh pause <minutes>
-sh /data/adb/modules/wg-shield/ctl.sh resume
-sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1
-sh /data/adb/modules/wg-shield/ctl.sh remove <name>
-sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]
-sh /data/adb/modules/wg-shield/ctl.sh diag               # report, no keys
+# from Termux
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh status'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh list'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh import /sdcard/Download/wireguard-export.zip'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh up [name]'   # last used when no name
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh switch <name>'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh down'   # normal connection
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh pause <minutes>'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh resume'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove <name>'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   # report, no keys
 ```
 
 ---

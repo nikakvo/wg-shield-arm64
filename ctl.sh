@@ -200,9 +200,11 @@ case "$cmd" in
         echo "dnscrypt_ipmode=$(sed -n 's/^IP_MODE=//p' "$(dnsc_conf)" 2>/dev/null | tail -n1)"
         echo "ipset=$(sib_state ipset_arm64)"
         echo "vhs=$(sib_state vpn-hotspot)"
-        echo "vhs_state=$(sed -n 's/^state=//p' "$ADB/vpn-hotspot-state/status" 2>/dev/null | head -n1)"
+        # VPN Hotspot r15+ keeps its status in /data/adb/vpn-hotspot/state/
+        vs="$ADB/vpn-hotspot/state/status"; [ -f "$vs" ] || vs="$ADB/vpn-hotspot-state/status"
+        echo "vhs_state=$(sed -n 's/^state=//p' "$vs" 2>/dev/null | head -n1)"
         echo "vhs_code=$(sed -n 's/^versionCode=//p' "$MODULES/vpn-hotspot/module.prop" 2>/dev/null | head -n1)"
-        echo "vhs_source=$(sed -n 's/^vpn_source=//p' "$ADB/vpn-hotspot-state/status" 2>/dev/null | head -n1)"
+        echo "vhs_source=$(sed -n 's/^vpn_source=//p' "$vs" 2>/dev/null | head -n1)"
         ;;
     files)
         echo "ok=1"

@@ -6,7 +6,9 @@ MODDIR=${0%/*}
 . "$MODDIR/sh/tunnels.sh"
 . "$MODDIR/sh/net.sh"
 
-mkdir -p "$STATE" "$TUNDIR"
+# r4: one folder - the first boot after an update moves the old files
+layout_migrate
+mkdir -p "$STATE" "$TUNDIR" "$LOGDIR"
 chmod 700 "$DATA" "$TUNDIR"
 rm -rf "$STATE/lock" "$STATE"/import.* "$STATE"/setconf.*
 rm -f "$STATE/status" "$STATE/pause_until" "$STATE/loaded" "$STATE/tunnel.info" \
