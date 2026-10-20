@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="wg-shield.png" alt="WG Shield Arm64" width="640">
-</p>
+<p align="center"><img src="wg-shield.png" alt="WG Shield Arm64"></p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
