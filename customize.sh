@@ -10,6 +10,11 @@ if /system/bin/ip link add wgs-probe type wireguard 2>/dev/null; then
 else
     abort "! This kernel has no WireGuard support (CONFIG_WIREGUARD) - not installed"
 fi
+if [ -d /sys/module/amneziawg ]; then
+    ui_print "- Kernel AmneziaWG: yes ($(cat /sys/module/amneziawg/version 2>/dev/null))"
+else
+    ui_print "- Kernel AmneziaWG: no (AmneziaWG tunnels cannot start, WireGuard tunnels work)"
+fi
 
 # r4: one folder, /data/adb/wg-shield/. From r3 or older the settings are
 # COPIED here (the old version still runs with the old paths until the
@@ -32,6 +37,7 @@ chmod 600 "$CONF"
 
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 set_perm "$MODPATH/system/bin/wg" 0 0 0755
+set_perm "$MODPATH/system/bin/awg" 0 0 0755
 for f in ctl.sh service.sh post-fs-data.sh action.sh uninstall.sh; do
     set_perm "$MODPATH/$f" 0 0 0755
 done
@@ -39,7 +45,7 @@ done
 n=$(ls "$DATA/tunnels"/*.conf 2>/dev/null | wc -l)
 ui_print "- Imported tunnels: $n"
 ui_print ""
-ui_print "  Import the WireGuard app export (menu > Export tunnels):"
+ui_print "  Import a WireGuard / AmneziaWG app export (menu > Export tunnels):"
 ui_print "  su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh import /sdcard/Download/<file>.zip'"
 ui_print "  Then: ctl.sh list / ctl.sh up <name> / ctl.sh status"
-ui_print "  Disconnect the WireGuard app first - one key, one tunnel."
+ui_print "  Disconnect the WireGuard / AmneziaWG app first - one key, one tunnel."

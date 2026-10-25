@@ -149,6 +149,8 @@
     .tun .hs { font-size: 8px; letter-spacing: .6px; color: var(--acc); border: 1px solid var(--acc-a); padding: 0 5px; border-radius: 2px; text-transform: uppercase; }
     .tun .hs.a { color: var(--amber); border-color: rgba(255,106,31,.45); }
     .tun .hs.r { color: var(--red); border-color: rgba(255,77,106,.45); }
+    .tun .ty { font-size: 8px; letter-spacing: .6px; color: var(--text); border: 1px dashed var(--acc-a); padding: 0 5px; border-radius: 2px; }
+    .tun .ty.m { color: var(--muted); border-color: var(--border); }
     .x-btn { flex-shrink: 0; background: transparent; border: 1px dashed var(--border); color: var(--muted); font-size: 10px; width: 28px; height: 24px; cursor: pointer; border-radius: 2px; }
     .x-btn.arm { border-style: solid; border-color: var(--red); color: #fff; background: rgba(255,77,106,.14); width: auto; padding: 0 7px; font-size: 9px; letter-spacing: .5px; text-transform: uppercase; }
     .file-btns { display: flex; gap: 5px; flex-shrink: 0; }
@@ -225,18 +227,18 @@
 <div id="banner" class="b-idle"><span class="live-dot"></span>Connecting…</div>
 
 <div class="route" id="route" aria-label="Where the phone's traffic goes">
-  <div class="node clip off" id="rn-ph"><div class="n1">Phone</div><div class="n2" id="rn-ph2">—</div></div>
+  <div class="node clip off" id="rn-ph"><div class="n1">Phone</div><div class="n2" id="rn-ph2">-</div></div>
   <div class="link" id="rl-1"></div>
-  <div class="node clip off" id="rn-tun"><div class="n1" id="rn-tun1">Tunnel</div><div class="n2" id="rn-tun2">—</div></div>
+  <div class="node clip off" id="rn-tun"><div class="n1" id="rn-tun1">Tunnel</div><div class="n2" id="rn-tun2">-</div></div>
   <div class="link" id="rl-2"></div>
-  <div class="node clip off" id="rn-net"><div class="n1">Internet</div><div class="n2" id="rn-net2">—</div></div>
+  <div class="node clip off" id="rn-net"><div class="n1">Internet</div><div class="n2" id="rn-net2">-</div></div>
 </div>
 
 <div class="stats">
-  <div class="sc"><div class="lbl">State</div><div class="val" id="s-state">—</div></div>
-  <div class="sc"><div class="lbl">Handshake</div><div class="val" id="s-hs">—</div></div>
-  <div class="sc"><div class="lbl">Kill switch</div><div class="val" id="s-ks">—</div></div>
-  <div class="sc"><div class="lbl">Network</div><div class="val" id="s-net">—</div></div>
+  <div class="sc"><div class="lbl">State</div><div class="val" id="s-state">-</div></div>
+  <div class="sc"><div class="lbl">Handshake</div><div class="val" id="s-hs">-</div></div>
+  <div class="sc"><div class="lbl">Kill switch</div><div class="val" id="s-ks">-</div></div>
+  <div class="sc"><div class="lbl">Network</div><div class="val" id="s-net">-</div></div>
 </div>
 
 <nav class="tabs">
@@ -252,20 +254,21 @@
     <div class="section">
       <div class="section-title"><span class="s-accent"></span>Exit<span class="s-note">what websites see</span></div>
       <div class="exit-box">
-        <div id="exit-out"><div id="exit-ip" class="glitch v m">—</div><div id="exit-sub">Tap Check to ask an IP service (one small request).</div></div>
+        <div id="exit-out"><div id="exit-ip" class="glitch v m">-</div><div id="exit-sub">Tap Check to ask an IP service (one small request).</div></div>
         <button class="btn-s clip" id="exit-btn" onclick="checkExit()">Check</button>
       </div>
     </div>
 
     <div class="section">
       <div class="section-title"><span class="s-accent"></span>Tunnel</div>
-      <div class="d-stat"><span class="k">Tunnel</span><span class="v" id="t-name">—</span></div>
-      <div class="d-stat"><span class="k">Server</span><span class="v" id="t-ep">—</span></div>
-      <div class="d-stat"><span class="k">Last handshake</span><span class="v" id="t-hs">—</span></div>
-      <div class="d-stat"><span class="k">Received / sent</span><span class="v" id="t-rxtx">—</span></div>
-      <div class="d-stat"><span class="k">IPv6</span><span class="v" id="t-v6">—</span></div>
-      <div class="d-stat"><span class="k">Interface / table</span><span class="v" id="t-if">—</span></div>
-      <div class="d-stat"><span class="k">Carried over</span><span class="v" id="t-net">—</span></div>
+      <div class="d-stat"><span class="k">Tunnel</span><span class="v" id="t-name">-</span></div>
+      <div class="d-stat"><span class="k">Type</span><span class="v" id="t-type">-</span></div>
+      <div class="d-stat"><span class="k">Server</span><span class="v" id="t-ep">-</span></div>
+      <div class="d-stat"><span class="k">Last handshake</span><span class="v" id="t-hs">-</span></div>
+      <div class="d-stat"><span class="k">Received / sent</span><span class="v" id="t-rxtx">-</span></div>
+      <div class="d-stat"><span class="k">IPv6</span><span class="v" id="t-v6">-</span></div>
+      <div class="d-stat"><span class="k">Interface / table</span><span class="v" id="t-if">-</span></div>
+      <div class="d-stat"><span class="k">Carried over</span><span class="v" id="t-net">-</span></div>
     </div>
 
     <div class="section">
@@ -275,8 +278,8 @@
 
     <div class="section">
       <div class="section-title"><span class="s-accent"></span>Watchdog</div>
-      <div class="d-stat"><span class="k">Running</span><span class="v" id="w-run">—</span></div>
-      <div class="d-stat"><span class="k">Last check</span><span class="v" id="w-tick">—</span></div>
+      <div class="d-stat"><span class="k">Running</span><span class="v" id="w-run">-</span></div>
+      <div class="d-stat"><span class="k">Last check</span><span class="v" id="w-tick">-</span></div>
     </div>
   </div>
 
@@ -290,7 +293,7 @@
     <div class="section">
       <div class="section-title"><span class="s-accent"></span>Import from Download<span class="s-note"><button class="fbtn" onclick="loadFiles()">Refresh</button></span></div>
       <div id="file-body"><div class="empty">Looking for exports…</div></div>
-      <div class="warnbox"><b>Exports hold your private keys.</b> In the WireGuard app: ⋮ → Export tunnels (saved to Download). Import it here, then delete the file. Imported tunnels are kept where only root can read them.</div>
+      <div class="warnbox"><b>Exports hold your private keys.</b> In the WireGuard app: ⋮ → Export tunnels (saved to Download). An AmneziaWG config (.conf) works the same way: put it in Download. Import it here, then delete the file. Imported tunnels are kept where only root can read them.</div>
     </div>
   </div>
 
@@ -321,7 +324,7 @@
         <button class="btn-s clip" onclick="doCheck()">Check now</button>
         <button class="btn-s clip m" onclick="doDiag()">Report</button>
       </div>
-      <div class="note">Check now: put the tunnel and its routing rules in the wanted state at once (the watchdog does it every 10 s). Report: everything needed to troubleshoot, ready to copy — private keys are never in it.</div>
+      <div class="note">Check now: put the tunnel and its routing rules in the wanted state at once (the watchdog does it every 10 s). Report: everything needed to troubleshoot, ready to copy - private keys are never in it.</div>
       <pre class="term hidden" id="diag-out"></pre>
       <div class="inrow hidden" id="diag-row"><button class="btn-s clip" style="flex:1" onclick="copyDiag()">Copy report</button></div>
     </div>
@@ -341,7 +344,7 @@
 </main>
 
 <footer>
-  <span id="foot-l">—</span>
+  <span id="foot-l">-</span>
   <span id="foot-info"></span>
   <span id="foot-r"></span>
 </footer>
@@ -403,7 +406,7 @@ document.addEventListener('click', e => {
   if (!t || t.matches(LOCK_FREE)) return;
   if (_busyN > 0 || e.timeStamp < _fgEndedAt) {
     _pressed = null; e.preventDefault(); e.stopImmediatePropagation();
-    if (_busyN > 0) toast('Wait — the previous action is still running', 'err');
+    if (_busyN > 0) toast('Wait - the previous action is still running', 'err');
   }
 }, true);
 async function ctl(args, timeoutMs) {
@@ -477,19 +480,30 @@ let ST = {};
 function setBanner(cls, msg) { const b = $('banner'); b.className = cls; b.innerHTML = '<span class="live-dot"></span>' + msg; }
 const ks = st => st.killswitch === '1';
 
+const REASON = {
+  no_kernel_wireguard: 'this kernel has no WireGuard',
+  no_kernel_amneziawg: 'no AmneziaWG in this kernel',
+  wg_tool_missing: 'the wg tool is missing - reinstall the module',
+  awg_tool_missing: 'the awg tool is missing - reinstall the module',
+  wg_setconf_failed: 'the tunnel file was refused (see Log)',
+  awg_setconf_failed: 'the AmneziaWG settings were refused (see Log)',
+  tunnel_missing: 'the tunnel file is missing',
+};
+const TYPE = t => t === 'amneziawg' ? 'AmneziaWG' : t === 'wireguard' ? 'WireGuard' : '';
+
 function renderBanner(st) {
-  if (st.watchdog !== 'running') { setBanner('b-error', 'Watchdog not running — nothing is being maintained. Reboot the phone.'); return; }
+  if (st.watchdog !== 'running') { setBanner('b-error', 'Watchdog not running - nothing is being maintained. Reboot the phone.'); return; }
   const tn = esc(st.tunnel);
   switch (st.state) {
     case 'up': setBanner('', `Protected · ${tn} · handshake ${fmtDur(st.handshake_age)} ago`); break;
-    case 'handshaking': setBanner('b-warn', st.reason === 'no_network' ? `No network yet — ${tn} starts when one is up` : st.reason === 'resolving' ? `Looking up ${esc((st.endpoint_host || '').replace(/:\d+$/, ''))} for ${tn}…` : `Connecting to ${tn}…`); break;
-    case 'down': setBanner(ks(st) ? 'b-error' : 'b-warn', `${tn} down — ` + (ks(st) ? 'kill switch holds: no internet' : 'direct connection (kill switch off)')); break;
+    case 'handshaking': setBanner('b-warn', st.reason === 'no_network' ? `No network yet - ${tn} starts when one is up` : st.reason === 'resolving' ? `Looking up ${esc((st.endpoint_host || '').replace(/:\d+$/, ''))} for ${tn}…` : `Connecting to ${tn}…`); break;
+    case 'down': setBanner(ks(st) ? 'b-error' : 'b-warn', `${tn} down - ` + (ks(st) ? 'kill switch holds: no internet' : 'direct connection (kill switch off)')); break;
     case 'paused':
       if (st.reason === 'user') setBanner('b-warn', `Paused · direct connection · back in ${fmtDur(st.pause_left)}`);
-      else setBanner('b-warn', 'Paused · another VPN is connected (' + esc(st.android_vpn || 'app') + ') — back when it disconnects');
+      else setBanner('b-warn', 'Paused · another VPN is connected (' + esc(st.android_vpn || 'app') + ') - back when it disconnects');
       break;
-    case 'error': setBanner('b-error', 'Error: ' + esc(st.reason) + ' — direct connection'); break;
-    case 'off': setBanner('b-idle', 'Off · your normal connection' + (st.t.length ? ' — switch a tunnel on in Tunnels' : ' — import tunnels in Tunnels')); break;
+    case 'error': setBanner('b-error', 'Error: ' + esc(REASON[st.reason] || st.reason) + ' - direct connection'); break;
+    case 'off': setBanner('b-idle', 'Off · your normal connection' + (st.t.length ? ' - switch a tunnel on in Tunnels' : ' - import tunnels in Tunnels')); break;
     default: setBanner('b-idle', 'Waiting for the watchdog…');
   }
 }
@@ -500,7 +514,7 @@ function renderRoute(st) {
   $('rn-ph2').textContent = netName(st.default_net);
   $('rn-tun1').textContent = st.tunnel || 'Tunnel';
   $('rn-tun2').textContent = st.endpoint_host ? st.endpoint_host.replace(/:\d+$/, '') : st.endpoint ? st.endpoint.replace(/:\d+$/, '') : 'off';
-  $('rn-net2').textContent = EXIT.ip || (st.state === 'up' ? 'via tunnel' : '—');
+  $('rn-net2').textContent = EXIT.ip || (st.state === 'up' ? 'via tunnel' : '-');
   switch (st.state) {
     case 'up': set('rn-ph', 'on'); set('rn-tun', 'on'); set('rn-net', 'on'); setL('rl-1', 'flow'); setL('rl-2', 'flow'); break;
     case 'handshaking': set('rn-ph', 'on'); set('rn-tun', 'warn'); set('rn-net', 'off'); setL('rl-1', ''); setL('rl-2', ''); $('rn-tun2').textContent = 'connecting'; break;
@@ -520,9 +534,9 @@ function renderRoute(st) {
 function renderStats(st) {
   const lbl = { up: 'Protected', handshaking: 'Connecting', down: 'Down', paused: 'Paused', error: 'Error', off: 'Off' };
   const cls = { up: '', handshaking: 'a', down: ks(st) ? 'r' : 'a', paused: 'a', error: 'r', off: 'm' };
-  $('s-state').textContent = lbl[st.state] || '—'; $('s-state').className = 'val ' + (st.state in cls ? cls[st.state] : 'm');
+  $('s-state').textContent = lbl[st.state] || '-'; $('s-state').className = 'val ' + (st.state in cls ? cls[st.state] : 'm');
   const hs = st.handshake_age;
-  $('s-hs').textContent = hs && hs !== '-' ? fmtDur(hs) : '—';
+  $('s-hs').textContent = hs && hs !== '-' ? fmtDur(hs) : '-';
   $('s-hs').className = 'val ' + (!hs || hs === '-' ? 'm' : num(hs) > 180 ? 'r' : num(hs) > 135 ? 'a' : '');
   $('s-ks').textContent = ks(st) ? 'On' : 'Off'; $('s-ks').className = 'val ' + (ks(st) ? '' : 'a');
   $('s-net').textContent = netName(st.default_net); $('s-net').className = 'val ' + (st.default_net ? '' : 'm');
@@ -531,18 +545,23 @@ function renderStats(st) {
 function renderTunnel(st) {
   const on = ['up', 'handshaking', 'down'].includes(st.state);
   $('t-name').textContent = st.tunnel || 'none'; $('t-name').className = 'v ' + (st.tunnel ? '' : 'm');
-  $('t-ep').textContent = !on ? '—' : st.endpoint_host ? st.endpoint_host + (st.endpoint ? ' (' + st.endpoint.replace(/:\d+$/, '') + ')' : '') : (st.endpoint || '—');
+  // type: from the status while the tunnel runs (or failed), else from the active tunnel's file
+  let ty = st.type;
+  if (!ty && st.active) { const r = st.t.find(l => l.split('|')[0] === st.active); ty = r ? r.split('|')[5] : ''; }
+  $('t-type').textContent = !ty || ty === '-' ? '-' : TYPE(ty) + (ty === 'amneziawg' ? (st.awg_kernel ? ' ' + st.awg_kernel : ' - not in this kernel') : '');
+  $('t-type').className = 'v ' + (!ty || ty === '-' ? 'm' : ty === 'amneziawg' && !st.awg_kernel ? 'r' : '');
+  $('t-ep').textContent = !on ? '-' : st.endpoint_host ? st.endpoint_host + (st.endpoint ? ' (' + st.endpoint.replace(/:\d+$/, '') + ')' : '') : (st.endpoint || '-');
   $('t-ep').className = 'v ' + (on ? '' : 'm');
-  $('t-hs').textContent = st.handshake_age && st.handshake_age !== '-' ? fmtDur(st.handshake_age) + ' ago' : (on ? 'none yet' : '—');
+  $('t-hs').textContent = st.handshake_age && st.handshake_age !== '-' ? fmtDur(st.handshake_age) + ' ago' : (on ? 'none yet' : '-');
   $('t-hs').className = 'v ' + (st.state === 'up' ? '' : on ? 'a' : 'm');
-  $('t-rxtx').textContent = on && st.rx ? fmtBytes(st.rx) + ' / ' + fmtBytes(st.tx) : '—'; $('t-rxtx').className = 'v ' + (on ? '' : 'm');
-  const v6 = { tunnel: ['through the tunnel', ''], blocked: ['blocked — this tunnel is IPv4 only', 'a'], off: ['off on this phone', 'm'] }[st.ipv6] || ['—', 'm'];
-  $('t-v6').textContent = on ? v6[0] : '—'; $('t-v6').className = 'v ' + (on ? v6[1] : 'm');
+  $('t-rxtx').textContent = on && st.rx ? fmtBytes(st.rx) + ' / ' + fmtBytes(st.tx) : '-'; $('t-rxtx').className = 'v ' + (on ? '' : 'm');
+  const v6 = { tunnel: ['through the tunnel', ''], blocked: ['blocked - this tunnel is IPv4 only', 'a'], off: ['off on this phone', 'm'] }[st.ipv6] || ['-', 'm'];
+  $('t-v6').textContent = on ? v6[0] : '-'; $('t-v6').className = 'v ' + (on ? v6[1] : 'm');
   $('t-if').textContent = on ? `${st.iface} · ${st.table}` : 'not created'; $('t-if').className = 'v ' + (on ? '' : 'm');
-  $('t-net').textContent = on ? (st.default_net ? netName(st.default_net) + ' (' + st.default_net + ')' : 'no network') : '—';
+  $('t-net').textContent = on ? (st.default_net ? netName(st.default_net) + ' (' + st.default_net + ')' : 'no network') : '-';
   $('t-net').className = 'v ' + (on && st.default_net ? '' : 'm');
   $('w-run').textContent = st.watchdog === 'running' ? 'yes' : 'NO'; $('w-run').className = 'v ' + (st.watchdog === 'running' ? '' : 'r');
-  $('w-tick').textContent = st.tick_age !== undefined ? st.tick_age + ' s ago' : '—';
+  $('w-tick').textContent = st.tick_age !== undefined ? st.tick_age + ' s ago' : '-';
   $('hdr-ver').textContent = st.version ? 'v' + st.version : '';
   $('foot-l').textContent = (st.version ? 'v' + st.version : '') + (EXEC_MODE === 'legacy' ? ' · sync' : '');
   $('foot-info').textContent = st.tunnel ? st.tunnel : '';
@@ -558,7 +577,7 @@ function renderSet(st) {
   const ipm = st.dnscrypt_ipmode;
   const dnTxt = st.dnscrypt === 'on'
     ? 'Resolves all DNS; its own queries go through this tunnel.' + (ipm && ipm !== 'ipv4' ? (st.ipv6 === 'tunnel' ? ' IPv6 mode ' + esc(ipm) + ': IPv6 goes through the tunnel too.' : st.ipv6 === 'blocked' ? ' IPv6 mode ' + esc(ipm) + ', but this tunnel is IPv4 only: IPv6 is blocked while it is on.' : '') : '')
-    : 'Without it, apps use your network\'s DNS — WG Shield never sets DNS itself.';
+    : 'Without it, apps use your network\'s DNS - WG Shield never sets DNS itself.';
   const vhsNew = num(st.vhs_code) >= 13;
   const vhsTxt = st.vhs !== 'on' ? 'Shares the tunnel with hotspot devices.'
     : !vhsNew ? 'This version does not see WG Shield\'s tunnel: with its kill switch on, hotspot devices get no internet while WG Shield is on. Update it to 1.0-r13 or newer.'
@@ -575,7 +594,7 @@ function renderSet(st) {
 let _tunSig = '', _tunBusy = false;
 function renderTunnels(st) {
   if (_tunBusy) return;
-  const sig = JSON.stringify([st.t, st.active, st.state, st.reason]);
+  const sig = JSON.stringify([st.t, st.active, st.state, st.reason, st.awg_kernel]);
   if (sig === _tunSig) {   // only the handshake age changed: update that badge, keep the list
     const hb = document.querySelector('#tun-body .row.tun.on .hs');
     if (hb && st.state === 'up') hb.textContent = fmtDur(st.handshake_age);
@@ -583,10 +602,12 @@ function renderTunnels(st) {
   }
   _tunSig = sig;
   $('tun-note').textContent = st.t.length ? st.t.length + (st.t.length === 1 ? ' tunnel' : ' tunnels') : '';
-  if (!st.t.length) { $('tun-body').innerHTML = '<div class="empty">No tunnels yet.<br>Import the WireGuard app\'s export below.</div>'; return; }
+  if (!st.t.length) { $('tun-body').innerHTML = '<div class="empty">No tunnels yet.<br>Import a WireGuard or AmneziaWG export below.</div>'; return; }
   $('tun-body').innerHTML = st.t.map(line => {
-    const [name, ep, addr, valid, v6] = line.split('|');
+    const [name, ep, addr, valid, v6, type] = line.split('|');
     const on = name === st.active;
+    const awg = type === 'amneziawg', noK = awg && !st.awg_kernel;
+    const tyb = awg ? (noK ? '<span class="ty m" title="AmneziaWG is not in this kernel">AWG</span> ' : '<span class="ty" title="AmneziaWG">AWG</span> ') : '';
     let badge = '';
     if (on) {
       if (st.state === 'up') badge = `<span class="hs">${fmtDur(st.handshake_age)}</span>`;
@@ -595,10 +616,13 @@ function renderTunnels(st) {
       else if (st.state === 'paused') badge = '<span class="hs a">paused</span>';
       else if (st.state === 'error') badge = '<span class="hs r">error</span>';
     }
-    const sub = valid === '1' ? `${esc(ep)} · ${esc(addr)}${v6 === '1' ? ' · IPv6' : ''}` : 'invalid file — import it again';
-    return `<div class="row tun${on ? ' on' : ''}"><div class="rn"><b>${esc(name)} ${badge}</b><span>${sub}</span></div>` +
+    const sub = valid !== '1' ? 'invalid file - import it again'
+      : noK ? `${esc(ep)} · AmneziaWG is not in this kernel`
+      : `${esc(ep)} · ${esc(addr)}${v6 === '1' ? ' · IPv6' : ''}`;
+    const can = valid === '1' && (on || !noK);
+    return `<div class="row tun${on ? ' on' : ''}"><div class="rn"><b>${esc(name)} ${tyb}${badge}</b><span>${sub}</span></div>` +
       `<button class="x-btn" title="Delete" onclick="delTunnel(this, '${esc(name)}')">✕</button>` +
-      `<label class="sw"><input type="checkbox" ${on ? 'checked' : ''} ${valid === '1' ? '' : 'disabled'} onchange="toggleTunnel(this, '${esc(name)}')"><i></i></label></div>`;
+      `<label class="sw"><input type="checkbox" ${on ? 'checked' : ''} ${can ? '' : 'disabled'} onchange="toggleTunnel(this, '${esc(name)}')"><i></i></label></div>`;
   }).join('');
 }
 
@@ -614,8 +638,8 @@ function render(st) {
   // an exit result belongs to the tunnel it was measured on
   const via = st.state === 'up' ? st.tunnel : '';
   if (EXIT.ip && via !== EXIT.via) {
-    EXIT.ip = ''; $('exit-ip').textContent = '—'; $('exit-ip').className = 'glitch v m';
-    $('exit-sub').textContent = via ? 'The tunnel changed — tap Check to see the new exit.' : 'The route changed — tap Check again.';
+    EXIT.ip = ''; $('exit-ip').textContent = '-'; $('exit-ip').className = 'glitch v m';
+    $('exit-sub').textContent = via ? 'The tunnel changed - tap Check to see the new exit.' : 'The route changed - tap Check again.';
   }
   ST = st;
   renderBanner(st); renderRoute(st); renderStats(st); renderTunnel(st);
@@ -640,7 +664,7 @@ async function toggleTunnel(cb, name) {
   try {
     const r = parseKV(await ctl(cb.checked ? 'up ' + q(name) : 'down', 30000));
     if (r.ok !== '1') toast(r.error || 'Failed', 'err');
-    else if (!cb.checked) toast('Tunnel off — normal connection', 'ok');
+    else if (!cb.checked) toast('Tunnel off - normal connection', 'ok');
     else toast(r.state === 'up' ? name + ' connected' : name + ': ' + (r.state === 'handshaking' ? 'connecting…' : r.state + (r.reason ? ' (' + r.reason + ')' : '')), r.state === 'up' || r.state === 'handshaking' ? 'ok' : 'err');
   } finally { sw.classList.remove('busy'); _tunBusy = false; _tunSig = ''; await poll(); }
 }
@@ -655,7 +679,7 @@ async function delTunnel(b, name) {
 async function loadFiles() {
   const r = parseKV(await ctl('files', 20000));
   if (r.ok !== '1') { $('file-body').innerHTML = '<div class="empty">Could not read Download.</div>'; return; }
-  if (!r.file.length) { $('file-body').innerHTML = '<div class="empty">No tunnel export in Download.<br>WireGuard app: ⋮ → Export tunnels.</div>'; return; }
+  if (!r.file.length) { $('file-body').innerHTML = '<div class="empty">No tunnel export in Download.<br>WireGuard app: ⋮ → Export tunnels, or put an AmneziaWG .conf there.</div>'; return; }
   $('file-body').innerHTML = r.file.map((line, i) => {
     const [name, size, mtime, n] = line.split('|');
     const when = new Date(num(mtime) * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
@@ -669,7 +693,7 @@ async function importFile(b) {
   const name = FILES[num(b.dataset.i)]; if (!name) return;
   const r = parseKV(await ctl('import ' + q(name), 60000));
   const done = num(r.imported), skip = num(r.skipped);
-  if (r.ok === '1') toast(`Imported ${done}` + (skip ? `, skipped ${skip} (see Log)` : '') + ' — delete the file now', 'ok');
+  if (r.ok === '1') toast(`Imported ${done}` + (skip ? `, skipped ${skip} (see Log)` : '') + ' - delete the file now', 'ok');
   else toast(r.error || (skip ? `Nothing imported: ${skip} skipped (see Log)` : 'Import failed'), 'err');
   _tunSig = ''; await poll(); await loadFiles();
 }
@@ -716,7 +740,7 @@ function copyDiag() {
 }
 function fallbackCopy(t, done) {
   const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
-  try { document.execCommand('copy'); done(); } catch (e) { toast('Copy failed — select the text by hand', 'err'); }
+  try { document.execCommand('copy'); done(); } catch (e) { toast('Copy failed - select the text by hand', 'err'); }
   ta.remove();
 }
 
@@ -733,7 +757,7 @@ async function checkExit() {
   EXIT.ip = r.ip; EXIT.via = r.via ? ST.tunnel : '';
   $('exit-ip').textContent = r.ip; $('exit-ip').className = 'glitch';
   const place = [r.city, r.country].filter(Boolean).join(', ');
-  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' — ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection');
+  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' - ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection');
   renderRoute(ST);
 }
 

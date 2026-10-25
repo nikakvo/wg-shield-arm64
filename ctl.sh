@@ -1,6 +1,7 @@
 #!/system/bin/sh
 # WG Shield Arm64 - the single CLI (the WebUI will call only this).
-# Output: key=value lines. Private keys are never printed.
+# Output: key=value lines. Private keys (and AmneziaWG header protection
+# keys) are never printed.
 
 MODDIR="${WGS_MODDIR:-${0%/*}}"
 [ -f "$MODDIR/sh/common.sh" ] || MODDIR=/data/adb/modules/wg-shield
@@ -13,7 +14,7 @@ usage() {
         'Usage: ctl.sh <command>' \
         '  status              current state (key=value)' \
         '  list                imported tunnels' \
-        '  import <zip|conf>   import the WireGuard app export zip (or one .conf)' \
+        '  import <zip|conf>   import a WireGuard / AmneziaWG export zip (or one .conf)' \
         '  up [name]           turn the tunnel on (last used one when no name)' \
         '  switch <name>       switch to another tunnel (same as up <name>)' \
         '  down                turn the tunnel off - direct connection' \
@@ -109,7 +110,7 @@ case "$cmd" in
             c=$((c + 1))
             a=0; [ "$n" = "$S_ACTIVE" ] && a=1
             if tun_parse "$(tun_file "$n")"; then
-                echo "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 active=$a"
+                echo "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 type=$T_TYPE active=$a"
             else
                 echo "tunnel=$n invalid=1 active=$a error=$(echo "$T_ERR" | tr ' ' '_')"
             fi
@@ -135,6 +136,9 @@ case "$cmd" in
         fi
         tun_exists "$n" || fail "no such tunnel: $n"
         tun_parse "$(tun_file "$n")" || fail "tunnel $n is invalid: $T_ERR"
+        if [ "$T_TYPE" = amneziawg ] && [ "$FAKE_LINK" = 0 ] && ! awg_kernel_ok; then
+            fail "$n is an AmneziaWG tunnel and this kernel has no AmneziaWG (CONFIG_AMNEZIAWG) - WireGuard tunnels still work"
+        fi
         S_ACTIVE=$n; S_LAST=$n; settings_save
         rm -f "$STATE/pause_until"
         wlog INFO "ctl: up $n"
@@ -191,8 +195,9 @@ case "$cmd" in
         if watchdog_alive; then echo "watchdog=running"; else echo "watchdog=stopped"; fi
         t=$(cat "$STATE/tick" 2>/dev/null); [ -n "$t" ] && echo "tick_age=$(( $(epoch_now) - t ))"
         for n in $(tun_names); do
-            if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6"; else echo "t=$n|-|-|0|0"; fi
+            if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE"; else echo "t=$n|-|-|0|0|-"; fi
         done
+        echo "awg_kernel=$(awg_kernel_ver)"
         echo "dnscrypt=$(sib_state dnscrypt-proxy-android)"
         # DNSCrypt Proxy r22+ keeps everything in /data/adb/dnscrypt-proxy/, older versions at the top of /data/adb
         h="$ADB/dnscrypt-proxy/state/health"; [ -f "$h" ] || h="$ADB/dnscrypt-proxy-state/health"
@@ -244,11 +249,18 @@ case "$cmd" in
         echo "== WG Shield report $(date '+%Y-%m-%d %H:%M:%S')"
         sed -n 's/^version=/version /p' "$MODDIR/module.prop"
         echo "kernel $(uname -r)"; echo "wg $("$WG" --version 2>/dev/null | awk '{ print $2; exit }')"
+        echo "awg $("$AWG" --version 2>/dev/null | awk '{ print $2; exit }')"
+        if awg_kernel_ok; then echo "amneziawg kernel $(awg_kernel_ver)"; else echo "amneziawg kernel: no"; fi
         if watchdog_alive; then echo "watchdog running"; else echo "watchdog STOPPED"; fi
         echo; echo "== status"; cat "$STATE/status" 2>/dev/null
         echo; echo "== settings"; grep -v '^#' "$CONF" 2>/dev/null
-        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR"; else echo "$n INVALID: $T_ERR"; fi; done
-        echo; echo "== wg (keys hidden)"; "$WG" show "$IFACE" 2>&1 | grep -viE 'private key|preshared'
+        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else echo "$n INVALID: $T_ERR"; fi; done
+        k=$(iface_kind)
+        if [ "$k" = amneziawg ]; then
+            echo; echo "== awg (keys hidden)"; "$AWG" show "$IFACE" 2>&1 | grep -viE 'private key|preshared|protection key'
+        else
+            echo; echo "== wg (keys hidden)"; "$WG" show "$IFACE" 2>&1 | grep -viE 'private key|preshared'
+        fi
         echo; echo "== our rules"; "$IP" rule 2>/dev/null | grep -E '^50[0-9][0-9]:'; "$IP" -6 rule 2>/dev/null | grep -E '^50[0-9][0-9]:' | sed 's/^/v6 /'
         echo; echo "== table $TABLE"; "$IP" route show table "$TABLE" 2>/dev/null
         echo; echo "== netd default / VPN rules"; "$IP" rule 2>/dev/null | grep -E '^(13000|31000):'
@@ -268,6 +280,8 @@ case "$cmd" in
         echo "ok=1"
         sed -n 's/^version=/version=/p; s/^versionCode=/versionCode=/p' "$MODDIR/module.prop"
         echo "wg=$("$WG" --version 2>/dev/null | awk '{ print $2; exit }')"
+        echo "awg=$("$AWG" --version 2>/dev/null | awk '{ print $2; exit }')"
+        echo "awg_kernel=$(awg_kernel_ver)"
         ;;
     ""|help|-h|--help) usage ;;
     *) usage; exit 1 ;;

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>WG Shield — Help</title>
+  <title>WG Shield - Help</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" media="print" onload="this.media='all'">
   <style>
     :root {
@@ -72,7 +72,7 @@
   <a href="#how">3 · How it works</a>
   <a href="#states">4 · States and the banner</a>
   <a href="#dash">5 · Dashboard</a>
-  <a href="#tunnels">6 · Tunnels and import</a>
+  <a href="#tunnels">6 · Tunnels, import and AmneziaWG</a>
   <a href="#settings">7 · Kill switch and pause</a>
   <a href="#set">8 · With DNSCrypt Proxy, ipset and VPN Hotspot</a>
   <a href="#limits">9 · IPv6 and other limits</a>
@@ -83,12 +83,12 @@
 
 <div class="sec-title" id="what">1 · what this module does</div>
 <div class="box">
-  <p>WG Shield runs a <strong>WireGuard tunnel in the kernel</strong>, with no app. It starts at boot, survives killing apps from recents, follows Wi-Fi ↔ mobile switches by itself and has a <strong>kill switch</strong>: while a tunnel is on but not working, nothing leaves the phone around it.</p>
-  <p>Android does not see a VPN. There is no VPN key icon, apps see a normal network, and nothing depends on Android's VPN service — the tunnel is plain Linux routing below it. Calls over the mobile network (VoLTE, Wi-Fi calling), SMS and MMS keep using the carrier's own networks.</p>
-  <p>Tunnels come from the official WireGuard app: export them there, import them here, then switch one on.</p>
+  <p>WG Shield runs a <strong>WireGuard or AmneziaWG tunnel in the kernel</strong>, with no app. It starts at boot, survives killing apps from recents, follows Wi-Fi ↔ mobile switches by itself and has a <strong>kill switch</strong>: while a tunnel is on but not working, nothing leaves the phone around it.</p>
+  <p>Android does not see a VPN. There is no VPN key icon, apps see a normal network, and nothing depends on Android's VPN service - the tunnel is plain Linux routing below it. Calls over the mobile network (VoLTE, Wi-Fi calling), SMS and MMS keep using the carrier's own networks.</p>
+  <p>Tunnels come from the official WireGuard app (or an AmneziaWG config): export them there, import them here, then switch one on. Which kind a tunnel is, WG Shield sees by itself from the file (see 6).</p>
   <div class="tw"><table>
     <tr><th>needs</th><th></th></tr>
-    <tr><td>Kernel</td><td>WireGuard built in (<code>CONFIG_WIREGUARD</code>). The installer checks it and stops if it is missing.</td></tr>
+    <tr><td>Kernel</td><td>WireGuard built in (<code>CONFIG_WIREGUARD</code>). The installer checks it and stops if it is missing. For AmneziaWG tunnels the kernel also needs AmneziaWG (<code>CONFIG_AMNEZIAWG</code>); without it only those tunnels cannot start, WireGuard tunnels work as usual.</td></tr>
     <tr><td>Tunnels</td><td>wg-quick format as the WireGuard app or a VPN provider exports them (a zip or single <code>.conf</code> files): one <code>[Peer]</code>, <code>AllowedIPs</code> with <code>0.0.0.0/0</code>, an <code>Endpoint</code> as an IPv4 address or a host name. An IPv6 address with <code>::/0</code> carries IPv6 too. Proton VPN's configs work as downloaded.</td></tr>
     <tr><td>Root</td><td>SukiSU Ultra, KernelSU, APatch or Magisk (WebUI through MMRL / KSU WebUI Standalone).</td></tr>
   </table></div>
@@ -101,7 +101,7 @@
     <li>Flash the zip, reboot.</li>
     <li>WireGuard app: <strong>⋮ → Export tunnels</strong>. The zip lands in Download.</li>
     <li>This WebUI → <strong>Tunnels</strong> → Import from Download → <strong>Import</strong>. Then delete the file with <strong>✕</strong>: it holds your private keys.</li>
-    <li>Disconnect the tunnel in the WireGuard app — one key, one tunnel.</li>
+    <li>Disconnect the tunnel in the WireGuard app - one key, one tunnel.</li>
     <li>Switch a tunnel on. The route at the top shows <strong>Phone → tunnel → Internet</strong> with a moving line within a few seconds.</li>
     <li>Dashboard → Exit → <strong>Check</strong>, or open DNS Test: the server's address shows, and your own DNS resolvers.</li>
   </ol>
@@ -113,11 +113,11 @@
   <div class="flow">
     app on the phone<br>↓<br>
     <b>routing rules</b> (before Android's own)<br>↓<br>
-    <b>wgs0</b> — the kernel tunnel, encrypted<br>↓<br>
+    <b>wgs0</b> - the kernel tunnel, encrypted<br>↓<br>
     your Wi-Fi or mobile network → VPN server → internet
   </div>
   <h3>The pieces</h3>
-  <p>One interface, <code>wgs0</code>, always the same name whichever tunnel is on. A routing table (<code>51820</code>) that sends everything into it, with an <strong>unreachable</strong> route underneath: if the tunnel disappears, traffic has nowhere to go — it never falls back to your normal connection.</p>
+  <p>One interface, <code>wgs0</code>, always the same name whichever tunnel is on. A routing table (<code>51820</code>) that sends everything into it, with an <strong>unreachable</strong> route underneath: if the tunnel disappears, traffic has nowhere to go - it never falls back to your normal connection.</p>
   <p>Routing rules with priorities 5000–5021 sit in front of Android's (which start at 10000):</p>
   <div class="tw"><table>
     <tr><th>rule</th><th>what for</th></tr>
@@ -126,7 +126,7 @@
     <tr><td>5020</td><td>Everything not bound to one network → the tunnel.</td></tr>
     <tr><td>5021</td><td>Everything bound to the current default network (Wi-Fi or mobile) → the tunnel.</td></tr>
   </table></div>
-  <p>Traffic an app binds to <em>another</em> network keeps Android's routing — that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working.</p>
+  <p>Traffic an app binds to <em>another</em> network keeps Android's routing - that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working.</p>
   <h3>Watchdog</h3>
   <p>A background loop checks every 10 seconds (every 2 seconds during the first minute after boot): the right tunnel is loaded, Android's current default network (it gets a new number on every reconnect), the server route follows it, no rule is missing. Anything off is put back and written to the log.</p>
   <h3>At boot</h3>
@@ -141,10 +141,10 @@
     <tr><td><span class="pill warn">connecting</span></td><td>Just switched on, waiting for the first handshake (or for a network).</td></tr>
     <tr><td><span class="pill bad">down</span></td><td>No handshake for more than 180 s. Kill switch on: no internet. Off: direct connection until it answers again.</td></tr>
     <tr><td><span class="pill warn">paused</span></td><td>You paused it, or another VPN app is connected. Direct connection.</td></tr>
-    <tr><td><span class="pill bad">error</span></td><td>The tunnel cannot be built (file gone, kernel refused it). Direct connection — the banner says why.</td></tr>
+    <tr><td><span class="pill bad">error</span></td><td>The tunnel cannot be built (file gone, kernel refused it). Direct connection - the banner says why.</td></tr>
     <tr><td><span class="pill skip">off</span></td><td>No tunnel switched on. Your normal connection, nothing installed.</td></tr>
   </table></div>
-  <div class="note">"Down" appears up to 3 minutes after the server stops answering: WireGuard itself counts a session as dead only after 180 s. Your traffic stops at once — only the label waits.</div>
+  <div class="note">"Down" appears up to 3 minutes after the server stops answering: WireGuard itself counts a session as dead only after 180 s. Your traffic stops at once - only the label waits.</div>
 </div>
 
 <div class="sec-title" id="dash">5 · dashboard</div>
@@ -154,17 +154,22 @@
   <h3>Exit</h3>
   <p><strong>Check</strong> asks an IP service once and shows the address websites see, with its place and provider.</p>
   <h3>Tunnel</h3>
-  <p>The active tunnel, its server, the last handshake, data received and sent, and which network carries the tunnel.</p>
+  <p>The active tunnel, its type (WireGuard or AmneziaWG, with the kernel's AmneziaWG version), its server, the last handshake, data received and sent, and which network carries the tunnel.</p>
   <h3>Networking set</h3>
   <p>Whether DNSCrypt Proxy, ipset and VPN Hotspot are installed and what they are doing (see 8).</p>
 </div>
 
-<div class="sec-title" id="tunnels">6 · tunnels and import</div>
+<div class="sec-title" id="tunnels">6 · tunnels, import and amneziawg</div>
 <div class="box">
   <p>Every imported tunnel is a row with a switch. <strong>One at a time</strong>: switching one on switches the other off; the interface stays <code>wgs0</code>, only keys, server and address change. All off = your normal connection.</p>
   <p>Import reads the WireGuard app's export zip, or single <code>.conf</code> files, from Download. Files that do not fit (several peers, no full tunnel, an IPv6 endpoint) are skipped and the Log says why. Importing a tunnel with a name that already exists replaces it. Names keep letters, digits, <code>. _ -</code>; other characters become <code>_</code>.</p>
   <p>From a file the module uses only the WireGuard keys and addresses. <code>DNS</code> is ignored (DNS is left to the system or DNSCrypt Proxy), as are <code>PostUp</code>, <code>Table</code> and the like. A tunnel without <code>PersistentKeepalive</code> gets 25 s, so the health check always has fresh handshakes.</p>
-  <div class="note warn">Private keys are stored in <code>/data/adb/wg-shield/tunnels/</code>, readable only by root. They never appear in the WebUI, the log, the status or the Report. The export in Download is readable by apps — delete it after importing.</div>
+  <div class="note warn">Private keys are stored in <code>/data/adb/wg-shield/tunnels/</code>, readable only by root. They never appear in the WebUI, the log, the status or the Report. The export in Download is readable by apps - delete it after importing.</div>
+  <h3>AmneziaWG</h3>
+  <p>AmneziaWG is WireGuard with extra settings that make the traffic harder to recognise and block. A file with any AmneziaWG setting (<code>Jc</code>, <code>Jmin</code>, <code>Jmax</code>, <code>S1</code>-<code>S4</code>, <code>H1</code>-<code>H4</code>, <code>I1</code>-<code>I5</code>, <code>HeaderProtectionKey</code>, <code>ContentPaddingAddition</code>, <code>RandomTrailers</code> and the like) is an AmneziaWG tunnel; any other file is plain WireGuard. Nothing to choose: the tunnel row shows an <span class="pill ok">AWG</span> badge and Dashboard → Tunnel → Type says which one runs.</p>
+  <p>Both kinds use the same interface (<code>wgs0</code>), the same routing, kill switch and pause, and work the same way with DNSCrypt Proxy and VPN Hotspot. Switching between a WireGuard and an AmneziaWG tunnel creates <code>wgs0</code> again with the other type; the kill switch holds meanwhile.</p>
+  <p>The AmneziaWG settings are passed to the kernel unchanged, checked by the <code>awg</code> tool. If it refuses one, the tunnel shows <span class="pill bad">error</span> and the Log names the setting. <code>HeaderProtectionKey</code> is a secret like the private key and is never shown.</p>
+  <div class="note">Without AmneziaWG in the kernel, AmneziaWG tunnels can still be imported, but their switch is greyed out and the row says <em>AmneziaWG is not in this kernel</em>.</div>
 </div>
 
 <div class="sec-title" id="settings">7 · kill switch and pause</div>
@@ -195,10 +200,10 @@
 <div class="sec-title" id="limits">9 · ipv6 and other limits</div>
 <div class="box">
   <ul>
-    <li><strong>IPv6.</strong> A tunnel with an IPv6 address and <code>AllowedIPs</code> containing <code>::/0</code> carries IPv6 too (Dashboard → IPv6: <em>through the tunnel</em>). A tunnel without it blocks the phone's IPv6 while it is on (<em>unreachable</em>), so nothing goes around it — apps switch to IPv4 at once. DNSCrypt Proxy's <code>ipv4</code> mode keeps IPv6 off for the whole phone; then every tunnel carries IPv4 only. Switch it to <code>dual</code> and the tunnel picks IPv6 up by itself within seconds.</li>
-    <li><strong>The server is reached over IPv4.</strong> Proton's commented-out IPv6 <code>Endpoint</code> line is only another way to reach the server, not needed for IPv6 inside the tunnel — leave it commented.</li>
+    <li><strong>IPv6.</strong> A tunnel with an IPv6 address and <code>AllowedIPs</code> containing <code>::/0</code> carries IPv6 too (Dashboard → IPv6: <em>through the tunnel</em>). A tunnel without it blocks the phone's IPv6 while it is on (<em>unreachable</em>), so nothing goes around it - apps switch to IPv4 at once. DNSCrypt Proxy's <code>ipv4</code> mode keeps IPv6 off for the whole phone; then every tunnel carries IPv4 only. Switch it to <code>dual</code> and the tunnel picks IPv6 up by itself within seconds.</li>
+    <li><strong>The server is reached over IPv4.</strong> Proton's commented-out IPv6 <code>Endpoint</code> line is only another way to reach the server, not needed for IPv6 inside the tunnel - leave it commented.</li>
     <li><strong>One peer, full tunnel.</strong> Split tunnels and several peers are not supported.</li>
-    <li><strong>Host-name endpoints</strong> (e.g. a home server on dynamic DNS) are looked up when the tunnel starts, with one plain DNS query to Quad9 sent outside the tunnel — before the tunnel is up there is no other way. If such a tunnel stops answering, the name is looked up again (at most once a minute), so an address change at home is followed by itself. IPv6 endpoints are not supported.</li>
+    <li><strong>Host-name endpoints</strong> (e.g. a home server on dynamic DNS) are looked up when the tunnel starts, with one plain DNS query to Quad9 sent outside the tunnel - before the tunnel is up there is no other way. If such a tunnel stops answering, the name is looked up again (at most once a minute), so an address change at home is followed by itself. IPv6 endpoints are not supported.</li>
     <li><strong>Same LAN on both sides.</strong> Addresses of your own Wi-Fi network always stay local. If a home VPN uses the same range as your Wi-Fi (both <code>192.168.1.x</code>), devices behind that VPN cannot be reached while you are on that Wi-Fi.</li>
     <li><strong>No per-app bypass.</strong> Everything the phone sends goes through the tunnel, except traffic bound to another network (IMS, MMS).</li>
     <li><strong>Hotspot devices</strong> are routed by VPN Hotspot, not by WG Shield (see 8); they get IPv4 only.</li>
@@ -220,7 +225,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm"># report, no keys</span></pre>
-  <p>The <code>wg</code> tool is on the path too: <code>su -c '/system/bin/wg show wgs0'</code> (private key hidden).</p>
+  <p>The <code>wg</code> tool is on the path too: <code>su -c '/system/bin/wg show wgs0'</code> (private key hidden). For an AmneziaWG tunnel use <code>awg</code>: <code>su -c '/system/bin/awg show wgs0'</code>. That output shows the header protection key, so do not share it - the Report hides it.</p>
 </div>
 
 <div class="sec-title" id="trouble">11 · troubleshooting</div>
@@ -228,13 +233,15 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
   <h3>No internet</h3>
   <p>State <span class="pill bad">down</span>? The server does not answer and the kill switch holds. Switch to another tunnel, or pause. Stays <span class="pill warn">connecting</span>? Check the server is not blocked by ipset (see 8), then send the <strong>Report</strong>.</p>
   <h3>Paused and I did not pause it</h3>
-  <p>A VPN app is connected — the banner names it. Disconnect it.</p>
+  <p>A VPN app is connected - the banner names it. Disconnect it.</p>
   <h3>Import skipped a tunnel</h3>
   <p>The Log names the file and the reason: a key that is not a real key (for example one replaced by <code>*****</code>), several peers, not a full tunnel, a bad endpoint.</p>
-  <h3>"Rules changed by someone else — repaired"</h3>
-  <p>Something removed one of the module's routing rules; the watchdog put it back. Once is harmless. If it repeats every few seconds, another module fights over the same rules — send the Report.</p>
+  <h3>"Rules changed by someone else - repaired"</h3>
+  <p>Something removed one of the module's routing rules; the watchdog put it back. Once is harmless. If it repeats every few seconds, another module fights over the same rules - send the Report.</p>
   <h3>Something is wrong and I need internet now</h3>
-  <p>Action button in the manager (off), or <code>ctl.sh down</code>. If the module itself misbehaves: disable it in the manager and reboot — nothing of it stays active.</p>
+  <p>Action button in the manager (off), or <code>ctl.sh down</code>. If the module itself misbehaves: disable it in the manager and reboot - nothing of it stays active.</p>
+  <h3>AmneziaWG tunnel shows an error</h3>
+  <p><em>this kernel has no AmneziaWG</em>: the kernel lacks <code>CONFIG_AMNEZIAWG</code> - use a WireGuard tunnel or a kernel with AmneziaWG. <em>AmneziaWG settings were refused</em>: the Log names the setting; the file may be for a newer AmneziaWG version than this module's <code>awg</code> tool.</p>
   <h3>Watchdog not running</h3>
   <p>Reboot. If it stays stopped, the Log says why.</p>
 </div>
@@ -253,7 +260,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
   <p><strong>Uninstall:</strong> the tunnel and every rule are removed, then settings, log and <strong>all imported tunnels with their keys</strong> are deleted.</p>
 </div>
 
-<div class="footer">WG Shield Arm64 · by Tears Burn · <a href="index.html">back to dashboard</a><br><br>"WireGuard" and the "WireGuard" logo are registered trademarks of Jason A. Donenfeld.<br>WG Shield is not affiliated with or endorsed by the WireGuard project.</div>
+<div class="footer">WG Shield Arm64 · by Tears Burn · <a href="index.html">back to dashboard</a><br><br>"WireGuard" and the "WireGuard" logo are registered trademarks of Jason A. Donenfeld.<br>WG Shield is not affiliated with or endorsed by the WireGuard or AmneziaWG projects.</div>
 
 <script>
 function goBack() { if (history.length > 1) history.back(); else location.href = 'index.html'; }

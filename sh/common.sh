@@ -29,6 +29,9 @@ LEGACY_LOG="$DATA/wg-shield.log"
 # would win over the system tools.
 IP="${WGS_IP:-/system/bin/ip}"
 WG="${WGS_WG:-$MODDIR/system/bin/wg}"
+AWG="${WGS_AWG:-$MODDIR/system/bin/awg}"
+# AmneziaWG kernel module (built in or loaded): /sys/module/amneziawg/version
+AWG_SYS="${WGS_AWG_SYS:-/sys/module/amneziawg}"
 BB="${WGS_BB:-/data/adb/ksu/bin/busybox}"
 GETPROP="${WGS_GETPROP:-/system/bin/getprop}"
 RT_TABLES="${WGS_RT_TABLES:-/data/misc/net/rt_tables}"
@@ -38,7 +41,20 @@ TABLE=51820
 PREFS="5000 5001 5010 5011 5012 5020 5021"
 DOWN_AFTER=180          # s without a handshake = tunnel down (WireGuard rejects keys after 180 s)
 TICK=10
-LINKTYPE="${WGS_LINKTYPE:-wireguard}"   # test harness only
+# Tunnel types: "wireguard" (plain configs, e.g. Proton) and "amneziawg"
+# (configs with AmneziaWG keys - tun_parse decides). Both use the interface
+# wgs0; the link type and the tool (wg / awg) follow the active tunnel.
+# WGS_LINKTYPE (test harness only) replaces both link types with a fake one
+# (veth) - then no real wg/awg calls are made.
+FAKE_LINK=0; [ -n "$WGS_LINKTYPE" ] && FAKE_LINK=1
+
+# link type for a tunnel type
+link_type() { if [ "$FAKE_LINK" = 1 ]; then echo "$WGS_LINKTYPE"; else echo "$1"; fi; }
+# tool for a tunnel type
+wg_tool() { if [ "$1" = amneziawg ]; then echo "$AWG"; else echo "$WG"; fi; }
+# kernel has AmneziaWG
+awg_kernel_ok() { [ -d "$AWG_SYS" ]; }
+awg_kernel_ver() { cat "$AWG_SYS/version" 2>/dev/null; }
 
 QUIET_ON_SHUTDOWN=0
 
@@ -165,6 +181,7 @@ status_write() {
         echo "reason=$ST_REASON"
         echo "iface=$IFACE"
         echo "table=$TABLE"
+        echo "type=$ST_TYPE"
         echo "tunnel=$ST_TUNNEL"
         echo "endpoint=$ST_ENDPOINT"
         echo "endpoint_host=$ST_EPHOST"
@@ -214,14 +231,14 @@ module_desc() {  # keep the manager's description line in sync with the state
     prop="$MODDIR/module.prop"
     [ -w "$prop" ] || return 0
     case "$ST_STATE" in
-        up) d="🟢 Protected · $ST_TUNNEL" ;;
-        handshaking) d="🟡 Connecting · $ST_TUNNEL" ;;
+        up) d="🟢 Protected · $ST_TUNNEL$( [ "$ST_TYPE" = amneziawg ] && echo ' (AmneziaWG)')" ;;
+        handshaking) d="🟡 Connecting · $ST_TUNNEL$( [ "$ST_TYPE" = amneziawg ] && echo ' (AmneziaWG)')" ;;
         down) if [ "$S_KILLSWITCH" = 1 ]; then d="🔴 Tunnel down · internet blocked (kill switch)"; else d="🔴 Tunnel down · direct connection"; fi ;;
         paused) if [ "$ST_REASON" = user ]; then d="⏸️ Paused · direct connection"; else d="⏸️ Paused · another VPN is active"; fi ;;
         error) d="⚠️ Error: $ST_REASON · direct connection" ;;
         *) d="⚪ Off · direct connection" ;;
     esac
-    line="description=Always-on kernel WireGuard tunnel without an app, with kill switch. Status: $d"
+    line="description=Always-on kernel WireGuard / AmneziaWG tunnel without an app, with kill switch. Status: $d"
     grep -qxF "$line" "$prop" 2>/dev/null && return 0
     tmp="$prop.tmp.$$"
     { grep -v '^description=' "$prop"; echo "$line"; } > "$tmp" 2>/dev/null && mv -f "$tmp" "$prop"

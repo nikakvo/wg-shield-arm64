@@ -1,8 +1,8 @@
 id=wg-shield
 name=WG Shield Arm64
-version=1.0-r4
-versionCode=4
+version=2.0
+versionCode=5
 author=Tears Burn
-description=Always-on kernel WireGuard tunnel without an app, with kill switch. Status: Init
+description=Always-on kernel WireGuard / AmneziaWG tunnel without an app, with kill switch. Status: Init
 updateJson=https://raw.githubusercontent.com/nikakvo/wg-shield-arm64/main/update.json
 banner=wg-shield.png

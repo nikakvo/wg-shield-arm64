@@ -135,6 +135,14 @@ boot_guard() {
 
 iface_exists() { "$IP" link show "$IFACE" >/dev/null 2>&1; }
 
+# type of the existing wgs0: the kernel's DEVTYPE (wireguard | amneziawg),
+# else what we created it as (fake links in the harness have no DEVTYPE)
+iface_kind() {
+    _k=$(sed -n 's/^DEVTYPE=//p' "${WGS_SYSNET:-/sys/class/net}/$IFACE/uevent" 2>/dev/null)
+    [ -n "$_k" ] || _k=$(cat "$STATE/iftype" 2>/dev/null)
+    echo "$_k"; unset _k
+}
+
 anything_present() {
     iface_exists && return 0
     [ -n "$(rules_sig)" ]
@@ -145,39 +153,53 @@ teardown() {
     "$IP" route flush table "$TABLE" 2>/dev/null
     "$IP" -6 route flush table "$TABLE" 2>/dev/null
     "$IP" link del "$IFACE" 2>/dev/null
-    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at"
+    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype"
 }
 
-# tunnel_ensure NAME - iface exists, carries NAME's keys/peer/address, is up.
-# Sets T_ADDR T_EP T_EPIP T_EPHOST T_PORT T_MTU. Returns 1 with ERR set on a
-# hard failure, 3 when a host-name endpoint cannot be resolved yet (retried).
+# tunnel_ensure NAME - iface exists with the tunnel's type, carries NAME's
+# keys/peer/address, is up. Sets T_ADDR T_EP T_EPIP T_EPHOST T_PORT T_MTU
+# T_TYPE. Returns 1 with ERR set on a hard failure, 3 when a host-name
+# endpoint cannot be resolved yet (retried).
 tunnel_ensure() {
     name=$1; f=$(tun_file "$name"); ERR=""
     ck="$name $(cksum < "$f" 2>/dev/null | awk '{ print $1 }')"
     fresh=0
-    if ! iface_exists; then
-        "$IP" link add "$IFACE" type "$LINKTYPE" 2>/dev/null || { ERR=no_kernel_wireguard; return 1; }
-        rm -f "$STATE/loaded"; fresh=1
-    fi
-    if [ "$(cat "$STATE/loaded" 2>/dev/null)" != "$ck" ]; then
+    if [ "$(cat "$STATE/loaded" 2>/dev/null)" != "$ck" ] || ! iface_exists; then
         tun_parse "$f" || { ERR="invalid_tunnel: $T_ERR"; return 1; }
+        if [ "$T_TYPE" = amneziawg ] && [ "$FAKE_LINK" = 0 ] && ! awg_kernel_ok; then
+            ERR=no_kernel_amneziawg; return 1
+        fi
+        # a link's type cannot change: WireGuard <-> AmneziaWG = new wgs0
+        # (the unreachable route in table 51820 keeps the kill switch meanwhile)
+        if iface_exists && [ "$(iface_kind)" != "$T_TYPE" ]; then
+            "$IP" link del "$IFACE" 2>/dev/null
+            wlog INFO "interface $IFACE recreated as $T_TYPE"
+        fi
+        if ! iface_exists; then
+            "$IP" link add "$IFACE" type "$(link_type "$T_TYPE")" 2>/dev/null || {
+                if [ "$T_TYPE" = amneziawg ]; then ERR=no_kernel_amneziawg; else ERR=no_kernel_wireguard; fi
+                return 1; }
+            echo "$T_TYPE" > "$STATE/iftype"
+            rm -f "$STATE/loaded"; fresh=1
+        fi
         if [ -n "$T_EPHOST" ]; then
             T_EPIP=$(resolve_host "$T_EPHOST") || { ERR=resolving; T_EPIP=""; routes_ensure; return 3; }
             wlog INFO "endpoint $T_EPHOST is $T_EPIP"
             mono_now > "$STATE/resolved_at"
         fi
-        if [ "$LINKTYPE" = wireguard ]; then
-            [ -x "$WG" ] || { ERR=wg_tool_missing; return 1; }
+        if [ "$FAKE_LINK" = 0 ]; then
+            tool=$(wg_tool "$T_TYPE"); tn=${tool##*/}
+            [ -x "$tool" ] || { ERR="${tn}_tool_missing"; return 1; }
             sc="$STATE/setconf.$$"
             tun_setconf "$f" "$sc" "$( [ -n "$T_EPHOST" ] && echo "$T_EPIP:$T_PORT")"
-            "$WG" setconf "$IFACE" "$sc" 2>"$STATE/wg.err"; rc=$?
+            "$tool" setconf "$IFACE" "$sc" 2>"$STATE/wg.err"; rc=$?
             rm -f "$sc"
             if [ "$rc" != 0 ]; then
-                # wg quotes the offending line between ` and ' - that can be a key: cut it
+                # wg/awg quote the offending line between ` and ' - that can be a key: cut it
                 e=$(sed "s/\`[^']*'/\`…'/g" "$STATE/wg.err" 2>/dev/null | tr '\n' ' ')
-                wlog ERROR "wg setconf ($name): ${e:-no message}"
+                wlog ERROR "$tn setconf ($name): ${e:-no message}"
                 rm -f "$STATE/wg.err"
-                ERR=wg_setconf_failed; return 1
+                ERR="${tn}_setconf_failed"; return 1
             fi
             rm -f "$STATE/wg.err"
         fi
@@ -186,9 +208,10 @@ tunnel_ensure() {
         info_save
         echo "$ck" > "$STATE/loaded"
         mono_now > "$STATE/up_since"
-        [ "$fresh" = 1 ] && wlog INFO "tunnel $name up (endpoint $T_EP)" || wlog INFO "tunnel $name loaded (endpoint $T_EP)"
+        [ "$fresh" = 1 ] && wlog INFO "tunnel $name up (endpoint $T_EP, $T_TYPE)" || wlog INFO "tunnel $name loaded (endpoint $T_EP, $T_TYPE)"
     else
-        { read -r T_ADDR; read -r T_EP; read -r T_EPIP; read -r T_MTU; read -r T_EPHOST; read -r T_PORT; read -r T_ADDR6; read -r T_V6; } 2>/dev/null < "$STATE/tunnel.info"
+        { read -r T_ADDR; read -r T_EP; read -r T_EPIP; read -r T_MTU; read -r T_EPHOST; read -r T_PORT; read -r T_ADDR6; read -r T_V6; read -r T_TYPE; } 2>/dev/null < "$STATE/tunnel.info"
+        [ -n "$T_TYPE" ] || T_TYPE=wireguard
     fi
     case "$("$IP" link show "$IFACE" 2>/dev/null | head -n1)" in
         *",UP"*|*"<UP"*) : ;;
@@ -199,7 +222,7 @@ tunnel_ensure() {
     return 0
 }
 
-info_save() { printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$T_ADDR" "$T_EP" "$T_EPIP" "$T_MTU" "$T_EPHOST" "$T_PORT" "$T_ADDR6" "$T_V6" > "$STATE/tunnel.info"; }
+info_save() { printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$T_ADDR" "$T_EP" "$T_EPIP" "$T_MTU" "$T_EPHOST" "$T_PORT" "$T_ADDR6" "$T_V6" "$T_TYPE" > "$STATE/tunnel.info"; }
 
 # a host-name endpoint whose tunnel stopped answering: its address may have
 # changed (dynamic DNS) - look it up again, at most once a minute
@@ -210,24 +233,25 @@ reresolve() {
     mono_now > "$STATE/resolved_at"
     new=$(resolve_host "$T_EPHOST") || return 0
     [ "$new" != "$T_EPIP" ] || return 0
-    if [ "$LINKTYPE" = wireguard ]; then
-        pk=$("$WG" show "$IFACE" peers 2>/dev/null | head -n1)
-        [ -n "$pk" ] && "$WG" set "$IFACE" peer "$pk" endpoint "$new:$T_PORT" 2>/dev/null
+    if [ "$FAKE_LINK" = 0 ]; then
+        tool=$(wg_tool "$T_TYPE")
+        pk=$("$tool" show "$IFACE" peers 2>/dev/null | head -n1)
+        [ -n "$pk" ] && "$tool" set "$IFACE" peer "$pk" endpoint "$new:$T_PORT" 2>/dev/null
     fi
     wlog INFO "endpoint $T_EPHOST moved: $T_EPIP -> $new"
     T_EPIP=$new; info_save
 }
 
 wg_handshake() {  # epoch of the latest handshake, 0 = never
-    [ "$LINKTYPE" = wireguard ] || { cat "$STATE/fake_hs" 2>/dev/null || echo 0; return; }
-    h=$("$WG" show "$IFACE" latest-handshakes 2>/dev/null | awk '{ print $2; exit }')
+    [ "$FAKE_LINK" = 0 ] || { cat "$STATE/fake_hs" 2>/dev/null || echo 0; return; }
+    h=$("$(wg_tool "$T_TYPE")" show "$IFACE" latest-handshakes 2>/dev/null | awk '{ print $2; exit }')
     echo "${h:-0}"
 }
 
 wg_transfer() {
     ST_RX=""; ST_TX=""
-    [ "$LINKTYPE" = wireguard ] || return 0
-    set -- $("$WG" show "$IFACE" transfer 2>/dev/null | awk '{ print $2, $3; exit }')
+    [ "$FAKE_LINK" = 0 ] || return 0
+    set -- $("$(wg_tool "$T_TYPE")" show "$IFACE" transfer 2>/dev/null | awk '{ print $2, $3; exit }')
     ST_RX=$1; ST_TX=$2
 }
 
@@ -245,6 +269,7 @@ wgs_tick() {
     prev=$(cat "$STATE/last_state" 2>/dev/null)
     ST_TUNNEL=$S_ACTIVE; ST_ENDPOINT=""; ST_HSAGE="-"; ST_DEF=$DEF; ST_ANDVPN=$ANDVPN
     ST_REASON=""; ST_RX=""; ST_TX=""; ST_EPHOST=""; ST_IPV6=""; V6ON=0; ST_PAUSELEFT=$(pause_left)
+    ST_TYPE=""; T_TYPE=""
 
     if [ -z "$S_ACTIVE" ]; then
         ST_STATE=off
@@ -268,6 +293,7 @@ wgs_tick() {
         ST_PAUSELEFT=""
         shutting_down && return 2
         tunnel_ensure "$S_ACTIVE"; rc=$?
+        ST_TYPE=$T_TYPE
         if [ "$rc" = 1 ]; then
             teardown
             ST_STATE=error; ST_REASON=$ERR

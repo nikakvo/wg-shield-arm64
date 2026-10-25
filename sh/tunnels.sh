@@ -1,9 +1,19 @@
-# WG Shield Arm64 - tunnel files (wg-quick format as exported by the WireGuard app)
-# Private and preshared keys are never printed or logged.
+# WG Shield Arm64 - tunnel files (wg-quick format as exported by the WireGuard
+# or AmneziaWG app). Private, preshared and header protection keys are never
+# printed or logged.
+#
+# Tunnel type: a config with any AmneziaWG key is an AmneziaWG tunnel
+# (T_TYPE=amneziawg), otherwise plain WireGuard (T_TYPE=wireguard). The AWG
+# keys are those of amneziawg-tools 3.1 (config.c): Jc Jmin Jmax S1-S4 H1-H4
+# I1-I5 HeaderProtectionKey ContentPaddingAddition RandomTrailers
+# DisableCookies KeepaliveTimeout MaxHandshakeAttempts RejectAfterTime
+# RekeyAfterTime RekeyTimeout ([Interface]) and AdvancedSecurity ([Peer]).
+# Their values go to `awg setconf` unchanged - it checks them (formats differ
+# between AWG versions); only HeaderProtectionKey is checked here, as a key.
 
 # tun_parse FILE -> T_* variables, T_ERR empty when usable, T_WARN notes
 tun_parse() {
-    T_ADDR=""; T_EP=""; T_EPIP=""; T_MTU=1420; T_KA=""; T_ERR=""; T_WARN=""
+    T_ADDR=""; T_EP=""; T_EPIP=""; T_MTU=1420; T_KA=""; T_ERR=""; T_WARN=""; T_TYPE=wireguard; _awg=0; _hpk=0
     _ni=0; _np=0; _pk=0; _pub=0; _psk=0; T_ADDR6=""; T_V6=0; _addr=""; _mtu=""; _dns=0; _ign=""; _aips=""
     [ -f "$1" ] || { T_ERR="file not found"; return 1; }
     _out=$(tr -d '\r' 2>/dev/null < "$1" | awk '
@@ -23,16 +33,19 @@ tun_parse() {
             else if (k == "mtu") mtu = v
             else if (k == "dns") dns = 1
             else if (k == "table" || k == "preup" || k == "postup" || k == "predown" || k == "postdown" || k == "saveconfig") ign = ign " " k
+            else if (k == "headerprotectionkey") { awg = 1; hpk = (length(v) == 44 && v ~ /^[A-Za-z0-9+\/]+=$/) ? 1 : 2 }
+            else if (k ~ /^(jc|jmin|jmax|s[1-4]|h[1-4]|i[1-5]|contentpaddingaddition|randomtrailers|disablecookies|keepalivetimeout|maxhandshakeattempts|rejectaftertime|rekeyaftertime|rekeytimeout)$/) awg = 1
         } else if (sec == "p") {
             if (k == "endpoint") ep = v
             else if (k == "allowedips") aips = (aips == "" ? v : aips "," v)
             else if (k == "persistentkeepalive") ka = v
             else if (k == "publickey") pub = (length(v) == 44 && v ~ /^[A-Za-z0-9+\/]+=$/) ? 1 : (v == "" ? 0 : 2)
             else if (k == "presharedkey") psk = (length(v) == 44 && v ~ /^[A-Za-z0-9+\/]+=$/) ? 1 : 2
+            else if (k == "advancedsecurity") awg = 1
         }
     }
     END {
-        printf "PSK=%d\n", psk
+        printf "PSK=%d\nAWG=%d\nHPK=%d\n", psk, awg, hpk
         printf "NI=%d\nNP=%d\nPK=%d\nPUB=%d\nADDR=%s\nMTU=%s\nDNS=%d\nIGN=%s\nEP=%s\nAIPS=%s\nKA=%s\n", ni, np, pk, pub, addr, mtu, dns, ign, ep, aips, ka
     }')
     _oifs=$IFS; IFS='
@@ -41,7 +54,7 @@ tun_parse() {
     for _l in $_out; do
         k=${_l%%=*}; v=${_l#*=}
         case "$k" in
-            NI) _ni=$v ;; NP) _np=$v ;; PK) _pk=$v ;; PUB) _pub=$v ;; PSK) _psk=$v ;;
+            NI) _ni=$v ;; NP) _np=$v ;; PK) _pk=$v ;; PUB) _pub=$v ;; PSK) _psk=$v ;; AWG) _awg=$v ;; HPK) _hpk=$v ;;
             ADDR) _addr=$v ;; MTU) _mtu=$v ;; DNS) _dns=$v ;; IGN) _ign=$v ;;
             EP) T_EP=$v ;; AIPS) _aips=$v ;; KA) T_KA=$v ;;
         esac
@@ -53,6 +66,8 @@ tun_parse() {
     case "$_pk" in 1) : ;; 0) T_ERR="no PrivateKey"; return 1 ;; *) T_ERR="PrivateKey is not a valid WireGuard key (44 characters ending in =)"; return 1 ;; esac
     case "$_pub" in 1) : ;; 0) T_ERR="no peer PublicKey"; return 1 ;; *) T_ERR="peer PublicKey is not a valid WireGuard key"; return 1 ;; esac
     [ "$_psk" = 2 ] && { T_ERR="PresharedKey is not a valid WireGuard key"; return 1; }
+    [ "$_hpk" = 2 ] && { T_ERR="HeaderProtectionKey is not a valid key (44 characters ending in =)"; return 1; }
+    [ "$_awg" = 1 ] && T_TYPE=amneziawg
     for _a in $(echo "$_addr" | tr ',' ' '); do
         case "$_a" in *:*) [ -z "$T_ADDR6" ] && T_ADDR6=$_a ;; *) [ -z "$T_ADDR" ] && T_ADDR=$_a ;; esac
     done
@@ -90,18 +105,24 @@ tun_parse() {
     [ -n "$T_EPHOST" ] && T_WARN="$T_WARN host-name-endpoint(resolved-at-connect)"
     [ -n "$_ign" ] && T_WARN="$T_WARN ignored:$(echo $_ign | tr ' ' ',')"
     [ -z "$T_KA" ] && T_WARN="$T_WARN no-PersistentKeepalive(25-is-used)"
+    if [ "$T_TYPE" = amneziawg ]; then
+        T_WARN="$T_WARN AmneziaWG"
+        awg_kernel_ok || T_WARN="$T_WARN AmneziaWG-is-not-in-this-kernel(the-tunnel-cannot-start-here)"
+    fi
     T_WARN=${T_WARN# }
     return 0
 }
 
-# tun_setconf SRC DST [ENDPOINT] - keep only WireGuard keys (like wg-quick strip);
-# add PersistentKeepalive = 25 when the peer has none (health needs regular handshakes);
-# ENDPOINT replaces a host-name endpoint with the resolved address
+# tun_setconf SRC DST [ENDPOINT] - keep only WireGuard / AmneziaWG keys (like
+# wg-quick strip); add PersistentKeepalive = 25 when the peer has none (health
+# needs regular handshakes); ENDPOINT replaces a host-name endpoint with the
+# resolved address. Lines start at column 0: awg keeps the spaces inside
+# I1-I5 only when the line begins with the key.
 tun_setconf() {
     umask 077
     tr -d '\r' 2>/dev/null < "$1" | awk -v addka="$( [ -z "$T_KA" ] && echo 1 || echo 0 )" -v ep="$3" '
         {
-            line = $0; k = line
+            line = $0; sub(/^[ \t]+/, "", line); k = line
             if (index(k, "=") > 0) { k = substr(k, 1, index(k, "=") - 1); gsub(/[ \t]/, "", k); k = tolower(k) }
             if (k == "endpoint" && ep != "") { print "Endpoint = " ep; next }
             if (k == "address" || k == "dns" || k == "mtu" || k == "table" || k == "preup" || k == "postup" || k == "predown" || k == "postdown" || k == "saveconfig") next
@@ -137,8 +158,8 @@ tun_import_one() {
     what=imported; [ -f "$dst" ] && what=replaced
     umask 077
     cp -f "$src" "$dst.tmp.$$" && chmod 600 "$dst.tmp.$$" && mv -f "$dst.tmp.$$" "$dst" || { echo "skipped=$base reason=cannot-write"; return 1; }
-    echo "$what=$name endpoint=$T_EP${T_WARN:+ notes=$(echo "$T_WARN" | tr ' ' ';')}"
-    wlog INFO "tunnel $name $what (endpoint $T_EP)${T_WARN:+ - notes: $T_WARN}"
+    echo "$what=$name endpoint=$T_EP type=$T_TYPE${T_WARN:+ notes=$(echo "$T_WARN" | tr ' ' ';')}"
+    wlog INFO "tunnel $name $what (endpoint $T_EP, $T_TYPE)${T_WARN:+ - notes: $T_WARN}"
     return 0
 }
 
