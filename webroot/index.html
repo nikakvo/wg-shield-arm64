@@ -112,6 +112,7 @@
     .d-stat:last-child { border-bottom: none; }
     .d-stat .k { color: var(--muted); white-space: nowrap; }
     .d-stat .v { color: var(--acc); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .d-stat .v.wrap { white-space: normal; overflow: visible; line-height: 1.5; }
     .empty { padding: 16px 0; text-align: center; color: var(--muted); font-size: 10px; line-height: 1.6; }
     .note { font-size: 9px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
     .note b { color: var(--text); font-weight: normal; }
@@ -269,6 +270,7 @@
       <div class="d-stat"><span class="k">IPv6</span><span class="v" id="t-v6">-</span></div>
       <div class="d-stat"><span class="k">Interface / table</span><span class="v" id="t-if">-</span></div>
       <div class="d-stat"><span class="k">Carried over</span><span class="v" id="t-net">-</span></div>
+      <div class="d-stat"><span class="k">Other networks</span><span class="v wrap" id="t-nets">-</span></div>
     </div>
 
     <div class="section">
@@ -560,6 +562,18 @@ function renderTunnel(st) {
   $('t-if').textContent = on ? `${st.iface} · ${st.table}` : 'not created'; $('t-if').className = 'v ' + (on ? '' : 'm');
   $('t-net').textContent = on ? (st.default_net ? netName(st.default_net) + ' (' + st.default_net + ')' : 'no network') : '-';
   $('t-net').className = 'v ' + (on && st.default_net ? '' : 'm');
+  // other networks: internet ones go through the tunnel (also while Android checks them);
+  // carrier service networks (VoLTE / IMS, MMS) stay outside
+  const nets = (st.nets || '').split(',').filter(Boolean).map(x => x.split('/')).filter(x => x[1] !== 'default');
+  const nIn = nets.filter(x => x[1] === 'tunnel').map(x => netName(x[0]) + ' (' + x[0] + ')');
+  const nChk = nets.filter(x => x[1] === 'checking').map(x => netName(x[0]) + ' (' + x[0] + ')');
+  const nOut = nets.filter(x => x[1] === 'outside').length;
+  const parts = [];
+  if (nIn.length) parts.push(nIn.join(', ') + ' - through the tunnel');
+  if (nChk.length) parts.push(nChk.join(', ') + ' - Android is checking ' + (nChk.length > 1 ? 'them' : 'it') + ', through the tunnel meanwhile');
+  if (nOut) parts.push(nOut + ' carrier service network' + (nOut > 1 ? 's' : '') + ' outside');
+  $('t-nets').textContent = on && st.nets ? (parts.join(' · ') || 'none') : '-';
+  $('t-nets').className = 'v wrap ' + (on && st.nets ? '' : 'm');
   $('w-run').textContent = st.watchdog === 'running' ? 'yes' : 'NO'; $('w-run').className = 'v ' + (st.watchdog === 'running' ? '' : 'r');
   $('w-tick').textContent = st.tick_age !== undefined ? st.tick_age + ' s ago' : '-';
   $('hdr-ver').textContent = st.version ? 'v' + st.version : '';

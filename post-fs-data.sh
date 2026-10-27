@@ -13,7 +13,9 @@ chmod 700 "$DATA" "$TUNDIR"
 rm -rf "$STATE/lock" "$STATE"/import.* "$STATE"/setconf.*
 rm -f "$STATE/status" "$STATE/pause_until" "$STATE/loaded" "$STATE/tunnel.info" \
       "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/last_state" \
-      "$STATE/watchdog.pid" "$STATE/boot.log"
+      "$STATE/watchdog.pid" "$STATE/boot.log" "$STATE/nets" "$STATE/last_nets" \
+      "$STATE/monitor.pid" "$STATE/events" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" \
+      "$STATE/exempt_uids"
 settings_load
 if [ -n "$S_ACTIVE" ] && [ "$S_KILLSWITCH" = 1 ]; then
     boot_guard

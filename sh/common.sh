@@ -38,7 +38,7 @@ RT_TABLES="${WGS_RT_TABLES:-/data/misc/net/rt_tables}"
 
 IFACE=wgs0
 TABLE=51820
-PREFS="5000 5001 5010 5011 5012 5020 5021"
+PREFS="5000 5001 5010 5011 5012 5013 5014 5020 5021 5022"
 DOWN_AFTER=180          # s without a handshake = tunnel down (WireGuard rejects keys after 180 s)
 TICK=10
 # Tunnel types: "wireguard" (plain configs, e.g. Proton) and "amneziawg"
@@ -193,6 +193,7 @@ status_write() {
         echo "pause_left=$ST_PAUSELEFT"
         echo "rx=$ST_RX"
         echo "tx=$ST_TX"
+        echo "nets=$ST_NETS"
         echo "updated=$(epoch_now)"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
     status_compat

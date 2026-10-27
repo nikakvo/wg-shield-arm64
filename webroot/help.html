@@ -118,17 +118,26 @@
   </div>
   <h3>The pieces</h3>
   <p>One interface, <code>wgs0</code>, always the same name whichever tunnel is on. A routing table (<code>51820</code>) that sends everything into it, with an <strong>unreachable</strong> route underneath: if the tunnel disappears, traffic has nowhere to go - it never falls back to your normal connection.</p>
-  <p>Routing rules with priorities 5000–5021 sit in front of Android's (which start at 10000):</p>
+  <p>Routing rules with priorities 5000–5022 sit in front of Android's (which start at 10000):</p>
   <div class="tw"><table>
     <tr><th>rule</th><th>what for</th></tr>
     <tr><td>5000</td><td>The tunnel's own encrypted packets to the server go out through your network.</td></tr>
-    <tr><td>5010–5012</td><td>Local destinations stay local: your Wi-Fi LAN (router, printer, SSH from a laptop), hotspot devices.</td></tr>
+    <tr><td>5010–5013</td><td>Local destinations stay local: your Wi-Fi LAN (router, printer, SSH from a laptop), hotspot devices, the local range of every other network.</td></tr>
+    <tr><td>5014</td><td>Android's own network check and the hotel / airport login page stay on the network they are for.</td></tr>
     <tr><td>5020</td><td>Everything not bound to one network → the tunnel.</td></tr>
     <tr><td>5021</td><td>Everything bound to the current default network (Wi-Fi or mobile) → the tunnel.</td></tr>
+    <tr><td>5022</td><td>Everything bound to another internet network → the tunnel.</td></tr>
   </table></div>
-  <p>Traffic an app binds to <em>another</em> network keeps Android's routing - that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working.</p>
+  <h3>Every network</h3>
+  <p>Android keeps more than one network up: on Wi-Fi, mobile data usually stays connected in the background, and a new Wi-Fi is up for a few seconds before Android uses it. Apps and parts of Android can send traffic over such a network on purpose (Google's push service, for example, connects over a new Wi-Fi a split second after it appears). WG Shield sends that traffic through the tunnel too: a new network is caught the moment Android creates it.</p>
+  <p>Two things always go out on the network itself, never through the tunnel:</p>
+  <ul>
+    <li><strong>Android's network check</strong> (a request to <code>connectivitycheck.gstatic.com/generate_204</code> and similar). Through the tunnel it would always succeed, and Android would take a broken Wi-Fi for a working one.</li>
+    <li><strong>The login page of a hotel or airport Wi-Fi</strong> (Android's captive portal login). It can only open on that Wi-Fi.</li>
+  </ul>
+  <p>Carrier service networks keep Android's routing - that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working. Restricted networks (IMS and the like) are never touched; a network without internet (MMS only) is let go after one look at Android's network list. Dashboard → Tunnel → <strong>Other networks</strong> shows what goes where.</p>
   <h3>Watchdog</h3>
-  <p>A background loop checks every 10 seconds (every 2 seconds during the first minute after boot): the right tunnel is loaded, Android's current default network (it gets a new number on every reconnect), the server route follows it, no rule is missing. Anything off is put back and written to the log.</p>
+  <p>A background loop follows Android's network rules as they change: a new network goes through the tunnel within a fraction of a second, a new default network is followed at once. On top of that it checks every 10 seconds (every 2 seconds during the first minute after boot): the right tunnel is loaded, the server route follows the network, no rule is missing. Rules are changed without a gap - the new ones are in place before the old ones go - so the kill switch never opens. Anything off is put back and written to the log.</p>
   <h3>At boot</h3>
   <p>If a tunnel was on when the phone went down and the kill switch is on, a blocking rule is in place before Android starts its network. Nothing leaves the phone until the tunnel is up.</p>
 </div>
@@ -154,7 +163,7 @@
   <h3>Exit</h3>
   <p><strong>Check</strong> asks an IP service once and shows the address websites see, with its place and provider.</p>
   <h3>Tunnel</h3>
-  <p>The active tunnel, its type (WireGuard or AmneziaWG, with the kernel's AmneziaWG version), its server, the last handshake, data received and sent, and which network carries the tunnel.</p>
+  <p>The active tunnel, its type (WireGuard or AmneziaWG, with the kernel's AmneziaWG version), its server, the last handshake, data received and sent, and which network carries the tunnel. <strong>Other networks</strong>: the networks that are up besides that one - internet ones go through the tunnel (also while Android is still checking them), carrier service networks stay outside.</p>
   <h3>Networking set</h3>
   <p>Whether DNSCrypt Proxy, ipset and VPN Hotspot are installed and what they are doing (see 8).</p>
 </div>
@@ -205,7 +214,8 @@
     <li><strong>One peer, full tunnel.</strong> Split tunnels and several peers are not supported.</li>
     <li><strong>Host-name endpoints</strong> (e.g. a home server on dynamic DNS) are looked up when the tunnel starts, with one plain DNS query to Quad9 sent outside the tunnel - before the tunnel is up there is no other way. If such a tunnel stops answering, the name is looked up again (at most once a minute), so an address change at home is followed by itself. IPv6 endpoints are not supported.</li>
     <li><strong>Same LAN on both sides.</strong> Addresses of your own Wi-Fi network always stay local. If a home VPN uses the same range as your Wi-Fi (both <code>192.168.1.x</code>), devices behind that VPN cannot be reached while you are on that Wi-Fi.</li>
-    <li><strong>No per-app bypass.</strong> Everything the phone sends goes through the tunnel, except traffic bound to another network (IMS, MMS).</li>
+    <li><strong>No per-app bypass.</strong> Everything the phone sends goes through the tunnel, except carrier services (IMS, MMS), Android's network check and the captive portal login page (see 3).</li>
+    <li><strong>What the network still sees.</strong> Android's network check runs on each new network (a request to Google's <code>generate_204</code>); a VPN cannot hide it without breaking Wi-Fi detection. What the router sees on the local network (DHCP host name, device announcements) is outside a VPN's reach.</li>
     <li><strong>Hotspot devices</strong> are routed by VPN Hotspot, not by WG Shield (see 8); they get IPv4 only.</li>
   </ul>
 </div>
@@ -238,6 +248,8 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
   <p>The Log names the file and the reason: a key that is not a real key (for example one replaced by <code>*****</code>), several peers, not a full tunnel, a bad endpoint.</p>
   <h3>"Rules changed by someone else - repaired"</h3>
   <p>Something removed one of the module's routing rules; the watchdog put it back. Once is harmless. If it repeats every few seconds, another module fights over the same rules - send the Report.</p>
+  <h3>"Rules check: IPv4 x of y"</h3>
+  <p>After changing its rules, the module counts them; this line means the kernel holds a different number than wanted, and lists both. The next change of network sets them again. If it repeats, send the Report.</p>
   <h3>Something is wrong and I need internet now</h3>
   <p>Action button in the manager (off), or <code>ctl.sh down</code>. If the module itself misbehaves: disable it in the manager and reboot - nothing of it stays active.</p>
   <h3>AmneziaWG tunnel shows an error</h3>

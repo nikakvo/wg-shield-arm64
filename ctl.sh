@@ -76,6 +76,33 @@ _http_get() {  # <host> <path>
 }
 _json_str() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" | head -n 1; }
 
+# poll's tunnel rows, "t=name|endpoint|address|valid|ipv6|type". Parsing ~40
+# files on every poll (every 4 s while the WebUI is open) took seconds, so the
+# rows are kept in $STATE/tunrows and made again only when a file in tunnels/
+# changed (name, inode, size, time).
+tun_rows() {
+    _k=$(stat -c '%n %i %s %Y' "$TUNDIR"/*.conf 2>/dev/null | cksum)
+    _c="$STATE/tunrows"
+    if [ "$(head -n 1 "$_c" 2>/dev/null)" != "$_k" ]; then
+        {
+            echo "$_k"
+            for n in $(tun_names); do
+                if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE"; else echo "t=$n|-|-|0|0|-"; fi
+            done
+        } > "$_c.tmp.$$" && mv -f "$_c.tmp.$$" "$_c"
+    fi
+    tail -n +2 "$_c" 2>/dev/null
+}
+
+# route_dev MARK UID - where a socket with this mark and uid goes: the
+# interface for 1.1.1.1, else for an IPv6 address (carrier IMS networks are
+# IPv6 only), else "blocked"
+route_dev() {
+    _d=$("$IP" route get 1.1.1.1 mark "$1" uid "$2" 2>/dev/null | head -n1 | sed -n 's/.* dev \([^ ]*\).*/\1/p')
+    [ -n "$_d" ] || { _d=$("$IP" -6 route get 2001:4860:4860::8888 mark "$1" uid "$2" 2>/dev/null | head -n1 | sed -n 's/.* dev \([^ ]*\).*/\1/p'); [ -n "$_d" ] && _d="$_d (IPv6)"; }
+    echo "${_d:-blocked}"
+}
+
 # run one tick now under the lock (the watchdog does the same every 10 s)
 tick_now() {
     lock_get 20 || fail "busy - try again"
@@ -194,9 +221,7 @@ case "$cmd" in
         echo "version=$(sed -n 's/^version=//p' "$MODDIR/module.prop")"
         if watchdog_alive; then echo "watchdog=running"; else echo "watchdog=stopped"; fi
         t=$(cat "$STATE/tick" 2>/dev/null); [ -n "$t" ] && echo "tick_age=$(( $(epoch_now) - t ))"
-        for n in $(tun_names); do
-            if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE"; else echo "t=$n|-|-|0|0|-"; fi
-        done
+        tun_rows
         echo "awg_kernel=$(awg_kernel_ver)"
         echo "dnscrypt=$(sib_state dnscrypt-proxy-android)"
         # DNSCrypt Proxy r22+ keeps everything in /data/adb/dnscrypt-proxy/, older versions at the top of /data/adb
@@ -263,8 +288,33 @@ case "$cmd" in
         fi
         echo; echo "== our rules"; "$IP" rule 2>/dev/null | grep -E '^50[0-9][0-9]:'; "$IP" -6 rule 2>/dev/null | grep -E '^50[0-9][0-9]:' | sed 's/^/v6 /'
         echo; echo "== table $TABLE"; "$IP" route show table "$TABLE" 2>/dev/null
+        echo; echo "== rules wanted ($(grep -c . "$STATE/rules.want" 2>/dev/null))"; sed 's/ rule add pref / /' "$STATE/rules.want" 2>/dev/null
+        echo "key $(cat "$STATE/rules.key" 2>/dev/null)"
+        echo "kept on their own network (uids): $(cat "$STATE/exempt_uids" 2>/dev/null || echo "$NETSTACK_UID (package manager not asked yet)")"
+        echo; echo "== networks (netId interface class table)"; tail -n +3 "$STATE/nets" 2>/dev/null
+        if mon_pid=$(cat "$STATE/monitor.pid" 2>/dev/null) && [ -n "$mon_pid" ] && kill -0 "$mon_pid" 2>/dev/null; then
+            echo "network change watch: running (pid $mon_pid)"; else echo "network change watch: not running"; fi
         echo; echo "== netd default / VPN rules"; "$IP" rule 2>/dev/null | grep -E '^(13000|31000):'
-        echo; echo "== route checks"; "$IP" route get 1.1.1.1 2>&1 | head -n1
+        echo; echo "== route checks (1.1.1.1)"; "$IP" route get 1.1.1.1 2>&1 | head -n1
+        # a socket bound to each network (its explicit mark), from an app and
+        # from Android's own network check (NetworkStack, uid 1073)
+        detect_net
+        _oifs=$IFS; IFS='
+'
+        for l in $NETS_ALL; do
+            IFS=' '; set -- $l; IFS='
+'
+            mk=$(printf '0x%x' $(( 0x10000 | $2 | ($3 << 18) )))
+            ra=$(route_dev "$mk" 10000); rn=$(route_dev "$mk" "$NETSTACK_UID")
+            # a carrier network without any route (e.g. an emergency / IMS one
+            # that is not in use) is not blocked by us: nothing can go there
+            if [ "$3" -ge 2 ]; then
+                [ "$ra" = blocked ] && ra="no route (carrier network, not used now)"
+                [ "$rn" = blocked ] && rn="no route"
+            fi
+            echo "bound to $4 (netId $2): app -> $ra, android check -> $rn"
+        done
+        IFS=$_oifs
         echo; echo "== siblings"; for m in dnscrypt-proxy-android ipset_arm64 vpn-hotspot; do echo "$m $(sib_state "$m")"; done
         echo; echo "== log (last 40)"; tail -n 40 "$LOG" 2>/dev/null
         ;;

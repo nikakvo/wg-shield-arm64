@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.1
+
+Nothing goes around the tunnel when the network changes.
+
+* **Every internet network goes through the tunnel** - until now only the network Android used at the moment did. Android keeps more than one network up: mobile data stays connected in the background while you are on Wi-Fi, and a new Wi-Fi is up for a few seconds before Android uses it. Apps and Android itself send traffic over such a network on purpose - Google's push service connected over a new Wi-Fi a split second after Android had checked it, outside the tunnel. Now that traffic goes through the tunnel as well, and a new network is caught the moment Android creates it
+* **Android's network check and the hotel / airport login page stay on their network** - only these two never go through the tunnel (on every network), so a broken Wi-Fi is never taken for a working one and a captive portal login page can open
+* **Carrier services untouched** - IMS (VoLTE, Wi-Fi calling) and MMS-only networks keep Android's routing, as before
+* **Network changes followed at once** - the watchdog watches Android's network rules and acts the moment they change, instead of on its next check (up to 10 s)
+* **No gap while rules change** - new rules are in place before the old ones go, so the kill switch never opens for a moment; rules are set in one go (faster) and checked afterwards
+* **Rules of a network that is gone are always removed** - they are written with the table number, which stays valid after Android forgets the network's name
+* **WebUI** - opens faster (the tunnel list is read only when a file changed); Dashboard → Tunnel → *Other networks* shows what goes where
+* **Report** - lists every network with where an app's and Android's traffic bound to it goes
+* Status file: new key `nets=` (all other keys unchanged)
+
+Tested on Poco F6 Pro, Xiaomi.eu ROM (HyperOS 3, Android 16), kernel [GKI_Kernel_SukiSU](https://github.com/nikakvo/GKI_Kernel_SukiSU): Proton VPN WireGuard on Wi-Fi with mobile data in the background, Wi-Fi switched off and on many times (captured with tcpdump: only Android's network check on the Wi-Fi, nothing else), calls, SMS, Telegram calls, hotspot devices through the tunnel (VPN Hotspot 1.0-r15), DNS through DNSCrypt Proxy, kill switch.
+
+---
+
 ## 2.0
 
 AmneziaWG tunnels, next to WireGuard.

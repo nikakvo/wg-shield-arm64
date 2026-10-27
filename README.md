@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.0-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.1-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
@@ -34,7 +34,8 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 - **Kill switch** - tunnel on but not answering (no handshake for 180 s, WireGuard's own limit) → no internet at all, never the plain connection; from the first second of boot when a tunnel was on
 - **Your choice is not a failure** - turn the tunnel off or pause it (15 min / 1 h / 4 h) and the phone simply uses your connection
 - **IPv4 and IPv6** - a tunnel with an IPv6 address and `::/0` carries IPv6 too; one without blocks IPv6 while it is on, so nothing goes around it
-- **Wi-Fi ↔ mobile data** - followed within seconds; Android gives the network a new number on every reconnect, the watchdog reads it each time
+- **Wi-Fi ↔ mobile data** - followed the moment Android switches: the watchdog watches Android's network rules and acts at once, not on its next check
+- **Every internet network, not only the current one** - mobile data kept up in the background while you are on Wi-Fi, a Wi-Fi Android is still checking: whatever an app or Android sends over them goes through the tunnel too. A new network is caught the moment Android creates it. Only Android's own network check and the login page of a hotel / airport Wi-Fi go out on the network itself, so a broken Wi-Fi is never taken for a working one and a login page can open
 - **Host-name endpoints** - a home server on dynamic DNS works; the name is looked up again if the tunnel stops answering
 - **Steps aside for VPN apps** - connect WireGuard, Proton VPN or v2rayNG and WG Shield pauses itself, until that VPN disconnects
 - **Local stays local** - your Wi-Fi LAN (router, printer, SSH from a laptop) and hotspot devices are reached directly
@@ -49,7 +50,7 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 ```
 app on the phone
       ↓
-routing rules 5000–5021  (before Android's own, which start at 10000)
+routing rules 5000–5022  (before Android's own, which start at 10000)
       ↓
 wgs0 - the kernel tunnel (WireGuard or         table 51820: default dev wgs0
        AmneziaWG), encrypted
@@ -60,15 +61,17 @@ your Wi-Fi or mobile network → VPN server → internet
 | Rule | What for |
 |---|---|
 | 5000 | The tunnel's own encrypted packets to the server go out through your network |
-| 5010–5012 | Local destinations stay local: Wi-Fi LAN, hotspot devices |
+| 5010–5013 | Local destinations stay local: Wi-Fi LAN, hotspot devices, the local range of every other network |
+| 5014 | Android's own network check (NetworkStack) and the captive portal login page stay on the network they are for |
 | 5020 | Everything not bound to one network → the tunnel |
 | 5021 | Everything bound to the current default network → the tunnel |
+| 5022 | Everything bound to another internet network (mobile data in the background, a Wi-Fi not yet in use) → the tunnel |
 
-Traffic an app binds to *another* network keeps Android's routing - that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working. No firewall (iptables) rules at all: nothing can conflict with Android's firewall lock or with the other modules' chains.
+Carrier service networks keep Android's routing - that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working. Which network is which comes from Android itself: restricted networks (IMS and the like) are never touched, networks without internet (MMS only) are left alone after one look at `dumpsys connectivity`. No firewall (iptables) rules at all: nothing can conflict with Android's firewall lock or with the other modules' chains.
 
 `wgs0` is created with the type of the tunnel that is on (`wireguard` or `amneziawg`) and set up with the matching tool (`wg` or `awg`). Switching between the two types creates `wgs0` again; the `unreachable` route keeps the kill switch closed meanwhile.
 
-A watchdog checks every 10 seconds (every 2 s during the first minute after boot): the right tunnel loaded, the current default network, every rule in place. Anything off is put back and logged.
+A watchdog follows Android's network rules as they change (`ip monitor`): a new network goes through the tunnel within a fraction of a second, a new default network is followed at once. On top of that it checks every 10 seconds (every 2 s during the first minute after boot): the right tunnel loaded, every rule in place. Rules are changed without a gap - the new ones are in place before the old ones go - so the kill switch never opens. Anything off is put back and logged.
 
 ---
 
@@ -105,7 +108,7 @@ Tunnels and settings are kept on update.
 
 | Tab | |
 |---|---|
-| Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network · the networking set · watchdog |
+| Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network, the other networks · the networking set · watchdog |
 | Tunnels | Every tunnel with a switch (one at a time), an **AWG** badge for AmneziaWG tunnels, and **✕** · import from Download, delete the export |
 | Settings | Kill switch · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) |
 | Log | Filterable by level |
