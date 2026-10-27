@@ -1,6 +1,6 @@
 {
-  "version": "2.0",
-  "versionCode": 5,
-  "zipUrl": "https://github.com/nikakvo/wg-shield-arm64/releases/download/v2.0/wg-shield-arm64-v2.0.zip",
+  "version": "2.1",
+  "versionCode": 6,
+  "zipUrl": "https://github.com/nikakvo/wg-shield-arm64/releases/download/v2.1/wg-shield-arm64-v2.1.zip",
   "changelog": "https://raw.githubusercontent.com/nikakvo/wg-shield-arm64/main/CHANGELOG.md"
 }
