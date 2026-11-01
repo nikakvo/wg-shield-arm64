@@ -74,7 +74,7 @@
   <a href="#dash">5 · Dashboard</a>
   <a href="#tunnels">6 · Tunnels, import and AmneziaWG</a>
   <a href="#settings">7 · Kill switch and pause</a>
-  <a href="#set">8 · With DNSCrypt Proxy, ipset and VPN Hotspot</a>
+  <a href="#set">8 · With the other modules of the set</a>
   <a href="#limits">9 · IPv6 and other limits</a>
   <a href="#cli">10 · Command line</a>
   <a href="#trouble">11 · Troubleshooting</a>
@@ -192,7 +192,7 @@
   <p>While any VPN app is connected (WireGuard, Proton VPN, v2rayNG…) WG Shield steps aside and shows <span class="pill warn">paused</span>. It comes back when that VPN disconnects. That way the app stays a fallback, and two tunnels never fight over one key.</p>
 </div>
 
-<div class="sec-title" id="set">8 · with dnscrypt proxy, ipset and vpn hotspot</div>
+<div class="sec-title" id="set">8 · with the other modules of the set</div>
 <div class="box">
   <div class="flow">
     app DNS → <span class="dn">DNSCrypt Proxy</span> on the phone → <b>tunnel</b> → encrypted resolvers<br>
@@ -204,6 +204,8 @@
   <p>Its lists apply as always. A tunnel server must never be listed, or the tunnel cannot connect: check the server's address with ipset's <strong>Check</strong> tool, and add it to its allowlist if needed.</p>
   <h3>VPN Hotspot</h3>
   <p>VPN Hotspot (1.0-r13 or newer) reads WG Shield's status and sends hotspot devices through the same tunnel whenever it is up. Switching the server here needs nothing there. When you turn WG Shield off or pause it, hotspot devices go direct like the phone. While the tunnel connects or is down, they follow VPN Hotspot's own kill switch (no internet when it is on). Older versions of VPN Hotspot only follow Android's VPN and do not see WG Shield.</p>
+  <h3>LAN Cloak</h3>
+  <p>The Dashboard only shows its state: LAN Cloak hides what the Wi-Fi network itself sees of the phone (no device name in DHCP, no mDNS / SSDP / LLMNR announcements), the tunnel covers everything else, and neither module changes anything in the other.</p>
 </div>
 
 <div class="sec-title" id="limits">9 · ipv6 and other limits</div>

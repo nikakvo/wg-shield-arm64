@@ -19,6 +19,7 @@
       --vhs:    #fcee0a;
       --dnsc:   #00ff88;
       --ipset:  #00aaff;
+      --lanc:   #ff3dd2;
       --border: #153040;
       --line:   #0b1a22;
       --muted:  #7493a3;
@@ -130,9 +131,10 @@
     .pill.dnsc { color: var(--dnsc);  border-color: rgba(0,255,136,.35); background: rgba(0,255,136,.06); }
     .pill.ipset { color: var(--ipset); border-color: rgba(0,170,255,.4); background: rgba(0,170,255,.06); }
     .pill.vhs { color: var(--vhs); border-color: rgba(252,238,10,.4); background: rgba(252,238,10,.06); }
+    .pill.lanc { color: var(--lanc); border-color: rgba(255,61,210,.4); background: rgba(255,61,210,.06); }
     .sib { border-left: 2px solid; padding-left: 9px; }
-    .sib.dnsc { border-left-color: var(--dnsc); } .sib.ipset { border-left-color: var(--ipset); } .sib.vhs { border-left-color: var(--vhs); }
-    .sib.dnsc b { color: var(--dnsc) !important; } .sib.ipset b { color: var(--ipset) !important; } .sib.vhs b { color: var(--vhs) !important; }
+    .sib.dnsc { border-left-color: var(--dnsc); } .sib.ipset { border-left-color: var(--ipset); } .sib.vhs { border-left-color: var(--vhs); } .sib.lanc { border-left-color: var(--lanc); }
+    .sib.dnsc b { color: var(--dnsc) !important; } .sib.ipset b { color: var(--ipset) !important; } .sib.vhs b { color: var(--vhs) !important; } .sib.lanc b { color: var(--lanc) !important; }
 
     /* exit */
     .exit-box { display: flex; align-items: center; gap: 10px; }
@@ -379,12 +381,26 @@ function legacyExec(cmd) { const r = ksu.exec(cmd); return { errno: 0, stdout: t
 // whole page until the command ends. A slow first root shell (cold start)
 // must not push the page into legacy mode for good, so the callback form
 // gets two generous tries before falling back.
+// Which form of ksu.exec works. On a quick reopen the root manager can run
+// the page's first command before it has registered the new page, and that
+// answer never comes. So the check is asked again a moment later, several
+// times, and the first answer wins - instead of waiting seconds for a lost
+// one and then falling back to the slow form that blocks the page.
 async function detectExecMode() {
   if (!hasBridge()) throw new Error('no root bridge');
-  for (const t of [8000, 15000]) {
-    try { const r = await callbackExec('echo wgs_ok', t); if ((r.stdout || '').indexOf('wgs_ok') >= 0) return 'callback'; }
-    catch (e) { if (!/timeout/.test(String(e && e.message))) break; }
-  }
+  const viaCallback = await new Promise(resolve => {
+    let done = false;
+    const finish = v => { if (!done) { done = true; resolve(v); } };
+    const ask = () => {
+      if (done) return;
+      callbackExec('echo wgs_ok', 15000).then(
+        r => { if ((r.stdout || '').indexOf('wgs_ok') >= 0) finish(true); },
+        e => { if (!/timeout/.test(String(e && e.message))) finish(false); });
+    };
+    [0, 400, 1000, 2000, 3500, 6000].forEach(t => setTimeout(ask, t));
+    setTimeout(() => finish(false), 16000);
+  });
+  if (viaCallback) return 'callback';
   try { const l = legacyExec('echo wgs_ok'); if ((l.stdout || '').indexOf('wgs_ok') >= 0) return 'legacy'; } catch (e) {}
   throw new Error('root shell unavailable');
 }
@@ -601,8 +617,25 @@ function renderSet(st) {
   const setHtml =
     row('dnsc', 'DNSCrypt Proxy', st.dnscrypt, `<span class="pill ${dnOk ? 'dnsc' : 'warn'}">${esc(st.dnscrypt_state || 'unknown')}</span>`, dnTxt) +
     row('ipset', 'ipset', st.ipset, '<span class="pill ipset">active</span>', st.ipset === 'on' ? 'Blocks listed IP ranges; a tunnel server must never be in its lists (check it with ipset\'s Check tool).' : 'IP blocklists.') +
-    row('vhs', 'VPN Hotspot', st.vhs, `<span class="pill ${st.vhs_state === 'vpn' ? 'vhs' : 'skip'}">${esc(st.vhs_state || 'idle')}</span>`, vhsTxt);
+    row('vhs', 'VPN Hotspot', st.vhs, `<span class="pill ${st.vhs_state === 'vpn' ? 'vhs' : 'skip'}">${esc(st.vhs_state || 'idle')}</span>`, vhsTxt) +
+    lancRow(st, row);
   if ($('set-body')._h !== setHtml) { $('set-body').innerHTML = setHtml; $('set-body')._h = setHtml; }
+}
+
+// LAN Cloak: read only, from its own status file (lancloak* keys of ctl poll)
+function lancRow(st, row) {
+  const note = ' What the Wi-Fi network sees; the tunnel covers the rest.';
+  const age = parseInt(st.lancloak_age, 10);
+  let pill = '<span class="pill skip">off</span>', txt = 'Hides the phone on Wi-Fi: no device name in DHCP, no mDNS / SSDP / LLMNR announcements.';
+  if (st.lancloak === 'on') {
+    if (!st.lancloak_state || !(age < 60)) { pill = '<span class="pill warn">no status</span>'; txt = 'Installed, but its watchdog has not reported for a while.'; }
+    else if (st.lancloak_state === 'on') {
+      pill = '<span class="pill lanc">cloaked</span>';
+      txt = 'Hides the phone on Wi-Fi: ' + (st.lancloak_dhcp === 'on' ? 'DHCP cleaned' : st.lancloak_dhcp === 'waiting' ? 'DHCP guard waiting for Wi-Fi' : 'DHCP untouched') + ', ' + (st.lancloak_announce === 'on' ? 'announcements blocked' : 'announcements allowed') + '.';
+    } else if (st.lancloak_state === 'error') { pill = '<span class="pill warn">error</span>'; txt = st.lancloak_reason === 'dhcp' ? 'Its DHCP guard failed - open LAN Cloak for details.' : 'Its firewall rules could not be set - open LAN Cloak for details.'; }
+    else txt = st.lancloak_reason === 'nothing-selected' ? 'Installed, nothing selected in its settings.' : 'Installed, turned off in its settings.';
+  }
+  return row('lanc', 'LAN Cloak', st.lancloak || 'absent', pill, txt + note);
 }
 
 let _tunSig = '', _tunBusy = false;

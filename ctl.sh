@@ -62,6 +62,32 @@ sib_state() {  # installed / disabled / absent
     else echo on; fi
 }
 
+# LAN Cloak Arm64 (same set): read only, shown in the WebUI. It works on
+# the Wi-Fi network itself, WG Shield on routing - neither touches the other.
+lanc_rows() {
+    echo "lancloak=$(sib_state lan-cloak)"
+    _lf="$ADB/lan-cloak/state/status"
+    _ls=""; _lr=""; _ld=""; _la=""; _lw=""; _lu=""
+    if [ -f "$_lf" ]; then
+        while IFS='=' read -r _lk _lv; do
+            case "$_lk" in
+                state) _ls=$_lv ;; reason) _lr=$_lv ;; dhcp) _ld=$_lv ;;
+                announce) _la=$_lv ;; wifi) _lw=$_lv ;; updated) _lu=$_lv ;;
+            esac
+        done 2>/dev/null < "$_lf"
+    fi
+    echo "lancloak_state=$_ls"
+    echo "lancloak_reason=$_lr"
+    echo "lancloak_dhcp=$_ld"
+    echo "lancloak_announce=$_la"
+    echo "lancloak_wifi=$_lw"
+    case "$_lu" in
+        ''|*[!0-9]*) echo "lancloak_age=" ;;
+        *) echo "lancloak_age=$(( $(epoch_now) - _lu ))" ;;
+    esac
+    unset _lf _ls _lr _ld _la _lw _lu _lk _lv
+}
+
 watchdog_alive() {
     p=$(cat "$STATE/watchdog.pid" 2>/dev/null)
     [ -n "$p" ] && kill -0 "$p" 2>/dev/null && grep -q service.sh "/proc/$p/cmdline" 2>/dev/null
@@ -235,6 +261,7 @@ case "$cmd" in
         echo "vhs_state=$(sed -n 's/^state=//p' "$vs" 2>/dev/null | head -n1)"
         echo "vhs_code=$(sed -n 's/^versionCode=//p' "$MODULES/vpn-hotspot/module.prop" 2>/dev/null | head -n1)"
         echo "vhs_source=$(sed -n 's/^vpn_source=//p' "$vs" 2>/dev/null | head -n1)"
+        lanc_rows
         ;;
     files)
         echo "ok=1"
@@ -315,7 +342,7 @@ case "$cmd" in
             echo "bound to $4 (netId $2): app -> $ra, android check -> $rn"
         done
         IFS=$_oifs
-        echo; echo "== siblings"; for m in dnscrypt-proxy-android ipset_arm64 vpn-hotspot; do echo "$m $(sib_state "$m")"; done
+        echo; echo "== siblings"; for m in dnscrypt-proxy-android ipset_arm64 vpn-hotspot lan-cloak; do echo "$m $(sib_state "$m")"; done
         echo; echo "== log (last 40)"; tail -n 40 "$LOG" 2>/dev/null
         ;;
     log)

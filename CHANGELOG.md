@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1-r1
+
+LAN Cloak joins the networking set.
+
+* **LAN Cloak row** in Dashboard → Networking set: shows whether [LAN Cloak Arm64](https://github.com/nikakvo/lan-cloak-arm64) is installed and what it does right now (cloaked, off, error, disabled). LAN Cloak hides what the Wi-Fi network itself sees of the phone; the tunnel covers the rest. WG Shield only reads LAN Cloak's status - routing, kill switch and tunnels are unchanged
+* **WebUI opens quickly every time** - after closing and quickly reopening it, the page could wait several seconds before showing anything. The root manager sometimes drops the page's very first command; the page now asks again after a moment instead of waiting for the lost answer
+* The report (`ctl.sh diag`) lists LAN Cloak with the other modules
+* Help → *With the other modules of the set* and the README describe the five modules
+
+---
+
 ## 2.1
 
 Nothing goes around the tunnel when the network changes.

@@ -1,8 +1,8 @@
-<p align="center"><img src="wg-shield.png" alt="WG Shield Arm64"></p>
+<p align="center"><img src="readme-banner.png" alt="WG Shield Arm64"></p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.1-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.1--r1-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
@@ -142,7 +142,7 @@ Nothing leaks in any combination. Switching the IP mode while a tunnel runs is p
 
 ## The networking set
 
-Four modules built to work together - each one works on its own, and each adds a layer for the phone **and everyone on its hotspot**:
+Five modules built to work together - each one works on its own, and each adds a layer for the phone **and everyone on its hotspot**:
 
 | | Module | What it adds |
 |---|---|---|
@@ -150,6 +150,7 @@ Four modules built to work together - each one works on its own, and each adds a
 | 🔵 | [ipset-arm64](https://github.com/nikakvo/ipset_arm64) | IP blocklists (FireHOL, Spamhaus) in the kernel - stops connections to hard-coded IP addresses, which DNS blocking cannot see |
 | 🟡 | [VPN Hotspot Arm64](https://github.com/nikakvo/vpn-hotspot-arm64) | Sends hotspot, USB and Bluetooth devices through the phone's VPN, with kill switch |
 | 🩵 | **WG Shield Arm64** *(this module)* | Always-on kernel WireGuard / AmneziaWG for the phone, with kill switch - no app |
+| 🩷 | [LAN Cloak Arm64](https://github.com/nikakvo/lan-cloak-arm64) | What the local network sees of the phone: clean DHCP, no announcements |
 
 ```
 app on the phone  /  device on your hotspot
@@ -163,7 +164,8 @@ internet
 - **DNS stays with DNSCrypt Proxy** - WG Shield never sets DNS (the `DNS =` line of a config is ignored); DNSCrypt's own queries simply travel inside the tunnel. Its System tab shows *Through WG Shield · tunnel*
 - **Hotspot devices follow the tunnel** - WireGuard or AmneziaWG alike: VPN Hotspot (1.0-r13 or newer) reads WG Shield's status: through the tunnel when it is up, direct when you turn it off or pause it, blocked when it fails
 - **ipset** blocks as always; a tunnel server must never be in its lists (check it with its *Check* tool)
-- **No firewall conflicts** - WG Shield uses routing only; the other three read the firewall without taking Android's lock
+- **LAN Cloak** - hides what the Wi-Fi network itself sees of the phone (DHCP, announcements); the tunnel covers the rest. WG Shield's Dashboard shows its state
+- **No firewall conflicts** - WG Shield uses routing only; the others read the firewall without taking Android's lock
 
 ---
 
