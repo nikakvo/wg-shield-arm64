@@ -2,6 +2,10 @@
 # WG Shield Arm64 - watchdog: every tick it brings the tunnel to the wanted
 # state, follows network changes and repairs rules (fast ticks after boot).
 #
+# Between ticks it checks every 5 s that the tunnel still answers (anything
+# received through wgs0, else a ping through it); no answer = tick at once,
+# and the self-healing in sh/recover.sh starts.
+#
 # Network changes are not waited for: `ip monitor rule` wakes the watchdog
 # the moment netd changes the default network (rule 31000), adds or removes
 # a network (16000) or an Android VPN (13000). The tick runs as soon as
@@ -110,5 +114,17 @@ while :; do
     fi
     n=$((n + 1))
     if [ "$n" -lt "${WGS_FAST:-30}" ]; then t=2; else t=${WGS_TICK:-$TICK}; fi
-    wait_event "$t"
+    # a recovery attempt in progress: every 2 s, so its steps follow quickly
+    [ -f "$STATE/heal" ] && ! grep -q '^done=1' "$STATE/heal" 2>/dev/null && t=2
+    # between ticks: is the tunnel still answering? (sh/recover.sh live_check,
+    # every LIVE_EVERY s) - no answer = tick now, the recovery starts at once
+    left=$t
+    while [ "$left" -gt 0 ]; do
+        _ws=$LIVE_EVERY; [ "$_ws" -gt "$left" ] && _ws=$left
+        # a network change: tick now, and ask the tunnel at the next check
+        # (even while down - it may work on the new network)
+        wait_event "$_ws" && { rm -f "$STATE/live_probe_at"; break; }
+        left=$((left - _ws))
+        live_check || break
+    done
 done

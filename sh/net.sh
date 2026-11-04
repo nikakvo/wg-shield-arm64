@@ -423,7 +423,7 @@ teardown() {
     "$IP" route flush table "$TABLE" 2>/dev/null
     "$IP" -6 route flush table "$TABLE" 2>/dev/null
     "$IP" link del "$IFACE" 2>/dev/null
-    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty"
+    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused"
 }
 
 # tunnel_ensure NAME - iface exists with the tunnel's type, carries NAME's
@@ -478,6 +478,7 @@ tunnel_ensure() {
         info_save
         echo "$ck" > "$STATE/loaded"
         mono_now > "$STATE/up_since"
+        live_reset   # liveness of the previous tunnel / interface does not count
         [ "$fresh" = 1 ] && wlog INFO "tunnel $name up (endpoint $T_EP, $T_TYPE)" || wlog INFO "tunnel $name loaded (endpoint $T_EP, $T_TYPE)"
     else
         { read -r T_ADDR; read -r T_EP; read -r T_EPIP; read -r T_MTU; read -r T_EPHOST; read -r T_PORT; read -r T_ADDR6; read -r T_V6; read -r T_TYPE; } 2>/dev/null < "$STATE/tunnel.info"
@@ -539,7 +540,7 @@ wgs_tick() {
     prev=$(cat "$STATE/last_state" 2>/dev/null)
     ST_TUNNEL=$S_ACTIVE; ST_ENDPOINT=""; ST_HSAGE="-"; ST_DEF=$DEF; ST_ANDVPN=$ANDVPN
     ST_REASON=""; ST_RX=""; ST_TX=""; ST_EPHOST=""; ST_IPV6=""; V6ON=0; ST_PAUSELEFT=$(pause_left)
-    ST_TYPE=""; T_TYPE=""; ST_NETS=""; EXTRA=""; EXTRA_NAMES=""
+    ST_TYPE=""; T_TYPE=""; ST_NETS=""; EXTRA=""; EXTRA_NAMES=""; ST_RECOVER=""; ST_RECOVER_FROM=""
 
     if [ -z "$S_ACTIVE" ]; then
         ST_STATE=off
@@ -559,6 +560,7 @@ wgs_tick() {
             teardown
         fi
         [ "$ST_PAUSELEFT" = 0 ] && ST_PAUSELEFT=""
+        rm -f "$STATE/heal"   # off / paused / error: no recovery attempt
     else
         ST_PAUSELEFT=""
         shutting_down && return 2
@@ -581,6 +583,8 @@ wgs_tick() {
                     age=$(( now - hs )); [ "$age" -lt 0 ] && age=0
                     ST_HSAGE=$age
                     if [ "$age" -le "$DOWN_AFTER" ]; then ST_STATE=up; else ST_STATE=down; ST_REASON=no_handshake; fi
+                    # handshakes, but nothing answers through the tunnel (sh/recover.sh live_check)
+                    if [ "$ST_STATE" = up ] && live_dead "$hs"; then ST_STATE=down; ST_REASON=no_answer; fi
                 else
                     since=$(( $(mono_now) - $(cat "$STATE/up_since" 2>/dev/null || mono_now) ))
                     if [ "$since" -lt "$DOWN_AFTER" ]; then ST_STATE=handshaking; else ST_STATE=down; ST_REASON=no_handshake; fi
@@ -590,6 +594,12 @@ wgs_tick() {
                     case "$ST_STATE" in down) reresolve; ST_ENDPOINT="$T_EPIP:$T_PORT" ;; esac
                 fi
             fi
+            # self-healing (sh/recover.sh): restarts, maybe another tunnel
+            heal_tick
+            heal_status
+            ST_TYPE=$T_TYPE
+            ST_ENDPOINT=""; [ -n "$T_EPIP" ] && ST_ENDPOINT="$T_EPIP:$T_PORT"
+            ST_EPHOST=""; [ -n "$T_EPHOST" ] && ST_EPHOST=$T_EP
             capture=1
             [ "$S_KILLSWITCH" = 0 ] && [ "$ST_STATE" != up ] && capture=0
             nets_classify; ST_NETS=$NETS_ST
@@ -634,3 +644,6 @@ wgs_tick() {
     module_desc
     return 0
 }
+
+# self-healing: restarts, auto-switch, notification
+. "$MODDIR/sh/recover.sh"

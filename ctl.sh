@@ -22,6 +22,10 @@ usage() {
         '  pause <minutes>     direct connection for a while (1-1440), then back on' \
         '  resume              end a pause now' \
         '  set killswitch 0|1  1 = no internet while the tunnel is down (default)' \
+        '  set autoswitch 0|1  1 = when restarts do not help, try other tunnels of the same country' \
+        '  set notify 0|1      1 = a notification when the tunnel could not be fixed (default)' \
+        '  set profile battery|always  checks only with the screen on (default) / day and night' \
+        '  notifytest          show a test notification' \
         '  log [lines|clear]   last log lines (default 40) / empty the log' \
         '  poll                everything the WebUI shows (key=value)' \
         '  files               tunnel exports found in Download' \
@@ -193,14 +197,14 @@ case "$cmd" in
             fail "$n is an AmneziaWG tunnel and this kernel has no AmneziaWG (CONFIG_AMNEZIAWG) - WireGuard tunnels still work"
         fi
         S_ACTIVE=$n; S_LAST=$n; settings_save
-        rm -f "$STATE/pause_until"
+        rm -f "$STATE/pause_until" "$STATE/heal"
         wlog INFO "ctl: up $n"
         wait_up
         print_status
         ;;
     down)
         settings_load; S_ACTIVE=""; settings_save
-        rm -f "$STATE/pause_until"
+        rm -f "$STATE/pause_until" "$STATE/heal"
         wlog INFO "ctl: down"
         tick_now; print_status
         ;;
@@ -223,7 +227,7 @@ case "$cmd" in
         tick_now; print_status
         ;;
     resume)
-        rm -f "$STATE/pause_until"
+        rm -f "$STATE/pause_until" "$STATE/heal"
         wlog INFO "ctl: resume"
         wait_up; print_status
         ;;
@@ -233,6 +237,21 @@ case "$cmd" in
                 case "$2" in 0|1) : ;; *) fail "usage: set killswitch 0|1" ;; esac
                 settings_load; S_KILLSWITCH=$2; settings_save
                 wlog INFO "ctl: kill switch $2"
+                tick_now; print_status ;;
+            autoswitch|AUTOSWITCH)
+                case "$2" in 0|1) : ;; *) fail "usage: set autoswitch 0|1" ;; esac
+                settings_load; S_AUTOSWITCH=$2; settings_save
+                wlog INFO "ctl: auto-switch $2"
+                tick_now; print_status ;;
+            profile|PROFILE)
+                case "$2" in battery|always) : ;; *) fail "usage: set profile battery|always" ;; esac
+                settings_load; S_PROFILE=$2; settings_save
+                wlog INFO "ctl: profile $2"
+                tick_now; print_status ;;
+            notify|NOTIFY)
+                case "$2" in 0|1) : ;; *) fail "usage: set notify 0|1" ;; esac
+                settings_load; S_NOTIFY=$2; settings_save
+                wlog INFO "ctl: notifications $2"
                 tick_now; print_status ;;
             *) fail "unknown setting: $1" ;;
         esac
@@ -262,6 +281,11 @@ case "$cmd" in
         echo "vhs_code=$(sed -n 's/^versionCode=//p' "$MODULES/vpn-hotspot/module.prop" 2>/dev/null | head -n1)"
         echo "vhs_source=$(sed -n 's/^vpn_source=//p' "$vs" 2>/dev/null | head -n1)"
         lanc_rows
+        ;;
+    notifytest)
+        settings_load; S_NOTIFY=1
+        notify "Test notification - this is how WG Shield tells you when a tunnel could not be fixed."
+        if tail -n 1 "$LOG" 2>/dev/null | grep -q 'notification: Test'; then echo "ok=1"; else fail "the notification could not be posted (see Log)"; fi
         ;;
     files)
         echo "ok=1"
@@ -306,6 +330,7 @@ case "$cmd" in
         if watchdog_alive; then echo "watchdog running"; else echo "watchdog STOPPED"; fi
         echo; echo "== status"; cat "$STATE/status" 2>/dev/null
         echo; echo "== settings"; grep -v '^#' "$CONF" 2>/dev/null
+        [ -f "$STATE/heal" ] && { echo; echo "== recovery"; cat "$STATE/heal"; }
         echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else echo "$n INVALID: $T_ERR"; fi; done
         k=$(iface_kind)
         if [ "$k" = amneziawg ]; then

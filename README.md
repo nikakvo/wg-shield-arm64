@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.1--r1-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.2-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
@@ -10,7 +10,7 @@
 
 # WG Shield - arm64
 
-An always-on **WireGuard or AmneziaWG tunnel in the kernel, without an app**. It starts at boot, survives killing apps from recents, follows Wi-Fi ↔ mobile data by itself and has a **kill switch**: while a tunnel is on but not working, nothing leaves the phone around it. Import your tunnels (Proton VPN configs work as downloaded, AmneziaWG configs are recognised by themselves), switch one on, done.
+An always-on **WireGuard or AmneziaWG tunnel in the kernel, without an app**. It starts at boot, survives killing apps from recents, follows Wi-Fi ↔ mobile data by itself, has a **kill switch** - while a tunnel is on but not working, nothing leaves the phone around it - and **fixes a dead tunnel by itself** within seconds. Import your tunnels (Proton VPN configs work as downloaded, AmneziaWG configs are recognised by themselves), switch one on, done.
 
 Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or trip over. Calls over the mobile network (VoLTE, Wi-Fi calling), SMS and MMS keep using the carrier's own networks.
 
@@ -32,6 +32,9 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 - **AmneziaWG too** - a config with AmneziaWG settings (`Jc`, `S1`-`S4`, `H1`-`H4`, `I1`-`I5`, `HeaderProtectionKey`…) runs as an AmneziaWG tunnel, any other as plain WireGuard. Nothing to choose: the type is read from the file, the tunnel row shows an **AWG** badge. Same routing, kill switch and networking set for both
 - **Every tunnel a switch** - import the WireGuard app's export zip or single `.conf` files (WireGuard or AmneziaWG); one tunnel on at a time, all off = your normal connection
 - **Kill switch** - tunnel on but not answering (no handshake for 180 s, WireGuard's own limit) → no internet at all, never the plain connection; from the first second of boot when a tunnel was on
+- **Self-healing** - the tunnel is pinged through itself every 5 s; no answer = noticed within about 10 s (not after WireGuard's 3 minutes). It is restarted twice at once, and with **Auto-switch** on, your other tunnels are tried - the same country first (`wg-BG-14` → other BG tunnels), then any other. The kill switch holds the whole time
+- **One notification** when the tunnel could not be fixed (or after a switch to another tunnel), saying what was tried - you learn you have no internet without opening the manager
+- **Checks profile: Battery or Always** - Battery (default) checks only while the screen is on and checks at once when it comes on; Always checks day and night (hotspot devices, background apps)
 - **Your choice is not a failure** - turn the tunnel off or pause it (15 min / 1 h / 4 h) and the phone simply uses your connection
 - **IPv4 and IPv6** - a tunnel with an IPv6 address and `::/0` carries IPv6 too; one without blocks IPv6 while it is on, so nothing goes around it
 - **Wi-Fi ↔ mobile data** - followed the moment Android switches: the watchdog watches Android's network rules and acts at once, not on its next check
@@ -110,7 +113,7 @@ Tunnels and settings are kept on update.
 |---|---|
 | Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network, the other networks · the networking set · watchdog |
 | Tunnels | Every tunnel with a switch (one at a time), an **AWG** badge for AmneziaWG tunnels, and **✕** · import from Download, delete the export |
-| Settings | Kill switch · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) |
+| Settings | Kill switch · checks profile (Battery / Always) · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) |
 | Log | Filterable by level |
 
 ---
@@ -119,9 +122,11 @@ Tunnels and settings are kept on update.
 
 | State | Meaning |
 |---|---|
-| **Protected** | The tunnel is up: a handshake within the last 180 s |
+| **Protected** | The tunnel is up and answers |
 | **Connecting** | Just switched on, waiting for the first handshake (or for a network) |
-| **Down** | No handshake for more than 180 s - kill switch on: no internet; off: direct until it answers again |
+| **Recovering** | The tunnel stopped answering - a restart or another tunnel is being tried; the banner says which step |
+| **Checking** | After a restart or a switch: handshake done, waiting for an answer through the tunnel (a few seconds) |
+| **Down** | Nothing answers through the tunnel (or no handshake for 180 s) and self-healing could not fix it - kill switch on: no internet; off: direct until it answers again |
 | **Paused** | You paused it, or a VPN app is connected - direct connection |
 | **Error** | The tunnel cannot be built (file gone, kernel refused it, an AmneziaWG tunnel on a kernel without AmneziaWG) - direct connection, the banner says why |
 | **Off** | No tunnel switched on - your normal connection |
@@ -174,7 +179,7 @@ internet
 | Path | |
 |---|---|
 | `/data/adb/wg-shield/` | Everything the module keeps, in one folder: |
-| `  settings.conf` | Settings: active and last tunnel, kill switch |
+| `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile, auto-switch, notification |
 | `  tunnels/` | Imported tunnels with their keys, root only (`0600`) |
 | `  logs/wg-shield.log` | Log |
 | `  state/` | Runtime state, cleared at boot; `status` is read by the sibling modules |
@@ -191,6 +196,8 @@ reason=…            iface=wgs0            table=51820         type=wireguard|a
 tunnel=<name>       endpoint=<ip:port>    endpoint_host=<host:port, if a name>
 handshake_age=<s>   killswitch=1|0        ipv6=tunnel|blocked|off
 default_net=…       android_vpn=…         updated=<epoch>
+recover=restart N/2|switch <name>|failed|  recover_from=<tunnel>
+profile=battery|always  autoswitch=0|1    notify=0|1
 ```
 
 ---
@@ -209,6 +216,10 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh down'   # normal connec
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh pause <minutes>'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh resume'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set profile battery|always'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set autoswitch 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'   # how the notification looks
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove <name>'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   # report, no keys
@@ -229,11 +240,14 @@ su -c '/system/bin/iptables -I OUTPUT -d <server-ip> -j DROP'     # test
 su -c '/system/bin/iptables -D OUTPUT -d <server-ip> -j DROP'     # undo - back within seconds
 ```
 
+Within about 10 seconds the banner shows *restart 1 of 2*, then the recovery steps; after that comes the notification (or, with Auto-switch, another tunnel takes over).
+
 ---
 
 ## Notes
 
-- **"Down" shows up to 3 minutes late** - WireGuard itself counts a session as dead only after 180 s. Your traffic stops at once; only the label waits
+- **The ping** goes through the tunnel only (bound to `wgs0`, to 1.1.1.1 / 9.9.9.9), so it shows nothing new to your network. A server that never answers a ping is not called dead for that - for such a tunnel WireGuard's own 180 s rule decides
+- **Notifications** are posted through Android's shell, so they appear as *Shell* / *Command line*; HyperOS shows them when the screen comes on
 - **Host-name endpoints** are looked up with one plain DNS query to Quad9 outside the tunnel (the tunnel is not up yet); the same resolvers DNSCrypt Proxy lets root query directly
 - **Same LAN on both sides** - addresses of your own Wi-Fi network always stay local; a home VPN that uses the same range (both `192.168.1.x`) cannot reach its devices while you are on that Wi-Fi
 - **Need internet now?** Action button (off), or disable the module in the root manager and reboot - nothing of it stays active

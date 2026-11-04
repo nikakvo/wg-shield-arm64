@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.2
+
+A tunnel that stops working is noticed within seconds and fixed by itself.
+
+* **Noticed within about 10 seconds** - every 5 s the module pings through the tunnel (1.1.1.1, then 9.9.9.9, never around it). No answer to two tries = the tunnel does not work - until now that showed only after WireGuard's own 3 minutes without a handshake (still there as a second check). Only an answer counts: traffic coming in alone does not prove that the way out works. A server that never answers a ping is not called dead for that
+* **Self-healing** - a dead tunnel is restarted twice at once (new handshake from a new port, a host-name server looked up again), 10 seconds per step. A step counts as fixed only when an answer comes back through the tunnel, not just a handshake. The kill switch holds the whole time
+* **Auto-switch on failure** (Settings, off by default) - if the restarts do not help, your other tunnels are tried, at most 5: first the same country (`wg-BG-14` → the other `*-BG-*` tunnels), then any other; tunnels on another server address first. The first one that answers stays on. Nothing helped: back to the tunnel you picked, which stays down and keeps being checked
+* **One notification** (Settings, on by default) when a switch to another tunnel was needed or nothing helped, saying what was tried - so you know you have no internet without opening the manager. When the tunnel answers again, it is replaced with that news. **Send a test notification** shows how it looks. Posted through Android's shell, no extra app
+* **Checks profile** (Settings) - **Battery** (default): checks only while the screen is on, nothing at all with the screen off, and a check the moment the screen comes on. **Always**: day and night, for devices on your hotspot or apps that work in the background. A recovery that has started is always followed to the end
+* Switching a tunnel yourself, pausing or turning it off stops a recovery at once; a new network starts a new attempt
+* **WebUI** - banner and Dashboard → Tunnel → *Self-healing* show the step (restart 1 of 2, trying wg-BG-28, checking it answers, nothing helped); new states *Recovering* and *Checking*
+* **Help** - Self-healing, Checks profile and Notification in section 7, *No notification* in Troubleshooting
+* Command line: `set autoswitch 0|1`, `set notify 0|1`, `set profile battery|always`, `notifytest`; the Report shows a recovery in progress
+* Status file: new keys `recover=`, `recover_from=`, `profile=`, `autoswitch=`, `notify=`; reason `no_answer` (all other keys unchanged)
+
+Tested on Poco F6 Pro, Xiaomi.eu ROM (HyperOS 3, Android 16), kernel [GKI_Kernel_SukiSU](https://github.com/nikakvo/GKI_Kernel_SukiSU), Proton VPN WireGuard: server blocked (one and both server addresses of a country) with Auto-switch off and on, restart that fixes it, switch to another tunnel, nothing helps + notification, back up + notification, Battery profile with the screen off and on, Always profile with the screen off, normal use without false alarms.
+
+---
+
 ## 2.1-r1
 
 LAN Cloak joins the networking set.

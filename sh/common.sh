@@ -91,7 +91,7 @@ tunnel_name_ok() {
 
 # ---- settings (KEY=value, whitelist, never sourced) ---------------------------
 settings_load() {
-    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1
+    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery
     [ -f "$CONF" ] || return 0
     while IFS='=' read -r k v; do
         v=$(printf '%s' "$v" | tr -d '\r')
@@ -99,6 +99,9 @@ settings_load() {
             ACTIVE) tunnel_name_ok "$v" && S_ACTIVE=$v ;;
             LAST) tunnel_name_ok "$v" && S_LAST=$v ;;
             KILLSWITCH) case "$v" in 0|1) S_KILLSWITCH=$v ;; esac ;;
+            AUTOSWITCH) case "$v" in 0|1) S_AUTOSWITCH=$v ;; esac ;;
+            NOTIFY) case "$v" in 0|1) S_NOTIFY=$v ;; esac ;;
+            PROFILE) case "$v" in battery|always) S_PROFILE=$v ;; esac ;;
         esac
     done 2>/dev/null < "$CONF"
 }
@@ -110,6 +113,9 @@ settings_save() {
         echo "ACTIVE=$S_ACTIVE"
         echo "LAST=$S_LAST"
         echo "KILLSWITCH=$S_KILLSWITCH"
+        echo "AUTOSWITCH=$S_AUTOSWITCH"
+        echo "NOTIFY=$S_NOTIFY"
+        echo "PROFILE=$S_PROFILE"
     } > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$CONF"
 }
 
@@ -194,6 +200,11 @@ status_write() {
         echo "rx=$ST_RX"
         echo "tx=$ST_TX"
         echo "nets=$ST_NETS"
+        echo "recover=$ST_RECOVER"
+        echo "recover_from=$ST_RECOVER_FROM"
+        echo "autoswitch=$S_AUTOSWITCH"
+        echo "notify=$S_NOTIFY"
+        echo "profile=$S_PROFILE"
         echo "updated=$(epoch_now)"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
     status_compat
@@ -233,7 +244,7 @@ module_desc() {  # keep the manager's description line in sync with the state
     [ -w "$prop" ] || return 0
     case "$ST_STATE" in
         up) d="🟢 Protected · $ST_TUNNEL$( [ "$ST_TYPE" = amneziawg ] && echo ' (AmneziaWG)')" ;;
-        handshaking) d="🟡 Connecting · $ST_TUNNEL$( [ "$ST_TYPE" = amneziawg ] && echo ' (AmneziaWG)')" ;;
+        handshaking) if [ "$ST_REASON" = recovering ]; then d="🟡 Recovering ($ST_RECOVER) · $ST_TUNNEL"; else d="🟡 Connecting · $ST_TUNNEL$( [ "$ST_TYPE" = amneziawg ] && echo ' (AmneziaWG)')"; fi ;;
         down) if [ "$S_KILLSWITCH" = 1 ]; then d="🔴 Tunnel down · internet blocked (kill switch)"; else d="🔴 Tunnel down · direct connection"; fi ;;
         paused) if [ "$ST_REASON" = user ]; then d="⏸️ Paused · direct connection"; else d="⏸️ Paused · another VPN is active"; fi ;;
         error) d="⚠️ Error: $ST_REASON · direct connection" ;;

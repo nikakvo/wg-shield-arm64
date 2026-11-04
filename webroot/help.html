@@ -73,7 +73,7 @@
   <a href="#states">4 · States and the banner</a>
   <a href="#dash">5 · Dashboard</a>
   <a href="#tunnels">6 · Tunnels, import and AmneziaWG</a>
-  <a href="#settings">7 · Kill switch and pause</a>
+  <a href="#settings">7 · Kill switch, self-healing and pause</a>
   <a href="#set">8 · With the other modules of the set</a>
   <a href="#limits">9 · IPv6 and other limits</a>
   <a href="#cli">10 · Command line</a>
@@ -146,14 +146,16 @@
 <div class="box">
   <div class="tw"><table>
     <tr><th>state</th><th>meaning</th></tr>
-    <tr><td><span class="pill ok">protected</span></td><td>The tunnel is up: a handshake within the last 180 s.</td></tr>
+    <tr><td><span class="pill ok">protected</span></td><td>The tunnel is up and answers.</td></tr>
     <tr><td><span class="pill warn">connecting</span></td><td>Just switched on, waiting for the first handshake (or for a network).</td></tr>
-    <tr><td><span class="pill bad">down</span></td><td>No handshake for more than 180 s. Kill switch on: no internet. Off: direct connection until it answers again.</td></tr>
+    <tr><td><span class="pill warn">checking</span></td><td>After a restart or a switch the tunnel has a handshake again; WG Shield waits for an answer through it before it counts as fixed (a few seconds).</td></tr>
+    <tr><td><span class="pill warn">recovering</span></td><td>The tunnel stopped answering and WG Shield is fixing it: a restart, or another tunnel of the same country (see 7). The banner says which step.</td></tr>
+    <tr><td><span class="pill bad">down</span></td><td>Nothing answers through the tunnel (or no handshake for more than 180 s) and self-healing could not fix it. Kill switch on: no internet. Off: direct connection until it answers again.</td></tr>
     <tr><td><span class="pill warn">paused</span></td><td>You paused it, or another VPN app is connected. Direct connection.</td></tr>
     <tr><td><span class="pill bad">error</span></td><td>The tunnel cannot be built (file gone, kernel refused it). Direct connection - the banner says why.</td></tr>
     <tr><td><span class="pill skip">off</span></td><td>No tunnel switched on. Your normal connection, nothing installed.</td></tr>
   </table></div>
-  <div class="note">"Down" appears up to 3 minutes after the server stops answering: WireGuard itself counts a session as dead only after 180 s. Your traffic stops at once - only the label waits.</div>
+  <div class="note">A tunnel that stops answering is noticed within about 10 seconds (see 7, Self-healing). WireGuard's own limit - no handshake for 180 s - stays as a second check.</div>
 </div>
 
 <div class="sec-title" id="dash">5 · dashboard</div>
@@ -163,7 +165,7 @@
   <h3>Exit</h3>
   <p><strong>Check</strong> asks an IP service once and shows the address websites see, with its place and provider.</p>
   <h3>Tunnel</h3>
-  <p>The active tunnel, its type (WireGuard or AmneziaWG, with the kernel's AmneziaWG version), its server, the last handshake, data received and sent, and which network carries the tunnel. <strong>Other networks</strong>: the networks that are up besides that one - internet ones go through the tunnel (also while Android is still checking them), carrier service networks stay outside.</p>
+  <p>The active tunnel, its type (WireGuard or AmneziaWG, with the kernel's AmneziaWG version), its server, the last handshake, data received and sent, and which network carries the tunnel. <strong>Other networks</strong>: the networks that are up besides that one - internet ones go through the tunnel (also while Android is still checking them), carrier service networks stay outside. <strong>Self-healing</strong>: ready, or the step it is on right now (see 7).</p>
   <h3>Networking set</h3>
   <p>Whether DNSCrypt Proxy, ipset and VPN Hotspot are installed and what they are doing (see 8).</p>
 </div>
@@ -181,11 +183,30 @@
   <div class="note">Without AmneziaWG in the kernel, AmneziaWG tunnels can still be imported, but their switch is greyed out and the row says <em>AmneziaWG is not in this kernel</em>.</div>
 </div>
 
-<div class="sec-title" id="settings">7 · kill switch and pause</div>
+<div class="sec-title" id="settings">7 · kill switch, self-healing and pause</div>
 <div class="box">
   <h3>Kill switch</h3>
   <p><strong>On</strong> (default): while a tunnel is switched on but not working, the phone has no internet at all. <strong>Off</strong>: the phone uses your connection directly while the tunnel is down, and goes back into the tunnel by itself when it answers again.</p>
   <p>The kill switch never blocks when <em>you</em> turn the tunnel off, pause it, or when it cannot be built at all (error).</p>
+  <h3>Self-healing</h3>
+  <p>Every 5 seconds (with the Battery profile: while the screen is on, see below) WG Shield sends one ping through the tunnel (to 1.1.1.1, then 9.9.9.9 - never around it). Only an answer counts: traffic coming in alone does not prove that the way out works. No answer to two tries = the tunnel does not work, noticed within about 10 seconds. A server that never answers a ping (some home servers drop it) is not called dead for that - for such a tunnel WireGuard's own 3-minute rule decides. While the phone has a network, WG Shield then fixes it without waiting for you:</p>
+  <ol>
+    <li><strong>Two restarts</strong> (always on). The tunnel is built again, which makes a fresh handshake from a new port and looks a host-name server up again. This fixes a router that was restarted, a lost connection, a server that hung for a moment. Each step gets 10 seconds; it counts as fixed only when an answer comes back through the tunnel, not just a handshake.</li>
+    <li><strong>Auto-switch on failure</strong> (Settings, off by default). If the restarts did not help, WG Shield tries your other tunnels, at most 5: first the <strong>same country</strong> - the two capital letters in the name, so <code>wg-BG-14</code> is followed by the other <code>*-BG-*</code> tunnels - then <strong>any other tunnel</strong> (another country, a home server). Inside each group, tunnels on another server address come first. The first one that answers stays on, and the Tunnels tab shows it switched on.</li>
+    <li><strong>Nothing helped</strong>: WG Shield goes back to the tunnel you picked and it stays <span class="pill bad">down</span> - with the kill switch on, no internet. It keeps checking that tunnel quietly (every 15 seconds) and is back the moment it answers; a new attempt starts when the network changes.</li>
+  </ol>
+  <p>The kill switch holds during every step - nothing leaves the phone outside the tunnel. Switching a tunnel yourself, pausing or turning it off stops an attempt at once.</p>
+  <div class="note">A typical case for auto-switch: the same tunnel file (the same key) used on two devices at once. The server answers only one of them, so restarts cannot help, but another tunnel can. Give every device its own config.</div>
+  <h3>Checks: Battery or Always</h3>
+  <p>Settings → <strong>Checks</strong> decides when the tunnel is checked every 5 seconds:</p>
+  <ul>
+    <li><strong>Battery</strong> (default) - only while the screen is on. With the screen off nothing is pinged: no wake-ups, no data, the phone can sleep. The first check runs the moment the screen comes on, so a tunnel that died in your pocket is fixed within seconds of picking up the phone. While the screen is off, WireGuard's own limit (no handshake for 3 minutes) still notices a dead tunnel and starts the same recovery.</li>
+    <li><strong>Always</strong> - day and night, also with the screen off. For devices on your hotspot, or apps that must stay connected in the background. Costs a little battery and about 100 KB an hour while the phone is idle.</li>
+  </ul>
+  <p>A recovery that has started is always followed to the end, screen on or off.</p>
+  <h3>Notification</h3>
+  <p>One notification (Settings → <strong>Notification</strong>, on by default) when WG Shield had to switch to another tunnel, or when nothing helped - it says what was tried, so you learn that you have no internet without opening the manager. A restart that fixed the tunnel shows nothing (it is in the Log). When the tunnel answers again after a failure, the notification is replaced with that news. <strong>Send a test notification</strong> shows how it looks.</p>
+  <p>It is posted through Android's shell (it appears as <em>Shell</em> / <em>Command line</em> in the notification shade), so no extra app is needed.</p>
   <h3>Pause</h3>
   <p>15 minutes, 1 hour or 4 hours on your normal connection, then the tunnel comes back. <strong>Resume now</strong> ends it early. A reboot ends a pause.</p>
   <h3>Another VPN app</h3>
@@ -234,6 +255,10 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh down'   <span class="cm
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh pause &lt;minutes&gt;'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh resume'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set autoswitch 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set profile battery|always'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm"># report, no keys</span></pre>
@@ -243,7 +268,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
 <div class="sec-title" id="trouble">11 · troubleshooting</div>
 <div class="box">
   <h3>No internet</h3>
-  <p>State <span class="pill bad">down</span>? The server does not answer and the kill switch holds. Switch to another tunnel, or pause. Stays <span class="pill warn">connecting</span>? Check the server is not blocked by ipset (see 8), then send the <strong>Report</strong>.</p>
+  <p>State <span class="pill bad">down</span>? The server does not answer, the restarts (and auto-switch, if on) did not help, and the kill switch holds. Switch to another tunnel, or pause. Stays <span class="pill warn">connecting</span>? Check the server is not blocked by ipset (see 8), then send the <strong>Report</strong>.</p>
   <h3>Paused and I did not pause it</h3>
   <p>A VPN app is connected - the banner names it. Disconnect it.</p>
   <h3>Import skipped a tunnel</h3>
@@ -256,6 +281,8 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
   <p>Action button in the manager (off), or <code>ctl.sh down</code>. If the module itself misbehaves: disable it in the manager and reboot - nothing of it stays active.</p>
   <h3>AmneziaWG tunnel shows an error</h3>
   <p><em>this kernel has no AmneziaWG</em>: the kernel lacks <code>CONFIG_AMNEZIAWG</code> - use a WireGuard tunnel or a kernel with AmneziaWG. <em>AmneziaWG settings were refused</em>: the Log names the setting; the file may be for a newer AmneziaWG version than this module's <code>awg</code> tool.</p>
+  <h3>No notification</h3>
+  <p>Tap <strong>Send a test notification</strong> in Settings. If nothing appears, the notifications of the system app <em>Shell</em> (on Xiaomi: <em>Command line</em>) are switched off: Settings → Notifications → that app. The Log says <em>notification could not be shown</em> when Android refused it.</p>
   <h3>Watchdog not running</h3>
   <p>Reboot. If it stays stopped, the Log says why.</p>
 </div>
@@ -265,7 +292,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
   <div class="tw"><table>
     <tr><th>file</th><th></th></tr>
     <tr><td>/data/adb/wg-shield/</td><td>Everything the module keeps, in one folder:</td></tr>
-    <tr><td>settings.conf</td><td>Settings: active and last tunnel, kill switch (kept on update)</td></tr>
+    <tr><td>settings.conf</td><td>Settings: active and last tunnel, kill switch, checks profile, auto-switch, notification (kept on update)</td></tr>
     <tr><td>tunnels/</td><td>Imported tunnels with their keys, root only (kept on update)</td></tr>
     <tr><td>logs/wg-shield.log</td><td>Log (<strong>Clear</strong> in the Log tab empties it)</td></tr>
     <tr><td>state/</td><td>Runtime state, cleared at boot; <code>state/status</code> is read by the sibling modules</td></tr>

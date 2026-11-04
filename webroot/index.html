@@ -121,6 +121,8 @@
     .row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 10px; }
     .row:last-child { border-bottom: none; }
     .row .rn { flex: 1; min-width: 0; }
+    .row.col { flex-direction: column; align-items: stretch; }
+    .row.col .seg { margin-top: 2px; }
     .row .rn b { display: block; color: var(--text); font-weight: normal; font-size: 11px; }
     .row .rn span { display: block; color: var(--muted); font-size: 9px; margin-top: 2px; line-height: 1.45; }
     .pill { flex-shrink: 0; font-size: 8px; letter-spacing: .8px; padding: 2px 7px; border-radius: 2px; border: 1px solid; text-transform: uppercase; }
@@ -273,6 +275,7 @@
       <div class="d-stat"><span class="k">Interface / table</span><span class="v" id="t-if">-</span></div>
       <div class="d-stat"><span class="k">Carried over</span><span class="v" id="t-net">-</span></div>
       <div class="d-stat"><span class="k">Other networks</span><span class="v wrap" id="t-nets">-</span></div>
+      <div class="d-stat"><span class="k">Self-healing</span><span class="v wrap" id="t-heal">-</span></div>
     </div>
 
     <div class="section">
@@ -309,6 +312,22 @@
         <div class="rn"><b>Kill switch</b><span>A tunnel is on but not working → no internet at all, never your mobile or Wi-Fi connection directly. Off: the phone goes direct until the tunnel answers again.</span></div>
         <label class="sw" id="sw-ks"><input type="checkbox" id="cb-ks" onchange="setKs(this)"><i></i></label>
       </div>
+      <div class="row col">
+        <div class="rn"><b>Checks</b><span id="prof-note"></span></div>
+        <div class="seg" id="prof-seg">
+          <button data-p="battery" onclick="setProfile('battery')">Battery</button>
+          <button data-p="always" onclick="setProfile('always')">Always</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rn"><b>Auto-switch on failure</b><span>When the tunnel stops answering, WG Shield restarts it twice at once (always). On: if that does not help, it tries your other tunnels - the same country first (wg-BG-14 → other BG tunnels), then any other. Off: only the restarts.</span></div>
+        <label class="sw" id="sw-as"><input type="checkbox" id="cb-as" onchange="setOpt(this, 'autoswitch', 'Auto-switch')"><i></i></label>
+      </div>
+      <div class="row">
+        <div class="rn"><b>Notification</b><span>One notification when the tunnel could not be fixed (or after a switch to another tunnel), saying what was tried - so you know you have no internet without opening the manager.</span></div>
+        <label class="sw" id="sw-nt"><input type="checkbox" id="cb-nt" onchange="setOpt(this, 'notify', 'Notification')"><i></i></label>
+      </div>
+      <div class="inrow"><button class="btn-s clip m" style="flex:1" onclick="doNotifyTest()">Send a test notification</button></div>
     </div>
 
     <div class="section">
@@ -507,15 +526,25 @@ const REASON = {
   awg_setconf_failed: 'the AmneziaWG settings were refused (see Log)',
   tunnel_missing: 'the tunnel file is missing',
 };
+// what self-healing is doing (status recover= / recover_from=)
+function healText(st) {
+  const r = st.recover || '', from = esc(st.recover_from || st.tunnel);
+  if (r === 'failed') return 'nothing helped - ' + from + (st.autoswitch === '1' ? ' and its other tunnels do' : ' does') + ' not answer';
+  let m = r.match(/^restart (\d+)\/(\d+)$/);
+  if (m) return `${from} does not answer - restart ${m[1]} of ${m[2]}`;
+  m = r.match(/^switch (.+)$/);
+  if (m) return `${from} does not answer - trying ${esc(m[1])}`;
+  return esc(r);
+}
 const TYPE = t => t === 'amneziawg' ? 'AmneziaWG' : t === 'wireguard' ? 'WireGuard' : '';
 
 function renderBanner(st) {
   if (st.watchdog !== 'running') { setBanner('b-error', 'Watchdog not running - nothing is being maintained. Reboot the phone.'); return; }
   const tn = esc(st.tunnel);
   switch (st.state) {
-    case 'up': setBanner('', `Protected · ${tn} · handshake ${fmtDur(st.handshake_age)} ago`); break;
-    case 'handshaking': setBanner('b-warn', st.reason === 'no_network' ? `No network yet - ${tn} starts when one is up` : st.reason === 'resolving' ? `Looking up ${esc((st.endpoint_host || '').replace(/:\d+$/, ''))} for ${tn}…` : `Connecting to ${tn}…`); break;
-    case 'down': setBanner(ks(st) ? 'b-error' : 'b-warn', `${tn} down - ` + (ks(st) ? 'kill switch holds: no internet' : 'direct connection (kill switch off)')); break;
+    case 'up': if (st.reason === 'recovering') setBanner('b-warn', healText(st) + ' - checking it answers…'); else setBanner('', `Protected · ${tn} · handshake ${fmtDur(st.handshake_age)} ago`); break;
+    case 'handshaking': setBanner('b-warn', st.reason === 'recovering' ? healText(st) + '…' : st.reason === 'no_network' ? `No network yet - ${tn} starts when one is up` : st.reason === 'resolving' ? `Looking up ${esc((st.endpoint_host || '').replace(/:\d+$/, ''))} for ${tn}…` : `Connecting to ${tn}…`); break;
+    case 'down': setBanner(ks(st) ? 'b-error' : 'b-warn', `${tn} down - ` + (st.recover === 'failed' ? (st.autoswitch === '1' ? 'restarts and other tunnels did not help - ' : 'restarts did not help - ') : '') + (ks(st) ? 'kill switch holds: no internet' : 'direct connection (kill switch off)')); break;
     case 'paused':
       if (st.reason === 'user') setBanner('b-warn', `Paused · direct connection · back in ${fmtDur(st.pause_left)}`);
       else setBanner('b-warn', 'Paused · another VPN is connected (' + esc(st.android_vpn || 'app') + ') - back when it disconnects');
@@ -535,7 +564,7 @@ function renderRoute(st) {
   $('rn-net2').textContent = EXIT.ip || (st.state === 'up' ? 'via tunnel' : '-');
   switch (st.state) {
     case 'up': set('rn-ph', 'on'); set('rn-tun', 'on'); set('rn-net', 'on'); setL('rl-1', 'flow'); setL('rl-2', 'flow'); break;
-    case 'handshaking': set('rn-ph', 'on'); set('rn-tun', 'warn'); set('rn-net', 'off'); setL('rl-1', ''); setL('rl-2', ''); $('rn-tun2').textContent = 'connecting'; break;
+    case 'handshaking': set('rn-ph', 'on'); set('rn-tun', 'warn'); set('rn-net', 'off'); setL('rl-1', ''); setL('rl-2', ''); $('rn-tun2').textContent = st.reason === 'recovering' ? 'recovering' : 'connecting'; break;
     case 'down':
       if (ks(st)) { set('rn-ph', 'on'); set('rn-tun', 'warn'); set('rn-net', 'off'); setL('rl-1', 'cut'); setL('rl-2', ''); }
       else { set('rn-ph', 'warn'); set('rn-tun', 'off'); set('rn-net', 'warn'); setL('rl-1', 'plain'); setL('rl-2', 'plain'); }
@@ -550,8 +579,8 @@ function renderRoute(st) {
 }
 
 function renderStats(st) {
-  const lbl = { up: 'Protected', handshaking: 'Connecting', down: 'Down', paused: 'Paused', error: 'Error', off: 'Off' };
-  const cls = { up: '', handshaking: 'a', down: ks(st) ? 'r' : 'a', paused: 'a', error: 'r', off: 'm' };
+  const lbl = { up: st.reason === 'recovering' ? 'Checking' : 'Protected', handshaking: st.reason === 'recovering' ? 'Recovering' : 'Connecting', down: 'Down', paused: 'Paused', error: 'Error', off: 'Off' };
+  const cls = { up: st.reason === 'recovering' ? 'a' : '', handshaking: 'a', down: ks(st) ? 'r' : 'a', paused: 'a', error: 'r', off: 'm' };
   $('s-state').textContent = lbl[st.state] || '-'; $('s-state').className = 'val ' + (st.state in cls ? cls[st.state] : 'm');
   const hs = st.handshake_age;
   $('s-hs').textContent = hs && hs !== '-' ? fmtDur(hs) : '-';
@@ -590,6 +619,8 @@ function renderTunnel(st) {
   if (nOut) parts.push(nOut + ' carrier service network' + (nOut > 1 ? 's' : '') + ' outside');
   $('t-nets').textContent = on && st.nets ? (parts.join(' · ') || 'none') : '-';
   $('t-nets').className = 'v wrap ' + (on && st.nets ? '' : 'm');
+  $('t-heal').textContent = !on ? '-' : st.recover ? healText(st) : (st.profile === 'always' ? 'watching every 5 s' : 'watching every 5 s while the screen is on') + ' - 2 restarts' + (st.autoswitch === '1' ? ', then other tunnels (same country first)' : ' (auto-switch off)');
+  $('t-heal').className = 'v wrap ' + (!on ? 'm' : st.recover === 'failed' ? 'r' : st.recover ? 'a' : '');
   $('w-run').textContent = st.watchdog === 'running' ? 'yes' : 'NO'; $('w-run').className = 'v ' + (st.watchdog === 'running' ? '' : 'r');
   $('w-tick').textContent = st.tick_age !== undefined ? st.tick_age + ' s ago' : '-';
   $('hdr-ver').textContent = st.version ? 'v' + st.version : '';
@@ -675,6 +706,11 @@ function renderTunnels(st) {
 
 function renderSettings(st) {
   if (!$('sw-ks').classList.contains('busy')) $('cb-ks').checked = ks(st);
+  if (!$('sw-as').classList.contains('busy')) $('cb-as').checked = st.autoswitch === '1';
+  if (!$('sw-nt').classList.contains('busy')) $('cb-nt').checked = st.notify !== '0';
+  const prof = st.profile === 'always' ? 'always' : 'battery';
+  document.querySelectorAll('#prof-seg button').forEach(b => b.classList.toggle('on', b.dataset.p === prof));
+  $('prof-note').textContent = PROFILE_NOTE[prof];
   const paused = st.state === 'paused' && st.reason === 'user';
   $('resume-row').classList.toggle('hidden', !paused);
   $('pause-note').textContent = paused ? fmtDur(st.pause_left) + ' left' : (st.active ? '' : 'tunnel is off');
@@ -759,6 +795,26 @@ async function setKs(cb) {
     const r = parseKV(await ctl('set killswitch ' + (cb.checked ? '1' : '0')));
     toast(r.ok === '1' ? 'Kill switch ' + (cb.checked ? 'on' : 'off') : (r.error || 'Not saved'), r.ok === '1' ? 'ok' : 'err');
   } finally { sw.classList.remove('busy'); await poll(); }
+}
+async function setOpt(cb, key, label) {
+  const sw = cb.closest('.sw'); sw.classList.add('busy');
+  try {
+    const r = parseKV(await ctl('set ' + key + ' ' + (cb.checked ? '1' : '0')));
+    toast(r.ok === '1' ? label + ' ' + (cb.checked ? 'on' : 'off') : (r.error || 'Not saved'), r.ok === '1' ? 'ok' : 'err');
+  } finally { sw.classList.remove('busy'); await poll(); }
+}
+const PROFILE_NOTE = {
+  battery: 'Battery (default): the tunnel is checked every 5 s while the screen is on. With the screen off nothing is checked - no wake-ups, no data - and the first check runs the moment the screen comes on. A tunnel that fails while the phone sleeps is still noticed by WireGuard itself within 3 minutes.',
+  always: 'Always: the tunnel is checked every 5 s, also with the screen off - for devices on your hotspot or apps that work in the background. Costs a little battery and about 100 KB an hour while the phone is idle.',
+};
+async function setProfile(p) {
+  const r = parseKV(await ctl('set profile ' + p));
+  toast(r.ok === '1' ? 'Checks: ' + (p === 'always' ? 'Always' : 'Battery') : (r.error || 'Not saved'), r.ok === '1' ? 'ok' : 'err');
+  await poll();
+}
+async function doNotifyTest() {
+  const r = parseKV(await ctl('notifytest', 20000));
+  toast(r.ok === '1' ? 'Test notification sent - look at the notification shade' : (r.error || 'Failed'), r.ok === '1' ? 'ok' : 'err');
 }
 async function doPause(min) {
   const r = parseKV(await ctl('pause ' + min));
