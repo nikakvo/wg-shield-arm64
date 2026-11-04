@@ -536,6 +536,7 @@ pause_left() {  # seconds left, 0 = not paused
 # ---- one watchdog tick (caller holds the lock) ---------------------------------
 wgs_tick() {
     settings_load
+    test_stale
     detect_net
     prev=$(cat "$STATE/last_state" 2>/dev/null)
     ST_TUNNEL=$S_ACTIVE; ST_ENDPOINT=""; ST_HSAGE="-"; ST_DEF=$DEF; ST_ANDVPN=$ANDVPN
@@ -647,3 +648,5 @@ wgs_tick() {
 
 # self-healing: restarts, auto-switch, notification
 . "$MODDIR/sh/recover.sh"
+# speed test (ctl.sh test), its results order the auto-switch
+. "$MODDIR/sh/speed.sh"

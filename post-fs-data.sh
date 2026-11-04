@@ -10,7 +10,8 @@ MODDIR=${0%/*}
 layout_migrate
 mkdir -p "$STATE" "$TUNDIR" "$LOGDIR"
 chmod 700 "$DATA" "$TUNDIR"
-rm -rf "$STATE/lock" "$STATE"/import.* "$STATE"/setconf.*
+rm -rf "$STATE/lock" "$STATE"/import.* "$STATE"/setconf.* "$STATE/test.lock" "$STATE"/testconf.*
+rm -f "$STATE/test.progress"
 rm -f "$STATE/status" "$STATE/pause_until" "$STATE/loaded" "$STATE/tunnel.info" \
       "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/last_state" \
       "$STATE/watchdog.pid" "$STATE/boot.log" "$STATE/nets" "$STATE/last_nets" \

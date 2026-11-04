@@ -160,6 +160,36 @@
     .tun .hs.r { color: var(--red); border-color: rgba(255,77,106,.45); }
     .tun .ty { font-size: 8px; letter-spacing: .6px; color: var(--text); border: 1px dashed var(--acc-a); padding: 0 5px; border-radius: 2px; }
     .tun .ty.m { color: var(--muted); border-color: var(--border); }
+    /* country boxes, type filter, favorites (Tunnels tab) */
+    .chips { display: flex; gap: 5px; margin-bottom: 8px; }
+    .chips button { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 9px; letter-spacing: .8px; text-transform: uppercase; padding: 5px 9px; border-radius: 2px; cursor: pointer; }
+    .chips button.on { color: var(--acc); border-color: var(--acc-a); background: var(--acc-t); }
+    .boxes { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 5px; margin-bottom: 6px; }
+    .cbox { --nb: var(--border); position: relative; background: var(--dim); border: 1px solid var(--border); color: var(--text); padding: 6px 4px 5px; text-align: center; cursor: pointer; min-width: 0; font-family: var(--mono); }
+    .cbox .fl { display: block; font-size: 18px; line-height: 1.15; font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif; }
+    .cbox .cc { display: block; font-size: 10px; letter-spacing: .5px; margin-top: 2px; white-space: nowrap; }
+    .cbox .cn { display: block; font-size: 8px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cbox.pick { --nb: var(--acc-a); border-color: var(--acc-a); background: var(--acc-t); }
+    .cbox.pick .cc { color: var(--acc); }
+    .cbox.act::before { content: ''; position: absolute; top: 4px; left: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 0 2px rgba(125,211,252,.18); }
+    .cbox.act.a::before { background: var(--amber); } .cbox.act.r::before { background: var(--red); }
+    .tun-head { display: flex; align-items: center; gap: 8px; font-size: 9px; color: var(--muted); padding: 6px 0 4px; border-bottom: 1px solid var(--border); letter-spacing: .4px; }
+    .tun-head b { color: var(--acc); font-weight: normal; }
+    .tun-head .fbtn { margin-left: auto; }
+    .tun.pin { background: linear-gradient(90deg, var(--acc-t), transparent 70%); }
+    .tun .pinl { font-size: 8px; color: var(--muted); letter-spacing: .6px; text-transform: uppercase; }
+    .grp { padding: 9px 0 4px; border-bottom: 1px solid var(--line); font-size: 9.5px; color: var(--text); letter-spacing: .3px; }
+    .grp b { color: var(--acc); font-weight: normal; }
+    .grp b.r { color: var(--red); } .grp b.m { color: var(--muted); }
+    .grp .fast { color: #000; background: var(--acc); padding: 0 5px; border-radius: 2px; font-size: 8px; letter-spacing: .6px; text-transform: uppercase; margin-left: 4px; }
+    .grp .gs { display: block; color: var(--muted); font-size: 8.5px; margin-top: 2px; line-height: 1.45; }
+    .tun .ms { font-size: 8px; letter-spacing: .4px; color: var(--acc); border: 1px solid var(--border); padding: 0 5px; border-radius: 2px; }
+    .tun .ms.r { color: var(--red); border-color: rgba(255,77,106,.35); }
+    .tbtn { margin-left: auto; padding: 4px 10px !important; font-size: 9px !important; }
+    .tun-head .tbtn + .fbtn { margin-left: 5px; }
+    .tprog { font-size: 9px; color: var(--amber); padding: 6px 0 2px; }
+    .star { flex-shrink: 0; background: transparent; border: none; color: var(--muted); font-size: 15px; width: 26px; height: 24px; cursor: pointer; line-height: 1; padding: 0; }
+    .star.on { color: #fcd34d; }
     .x-btn { flex-shrink: 0; background: transparent; border: 1px dashed var(--border); color: var(--muted); font-size: 10px; width: 28px; height: 24px; cursor: pointer; border-radius: 2px; }
     .x-btn.arm { border-style: solid; border-color: var(--red); color: #fff; background: rgba(255,77,106,.14); width: auto; padding: 0 7px; font-size: 9px; letter-spacing: .5px; text-transform: uppercase; }
     .file-btns { display: flex; gap: 5px; flex-shrink: 0; }
@@ -298,8 +328,12 @@
   <div class="pane" id="tab-tun">
     <div class="section">
       <div class="section-title"><span class="s-accent"></span>Tunnels<span class="s-note" id="tun-note"></span></div>
+      <div class="chips" id="tun-chips" hidden>
+        <button data-f="all" onclick="setTunFilter('all')">All</button><button data-f="wireguard" onclick="setTunFilter('wireguard')">WireGuard</button><button data-f="amneziawg" onclick="setTunFilter('amneziawg')">AmneziaWG</button>
+      </div>
+      <div class="boxes" id="tun-boxes"></div>
       <div id="tun-body"><div class="empty">Waiting for data…</div></div>
-      <div class="note">One tunnel at a time: switching one on switches the other off. All off = your normal connection, no kill switch.</div>
+      <div class="note">Tap a country to see only its tunnels, tap it again to see all. Test measures each server address of the box. ★ marks a favorite (the Favorites box). The tunnel that is on stays at the top. One tunnel at a time: switching one on switches the other off. All off = your normal connection, no kill switch.</div>
     </div>
     <div class="section">
       <div class="section-title"><span class="s-accent"></span>Import from Download<span class="s-note"><button class="fbtn" onclick="loadFiles()">Refresh</button></span></div>
@@ -332,7 +366,7 @@
         </select>
       </div>
       <div class="row">
-        <div class="rn"><b>Auto-switch on failure</b><span>When the tunnel stops answering, WG Shield restarts it twice at once (always). On: if that does not help, it tries your other tunnels - the same country first (wg-BG-14 → other BG tunnels), then any other. Off: only the restarts.</span></div>
+        <div class="rn"><b>Auto-switch on failure</b><span>When the tunnel stops answering, WG Shield restarts it twice at once (always). On: if that does not help, it tries your other tunnels - the same country first (wg-BG-14 → other BG tunnels), then any other; never a server address that already failed, the fastest by the last speed test first. Off: only the restarts.</span></div>
         <label class="sw" id="sw-as"><input type="checkbox" id="cb-as" onchange="setOpt(this, 'autoswitch', 'Auto-switch')"><i></i></label>
       </div>
       <div class="row">
@@ -451,7 +485,7 @@ async function sh(cmd, timeoutMs) {
 let _pressed = null, _pressedAt = 0, _busyN = 0, _fgEndedAt = 0;
 document.addEventListener('pointerdown', e => { const b = e.target.closest && e.target.closest('button'); if (b) { _pressed = b; _pressedAt = Date.now(); } }, true);
 const BG_CMD = /^(poll|files|log \d)/;
-const LOCK_FREE = '.tab, .fbtn:not(.clr)';
+const LOCK_FREE = '.tab, .fbtn:not(.clr), .cbox, .chips button';
 document.addEventListener('click', e => {
   const t = e.target.closest && e.target.closest('button, label.sw, input[type=checkbox]');
   if (!t || t.matches(LOCK_FREE)) return;
@@ -484,12 +518,12 @@ const num = v => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 function q(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }   // shell single-quote
 function parseKV(text) {
-  const out = { t: [], file: [] };
+  const out = { t: [], file: [], s: [] };
   (text || '').split('\n').forEach(line => {
     const i = line.indexOf('=');
     if (i <= 0) return;
     const k = line.slice(0, i).trim(), v = line.slice(i + 1).trim();
-    if (k === 't' || k === 'file') out[k].push(v); else out[k] = v;
+    if (k === 't' || k === 'file' || k === 's') out[k].push(v); else out[k] = v;
   });
   return out;
 }
@@ -683,39 +717,150 @@ function lancRow(st, row) {
   return row('lanc', 'LAN Cloak', st.lancloak || 'absent', pill, txt + note);
 }
 
-let _tunSig = '', _tunBusy = false;
+let _tunSig = '', _tunBusy = false, TM = {};
+// country of a tunnel: the first part of exactly two capital letters between
+// - _ . (wg-BG-14 -> BG) - the SAME rule as tun_country in sh/recover.sh
+// (auto-switch). No code -> Others.
+function tunCountry(name) { const p = String(name).split(/[-_.]/).find(x => /^[A-Z]{2}$/.test(x)); return p || ''; }
+// Proton uses UK; the flag and the name are GB's
+function isoOf(cc) { return cc === 'UK' ? 'GB' : cc; }
+let _dn = null;
+try { _dn = new Intl.DisplayNames(['en'], { type: 'region' }); } catch (e) { _dn = null; }
+function ccName(cc) { try { const n = _dn && _dn.of(isoOf(cc)); return n && n !== isoOf(cc) ? n : cc; } catch (e) { return cc; } }
+function ccFlag(cc) { const i = isoOf(cc); return /^[A-Z]{2}$/.test(i) ? String.fromCodePoint(...[...i].map(c => 0x1F1A5 + c.charCodeAt(0))) : '🌐'; }
+const natCmp = (a, b) => a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' });
+// selected box ('' = all, 'fav', 'oth' or a code) and type filter, per viewer
+function lsGet(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage off */ } }
+let TUN_SEL = lsGet('wgs.tun.box', null), TUN_FILT = lsGet('wgs.tun.type', 'all');
+function selBox(k) { TUN_SEL = TUN_SEL === k ? '' : k; lsSet('wgs.tun.box', TUN_SEL); _tunSig = ''; renderTunnels(ST); }
+function setTunFilter(f) { TUN_FILT = f; lsSet('wgs.tun.type', f); _tunSig = ''; renderTunnels(ST); }
+function boxOf(t) { return t.cc || 'oth'; }
+function boxLabel(k) { return k === 'fav' ? 'Favorites' : k === 'oth' ? 'Others' : k; }
+
+// speed test results (poll s= rows: address|handshake ms|ping ms|status|age s|names)
+const TEST_TXT = { no_handshake: 'no handshake', no_answer: 'no answer through it', same_key: 'not tested: same key as the tunnel that is on',
+  no_kernel: 'not tested: no AmneziaWG in this kernel', no_address: 'host name not found', active_down: 'the tunnel that is on - not answering', failed: 'failed (see Log)' };
+function testMap(st) {
+  const m = {};
+  (st.s || []).forEach(line => { const [addr, hs, ping, status, age, names] = line.split('|'); const r = { addr, hs, ping, status, age: num(age) };
+    (names || '').split(',').forEach(n => { if (n) m[n] = r; }); });
+  return m;
+}
+const testOk = r => r && (r.status === 'ok' || r.status === 'active') && r.ping !== '';
+function fmtAge(sec) { return sec < 90 ? 'just now' : sec < 5400 ? Math.round(sec / 60) + ' min ago' : sec < 172800 ? Math.round(sec / 3600) + ' h ago' : Math.round(sec / 86400) + ' days ago'; }
+function testBadge(r) { return !r ? '' : testOk(r) ? `<span class="ms">${esc(r.ping)} ms</span> ` : `<span class="ms r">✕</span> `; }
+let _testing = false;
+async function runTest(b) {
+  const box = TUN_SEL === 'fav' ? 'favorites' : TUN_SEL === 'oth' ? 'others' : TUN_SEL;
+  if (!box) return;
+  _testing = true; b.disabled = true; b.textContent = 'Testing…';
+  try {
+    const r = parseKV(await ctl('test ' + q(box), 300000));
+    if (r.ok === '1') toast(`Tested ${num(r.addresses)} server ${num(r.addresses) === 1 ? 'address' : 'addresses'} (${num(r.tunnels)} tunnels)`, 'ok');
+    else toast(r.error || 'Test failed', 'err');
+  } finally { _testing = false; _tunSig = ''; await poll(); }
+}
+
+function tunRow(t, st, pinned) {
+  const on = t.name === st.active;
+  const awg = t.type === 'amneziawg', noK = awg && !st.awg_kernel;
+  const tyb = awg ? (noK ? '<span class="ty m" title="AmneziaWG is not in this kernel">AWG</span> ' : '<span class="ty" title="AmneziaWG">AWG</span> ') : '';
+  let badge = '';
+  if (on) {
+    if (st.state === 'up') badge = `<span class="hs">${fmtDur(st.handshake_age)}</span>`;
+    else if (st.state === 'handshaking') badge = '<span class="hs a">connecting</span>';
+    else if (st.state === 'down') badge = '<span class="hs r">down</span>';
+    else if (st.state === 'paused') badge = '<span class="hs a">paused</span>';
+    else if (st.state === 'error') badge = '<span class="hs r">error</span>';
+  }
+  const sub = t.valid !== '1' ? 'invalid file - import it again'
+    : noK ? `${esc(t.ep)} · AmneziaWG is not in this kernel`
+    : `${esc(t.ep)} · ${esc(t.addr)}${t.v6 === '1' ? ' · IPv6' : ''}`;
+  const can = t.valid === '1' && (on || !noK);
+  const n = esc(t.name);
+  const tr = TM[t.name];
+  return `<div class="row tun${on ? ' on' : ''}${pinned ? ' pin' : ''}">` +
+    `<button class="star${t.fav ? ' on' : ''}" title="${t.fav ? 'Remove from favorites' : 'Add to favorites'}" onclick="toggleFav(this, '${n}', ${t.fav ? 0 : 1})">${t.fav ? '★' : '☆'}</button>` +
+    `<div class="rn"><b>${n} ${tyb}${testBadge(tr)}${badge}</b><span>${pinned ? '<span class="pinl">on · </span>' : ''}${sub}</span></div>` +
+    `<button class="x-btn" title="Delete" onclick="delTunnel(this, '${n}')">✕</button>` +
+    `<label class="sw"><input type="checkbox" ${on ? 'checked' : ''} ${can ? '' : 'disabled'} onchange="toggleTunnel(this, '${n}')"><i></i></label></div>`;
+}
+
 function renderTunnels(st) {
-  if (_tunBusy) return;
-  const sig = JSON.stringify([st.t, st.active, st.state, st.reason, st.awg_kernel]);
+  if (_tunBusy || !st || !st.t) return;
+  // test rows without their age (that changes every poll); minutes are enough
+  const sRows = (st.s || []).map(l => { const f = l.split('|'); f[4] = Math.floor(num(f[4]) / 60); return f.join('|'); });
+  const sig = JSON.stringify([st.t, st.active, st.state, st.reason, st.awg_kernel, TUN_SEL, TUN_FILT, sRows, st.test_run || '', _testing]);
   if (sig === _tunSig) {   // only the handshake age changed: update that badge, keep the list
     const hb = document.querySelector('#tun-body .row.tun.on .hs');
     if (hb && st.state === 'up') hb.textContent = fmtDur(st.handshake_age);
     return;
   }
   _tunSig = sig;
-  $('tun-note').textContent = st.t.length ? st.t.length + (st.t.length === 1 ? ' tunnel' : ' tunnels') : '';
-  if (!st.t.length) { $('tun-body').innerHTML = '<div class="empty">No tunnels yet.<br>Import a WireGuard or AmneziaWG export below.</div>'; return; }
-  $('tun-body').innerHTML = st.t.map(line => {
-    const [name, ep, addr, valid, v6, type] = line.split('|');
-    const on = name === st.active;
-    const awg = type === 'amneziawg', noK = awg && !st.awg_kernel;
-    const tyb = awg ? (noK ? '<span class="ty m" title="AmneziaWG is not in this kernel">AWG</span> ' : '<span class="ty" title="AmneziaWG">AWG</span> ') : '';
-    let badge = '';
-    if (on) {
-      if (st.state === 'up') badge = `<span class="hs">${fmtDur(st.handshake_age)}</span>`;
-      else if (st.state === 'handshaking') badge = '<span class="hs a">connecting</span>';
-      else if (st.state === 'down') badge = '<span class="hs r">down</span>';
-      else if (st.state === 'paused') badge = '<span class="hs a">paused</span>';
-      else if (st.state === 'error') badge = '<span class="hs r">error</span>';
-    }
-    const sub = valid !== '1' ? 'invalid file - import it again'
-      : noK ? `${esc(ep)} · AmneziaWG is not in this kernel`
-      : `${esc(ep)} · ${esc(addr)}${v6 === '1' ? ' · IPv6' : ''}`;
-    const can = valid === '1' && (on || !noK);
-    return `<div class="row tun${on ? ' on' : ''}"><div class="rn"><b>${esc(name)} ${tyb}${badge}</b><span>${sub}</span></div>` +
-      `<button class="x-btn" title="Delete" onclick="delTunnel(this, '${esc(name)}')">✕</button>` +
-      `<label class="sw"><input type="checkbox" ${on ? 'checked' : ''} ${can ? '' : 'disabled'} onchange="toggleTunnel(this, '${esc(name)}')"><i></i></label></div>`;
+  TM = testMap(st);
+  // poll row: name|endpoint|address|valid|ipv6|type|fav (7th field 2.4+)
+  const all = st.t.map(line => { const [name, ep, addr, valid, v6, type, fav] = line.split('|'); return { name, ep, addr, valid, v6, type, fav: fav === '1', cc: tunCountry(name) }; })
+    .sort((a, b) => natCmp(a.name, b.name));
+  $('tun-note').textContent = all.length ? all.length + (all.length === 1 ? ' tunnel' : ' tunnels') : '';
+  if (!all.length) { $('tun-chips').hidden = true; $('tun-boxes').innerHTML = ''; $('tun-body').innerHTML = '<div class="empty">No tunnels yet.<br>Import a WireGuard or AmneziaWG export below.</div>'; return; }
+
+  // type filter: only offered when both types are imported
+  const both = all.some(t => t.type === 'amneziawg') && all.some(t => t.type !== 'amneziawg');
+  $('tun-chips').hidden = !both;
+  const filt = both ? TUN_FILT : 'all';
+  document.querySelectorAll('#tun-chips button').forEach(b => b.classList.toggle('on', b.dataset.f === filt));
+  const shown = all.filter(t => filt === 'all' || (filt === 'amneziawg' ? t.type === 'amneziawg' : t.type !== 'amneziawg'));
+
+  // boxes: Favorites, countries A-Z, Others
+  const cnt = {}; shown.forEach(t => { cnt[boxOf(t)] = (cnt[boxOf(t)] || 0) + 1; });
+  const nFav = shown.filter(t => t.fav).length;
+  const keys = (nFav ? ['fav'] : []).concat(Object.keys(cnt).filter(k => k !== 'oth').sort(), cnt.oth ? ['oth'] : []);
+  const act = all.find(t => t.name === st.active);
+  // first visit: the active tunnel's country
+  if (TUN_SEL === null) TUN_SEL = act ? boxOf(act) : '';
+  const sel = keys.includes(TUN_SEL) ? TUN_SEL : '';
+  const actCls = st.state === 'up' ? '' : (st.state === 'down' || st.state === 'error') ? ' r' : ' a';
+  $('tun-boxes').innerHTML = keys.map(k => {
+    const n = k === 'fav' ? nFav : cnt[k];
+    const isAct = act && (k === 'fav' ? act.fav : boxOf(act) === k);
+    const fl = k === 'fav' ? '★' : k === 'oth' ? '🌐' : ccFlag(k);
+    const nm = k === 'fav' ? 'your stars' : k === 'oth' ? 'no country code' : ccName(k);
+    return `<button class="cbox${k === sel ? ' pick' : ''}${isAct ? ' act' + actCls : ''}" title="${esc(nm)}" onclick="selBox('${k}')">` +
+      `<span class="fl"${k === 'fav' ? ' style="color:#fcd34d;font-family:var(--mono)"' : ''}>${fl}</span><span class="cc">${esc(boxLabel(k))} · ${n}</span><span class="cn">${esc(nm)}</span></button>`;
   }).join('');
+
+  // the list: the active tunnel pinned at the top, then the selected box
+  const inBox = shown.filter(t => sel === '' || (sel === 'fav' ? t.fav : boxOf(t) === sel));
+  const rest = inBox.filter(t => t.name !== st.active);
+  const run = (st.test_run || '').split('|');   // box|i|n|address while a test runs
+  const busy = !!st.test_run || _testing;
+  const head = `<div class="tun-head">${sel === '' ? (filt === 'all' ? 'All tunnels' : filt === 'amneziawg' ? '<b>AmneziaWG</b>' : '<b>WireGuard</b>') : '<b>' + esc(sel === 'fav' ? 'Favorites' : sel === 'oth' ? 'Others' : ccName(sel)) + '</b>'} · ${inBox.length} of ${all.length}` +
+    (sel !== '' ? `<button class="btn-s tbtn"${busy ? ' disabled' : ''} onclick="runTest(this)">${busy ? 'Testing…' : 'Test'}</button><button class="fbtn" onclick="selBox('${sel}')">Show all</button>` : '') + '</div>' +
+    (st.test_run ? `<div class="tprog">Testing ${esc(run[0])}: server ${esc(run[1])} of ${esc(run[2])} (${esc(run[3])})…</div>` : '');
+  let body;
+  if (sel === '' || !rest.length) {
+    body = rest.length ? rest.map(t => tunRow(t, st, false)).join('') : '<div class="empty">' + (inBox.length ? 'Only the tunnel above.' : 'No tunnels here.') + '</div>';
+  } else {
+    // grouped by server address: one test result per address
+    const epHost = t => String(t.ep || '').replace(/:\d+$/, '');
+    const groups = {};
+    inBox.forEach(t => { const r = TM[t.name]; const k = r && r.addr && !/^host:/.test(r.addr) ? r.addr : epHost(t); (groups[k] = groups[k] || { addr: k, all: [], r: null }).all.push(t); if (r && !groups[k].r) groups[k].r = r; });
+    const gl = Object.values(groups);
+    const rank = g => testOk(g.r) ? num(g.r.ping) : g.r ? 1e9 : 1e8;
+    gl.sort((a, b) => rank(a) - rank(b) || natCmp(a.all[0].name, b.all[0].name));
+    const okG = gl.filter(g => testOk(g.r));
+    const fastest = okG.length > 1 ? okG[0] : null;
+    body = gl.map(g => {
+      const rows = g.all.filter(t => t.name !== st.active);
+      const n = g.all.length, r = g.r;
+      const res = !r ? '<b class="m">not tested</b>' : testOk(r) ? `<b>${esc(r.ping)} ms</b>${r.hs ? ' · connects in ' + esc(r.hs) + ' ms' : r.status === 'active' ? ' · through the tunnel that is on' : ''}` : `<b class="r">${esc(TEST_TXT[r.status] || r.status)}</b>`;
+      const sub = (n > 1 ? `${n} tunnels on one server (different exit addresses) - they usually fail together` : '1 tunnel') + (r ? ' · tested ' + fmtAge(r.age) : '');
+      return `<div class="grp">${esc(g.addr)} · ${res}${g === fastest ? '<span class="fast">fastest</span>' : ''}<span class="gs">${sub}</span></div>` +
+        (rows.length ? rows.map(t => tunRow(t, st, false)).join('') : '');
+    }).join('');
+  }
+  $('tun-body').innerHTML = (act ? tunRow(act, st, true) : '') + head + body;
 }
 
 function renderSettings(st) {
@@ -775,6 +920,13 @@ async function delTunnel(b, name) {
   try {
     const r = parseKV(await ctl('remove ' + q(name)));
     toast(r.ok === '1' ? name + ' deleted' : (r.error || 'Not deleted'), r.ok === '1' ? 'ok' : 'err');
+  } finally { _tunBusy = false; _tunSig = ''; await poll(); }
+}
+async function toggleFav(b, name, on) {
+  _tunBusy = true;
+  try {
+    const r = parseKV(await ctl('fav ' + (on ? 'add ' : 'del ') + q(name)));
+    if (r.ok !== '1') toast(r.error || 'Failed', 'err');
   } finally { _tunBusy = false; _tunSig = ''; await poll(); }
 }
 async function loadFiles() {

@@ -24,8 +24,9 @@
 #      a host-name endpoint is looked up again) - twice
 #   2. only with AUTOSWITCH=1: switch to another imported tunnel - first the
 #      same country (name like wg-BG-14 -> other *-BG-* tunnels), then any
-#      other tunnel; inside each group servers with another address first;
-#      at most HEAL_MAX_SWITCH tunnels
+#      other tunnel; never one on a server address that already failed;
+#      inside each group by the last speed test; at most HEAL_MAX_SWITCH
+#      tunnels
 #   3. nothing helped: back to the tunnel the user picked, state stays down
 #      (kill switch as set) and ONE notification says what was tried
 # Each step gets HEAL_WAIT seconds to carry traffic again (handshake + an
@@ -195,27 +196,28 @@ tun_ep_host() { ( tun_parse "$(tun_file "$1")" >/dev/null 2>&1 && echo "${T_EP%:
 
 # next tunnel to try, empty = none left. Runs in a subshell (tun_parse and
 # tun_names use global variables).
+# Order (2.4): a server address that already failed in this attempt (the
+# picked tunnel's and every tried one's) is never tried again - tunnels on
+# one address (Proton: one machine, several exit addresses) fail together.
+# Same country first, then every other tunnel; inside each group by the last
+# speed test (fastest first, untested next, tested-and-failed last), then by
+# name.
 heal_pick() {
     (
         _cc=$(tun_country "$H_ORIG")
         _bad=" $(tun_ep_host "$H_ORIG") "
         for _t in $H_TRIED; do _bad="$_bad$(tun_ep_host "$_t") "; done
-        # same country first (new server, then a server that already failed),
-        # then every other tunnel in the same order
-        _g1=""; _g2=""; _g3=""; _g4=""
+        _i=0
         for _hn in $(tun_names); do
             [ "$_hn" = "$H_ORIG" ] && continue
             case " $H_TRIED " in *" $_hn "*) continue ;; esac
             tun_parse "$(tun_file "$_hn")" >/dev/null 2>&1 || continue
             if [ "$T_TYPE" = amneziawg ] && [ "$FAKE_LINK" = 0 ] && ! awg_kernel_ok; then continue; fi
-            _same=0; [ -n "$_cc" ] && [ "$(tun_country "$_hn")" = "$_cc" ] && _same=1
-            case "$_bad" in
-                *" ${T_EP%:*} "*) if [ "$_same" = 1 ]; then _g2="$_g2 $_hn"; else _g4="$_g4 $_hn"; fi ;;
-                *) if [ "$_same" = 1 ]; then _g1="$_g1 $_hn"; else _g3="$_g3 $_hn"; fi ;;
-            esac
-        done
-        set -- $_g1 $_g2 $_g3 $_g4
-        echo "$1"
+            case "$_bad" in *" ${T_EP%:*} "*) continue ;; esac
+            _g=1; [ -n "$_cc" ] && [ "$(tun_country "$_hn")" = "$_cc" ] && _g=0
+            _i=$((_i + 1))
+            echo "$_g $(test_rank "$_hn") $_i $_hn"
+        done | sort -n -k1,1 -k2,2 -k3,3 | awk '{ print $4; exit }'
     )
 }
 

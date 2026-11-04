@@ -143,6 +143,25 @@ tun_names() {
     done
 }
 
+# ---- favorites (2.4) ---------------------------------------------------------
+# $FAVS: one tunnel name per line, only valid names count (a hand-edited
+# file can not inject anything into the poll rows), 0600 like the settings.
+fav_names() {
+    [ -f "$FAVS" ] || return 0
+    while IFS= read -r _fn; do
+        _fn=$(printf '%s' "$_fn" | tr -d '\r')
+        tunnel_name_ok "$_fn" && echo "$_fn"
+    done < "$FAVS" 2>/dev/null | sort -u
+}
+fav_has() { fav_names | grep -qxF "$1"; }
+_fav_write() {  # names on stdin -> $FAVS (removed when empty)
+    _ft="$FAVS.tmp.$$"
+    sort -u > "$_ft" && chmod 600 "$_ft" || { rm -f "$_ft"; return 1; }
+    if [ -s "$_ft" ]; then mv -f "$_ft" "$FAVS"; else rm -f "$_ft" "$FAVS"; fi
+}
+fav_add() { { fav_names; echo "$1"; } | _fav_write; }
+fav_del() { fav_names | grep -vxF "$1" | _fav_write; }
+
 # tun_import_one FILE -> prints result line, returns 0 imported / 1 skipped
 tun_import_one() {
     src=$1

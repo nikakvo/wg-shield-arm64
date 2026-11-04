@@ -19,6 +19,8 @@ usage() {
         '  switch <name>       switch to another tunnel (same as up <name>)' \
         '  down                turn the tunnel off - direct connection' \
         '  remove <name>       delete an imported tunnel' \
+        '  fav add|del <name>  mark / unmark a tunnel as favorite (WebUI star)' \
+        '  test <box>          speed test: BG (a country code), others or favorites' \
         '  pause <minutes>     direct connection for a while (1-1440), then back on' \
         '  resume              end a pause now' \
         '  set killswitch 0|1  1 = no internet while the tunnel is down (default)' \
@@ -108,18 +110,20 @@ _http_get() {  # <host> <path>
 }
 _json_str() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" | head -n 1; }
 
-# poll's tunnel rows, "t=name|endpoint|address|valid|ipv6|type". Parsing ~40
-# files on every poll (every 4 s while the WebUI is open) took seconds, so the
-# rows are kept in $STATE/tunrows and made again only when a file in tunnels/
-# changed (name, inode, size, time).
+# poll's tunnel rows, "t=name|endpoint|address|valid|ipv6|type|fav". Parsing
+# ~80 files on every poll (every 4 s while the WebUI is open) took seconds, so
+# the rows are kept in $STATE/tunrows and made again only when a file in
+# tunnels/ changed (name, inode, size, time) or the favorites changed.
 tun_rows() {
-    _k=$(stat -c '%n %i %s %Y' "$TUNDIR"/*.conf 2>/dev/null | cksum)
+    _k=$({ stat -c '%n %i %s %Y' "$TUNDIR"/*.conf 2>/dev/null; echo "favorites"; fav_names; } | cksum)
     _c="$STATE/tunrows"
     if [ "$(head -n 1 "$_c" 2>/dev/null)" != "$_k" ]; then
+        _fl=$(fav_names)
         {
             echo "$_k"
             for n in $(tun_names); do
-                if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE"; else echo "t=$n|-|-|0|0|-"; fi
+                _f=0; printf '%s\n' "$_fl" | grep -qxF "$n" && _f=1
+                if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE|$_f"; else echo "t=$n|-|-|0|0|-|$_f"; fi
             done
         } > "$_c.tmp.$$" && mv -f "$_c.tmp.$$" "$_c"
     fi
@@ -168,10 +172,11 @@ case "$cmd" in
         for n in $(tun_names); do
             c=$((c + 1))
             a=0; [ "$n" = "$S_ACTIVE" ] && a=1
+            f=0; fav_has "$n" && f=1
             if tun_parse "$(tun_file "$n")"; then
-                echo "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 type=$T_TYPE active=$a"
+                echo "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 type=$T_TYPE active=$a fav=$f"
             else
-                echo "tunnel=$n invalid=1 active=$a error=$(echo "$T_ERR" | tr ' ' '_')"
+                echo "tunnel=$n invalid=1 active=$a fav=$f error=$(echo "$T_ERR" | tr ' ' '_')"
             fi
         done
         echo "ok=1"; echo "count=$c"; echo "active=$S_ACTIVE"; echo "last=$S_LAST"
@@ -217,8 +222,33 @@ case "$cmd" in
         [ "$S_LAST" = "$1" ] && S_LAST=""
         settings_save
         rm -f "$(tun_file "$1")"
+        fav_has "$1" && fav_del "$1"
         wlog INFO "ctl: tunnel $1 removed"
         tick_now; echo "removed=$1"; print_status
+        ;;
+    fav)
+        case "$1" in add|del) : ;; *) fail "usage: fav add|del <name>" ;; esac
+        tunnel_name_ok "$2" || fail "not a valid tunnel name: $2"
+        if [ "$1" = add ]; then
+            tun_exists "$2" || fail "no such tunnel: $2"
+            fav_has "$2" || fav_add "$2" || fail "cannot write $FAVS"
+            f=1
+        else
+            ! fav_has "$2" || fav_del "$2" || fail "cannot write $FAVS"
+            f=0
+        fi
+        echo "ok=1"; echo "tunnel=$2"; echo "fav=$f"
+        ;;
+    test)
+        case "$1" in
+            [A-Z][A-Z]|others|favorites) : ;;
+            *) fail "usage: test <country code like BG | others | favorites>" ;;
+        esac
+        test_lock_get || fail "a speed test is already running"
+        trap 'test_cleanup; test_lock_release' EXIT
+        trap 'exit 1' INT TERM HUP
+        test_run "$1"; rc=$?
+        exit "$rc"
         ;;
     pause)
         case "$1" in ""|*[!0-9]*) fail "usage: pause <minutes 1-1440>" ;; esac
@@ -323,6 +353,8 @@ case "$cmd" in
         echo "vhs_code=$(sed -n 's/^versionCode=//p' "$MODULES/vpn-hotspot/module.prop" 2>/dev/null | head -n1)"
         echo "vhs_source=$(sed -n 's/^vpn_source=//p' "$vs" 2>/dev/null | head -n1)"
         lanc_rows
+        test_rows
+        if test_running; then echo "test_run=$(cat "$TEST_PROG" 2>/dev/null)"; fi
         ;;
     notifytest)
         settings_load; S_NOTIFY=1
@@ -373,6 +405,8 @@ case "$cmd" in
         echo; echo "== status"; cat "$STATE/status" 2>/dev/null
         echo; echo "== settings"; grep -v '^#' "$CONF" 2>/dev/null
         [ -f "$STATE/heal" ] && { echo; echo "== recovery"; cat "$STATE/heal"; }
+        echo; echo "== favorites"; fav_names
+        echo; echo "== speed test (address|handshake ms|ping ms|result|epoch|tunnels)"; cat "$TEST_FILE" 2>/dev/null
         echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else echo "$n INVALID: $T_ERR"; fi; done
         k=$(iface_kind)
         if [ "$k" = amneziawg ]; then

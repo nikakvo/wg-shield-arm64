@@ -8,6 +8,7 @@ MODDIR="${WGS_MODDIR:-/data/adb/modules/wg-shield}"
 #   /data/adb/wg-shield/
 #     settings.conf   active / last tunnel, kill switch
 #     tunnels/        imported tunnels with their keys (root only)
+#     favorites       favorite tunnel names (2.4+)
 #     logs/           wg-shield.log (+ .1)
 #     state/          runtime, cleared at boot; state/status = contract for
 #                     the sibling modules
@@ -15,6 +16,7 @@ DATA="${WGS_DATA:-/data/adb/wg-shield}"
 STATE="${WGS_STATE:-$DATA/state}"
 CONF="${WGS_CONFFILE:-$DATA/settings.conf}"
 TUNDIR="$DATA/tunnels"
+FAVS="$DATA/favorites"   # favorite tunnels, one name per line (WebUI star)
 LOGDIR="$DATA/logs"
 LOG="$LOGDIR/wg-shield.log"
 LOG_MAX=262144

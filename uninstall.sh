@@ -5,6 +5,7 @@ MODDIR=${0%/*}
 . "$MODDIR/sh/tunnels.sh"
 . "$MODDIR/sh/net.sh"
 teardown
+test_cleanup
 rm -rf "$DATA" "$STATE"
 rm -f "$CONF" "$CONF".tmp.*
 # r3 and older (before the first boot of r4 moved them), and the

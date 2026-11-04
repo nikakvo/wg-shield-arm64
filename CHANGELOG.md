@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.4
+
+Your tunnels by country, favorites, and a speed test that shows which tunnels share a server.
+
+* **Country boxes** (Tunnels tab) - a box per country with its flag, code and count (`🇧🇬 BG · 7`) above the list; tap one to see only its tunnels, tap it again (or *Show all*) to see all. The country comes from the name - the first part of two capital letters (`wg-BG-14` → BG), the same rule Auto-switch uses; names without one are in **Others**. A dot marks the box of the tunnel that is on; the page remembers the box you picked
+* **The tunnel that is on stays at the top** of the list, whatever box is picked; tunnels are sorted by number (`BG-14` before `BG-100`)
+* **Favorites** - a ★ on every row; your favorites are in the **Favorites** box, the first one. Deleting a tunnel removes its star, importing it again keeps it
+* **WireGuard / AmneziaWG filter** above the boxes when you have both kinds
+* **Speed test** - **Test** in a box measures every server address in it once: how fast the first handshake comes ("connects in") and the average ping through the server. The rows are then grouped by server address, the fastest first and marked; each group says how old its result is. Nothing is switched for you. VPN providers often run several "servers" on one machine (with Proton, `BG-14`, `BG-18`, `BG-20` and `BG-24` can share one server address and leave through different exit addresses) - the groups show which tunnels usually fail together. The test uses a second, temporary tunnel interface next to the running one; the tunnel that is on and the kill switch are not touched, and everything temporary is removed right after (also when a test is stopped)
+* **Auto-switch picks smarter** - a server address that already failed in an attempt is never tried again (before, the other tunnels of that address were tried last); inside the same country and then among the others, the fastest address of the last speed test goes first
+* Command line: `fav add|del <name>`, `test <country code | others | favorites>`; the Report lists favorites and the last test results
+* **Help** - country boxes, favorites, filter and speed test in section 6, the new Auto-switch order in section 7, `fav` and `test` in section 10
+
+Tested on Poco F6 Pro, Xiaomi.eu ROM (HyperOS 3, Android 16), kernel [GKI_Kernel_SukiSU](https://github.com/nikakvo/GKI_Kernel_SukiSU), 77 Proton VPN WireGuard tunnels in 21 countries and a self-hosted AmneziaWG server: boxes and flags, favorites from the WebUI and the terminal, filter, remembered box after reopening the manager, speed test of several countries, Favorites and Others (AmneziaWG) with the tunnel on, nothing left behind after a test, Auto-switch skipping the tunnels of a failed server address.
+
+---
+
 ## 2.3
 
 Fewer checks by default, your choice how often, and a restart button.

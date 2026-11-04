@@ -72,7 +72,7 @@
   <a href="#how">3 · How it works</a>
   <a href="#states">4 · States and the banner</a>
   <a href="#dash">5 · Dashboard</a>
-  <a href="#tunnels">6 · Tunnels, import and AmneziaWG</a>
+  <a href="#tunnels">6 · Tunnels, countries, favorites, speed test, import, AmneziaWG</a>
   <a href="#settings">7 · Kill switch, self-healing and pause</a>
   <a href="#set">8 · With the other modules of the set</a>
   <a href="#limits">9 · IPv6 and other limits</a>
@@ -170,9 +170,23 @@
   <p>Whether DNSCrypt Proxy, ipset and VPN Hotspot are installed and what they are doing (see 8).</p>
 </div>
 
-<div class="sec-title" id="tunnels">6 · tunnels, import and amneziawg</div>
+<div class="sec-title" id="tunnels">6 · tunnels, countries, favorites, speed test, import, amneziawg</div>
 <div class="box">
   <p>Every imported tunnel is a row with a switch. <strong>One at a time</strong>: switching one on switches the other off; the interface stays <code>wgs0</code>, only keys, server and address change. All off = your normal connection.</p>
+  <h3>Country boxes</h3>
+  <p>Above the list, the tunnels are grouped in boxes: flag, country code and how many tunnels (<code>🇧🇬 BG · 7</code>). Tap a box to see only that country's tunnels; tap it again (or <em>Show all</em>) to see all of them. The page remembers the box you picked. A dot in the corner marks the box of the tunnel that is on.</p>
+  <p>The country comes from the tunnel's name: the first part of exactly two capital letters between <code>-</code>, <code>_</code> or <code>.</code> (<code>wg-BG-14</code> → BG, <code>wg-NL-FREE-3</code> → NL). Auto-switch uses the same rule for "the same country". Names without such a part (<code>myhome</code>, <code>wg-pld</code>) are in <strong>Others</strong> 🌐, the last box. Proton names the United Kingdom <code>UK</code>: the box keeps that label and shows the British flag.</p>
+  <p>Inside a box the tunnels are sorted by number (<code>BG-14</code> before <code>BG-100</code>). The tunnel that is on always stays at the top of the list, whatever box is picked.</p>
+  <h3>Favorites</h3>
+  <p>The ☆ on a row marks a tunnel as a favorite (★). All favorites are in the <strong>Favorites</strong> box, the first one; it appears when there is at least one. Deleting a tunnel also removes its star; importing it again with the same name keeps it.</p>
+  <h3>WireGuard / AmneziaWG filter</h3>
+  <p>When both kinds of tunnels are imported, <em>All · WireGuard · AmneziaWG</em> above the boxes shows only one kind; the boxes and their numbers follow it.</p>
+  <h3>Speed test</h3>
+  <p>Pick a box and tap <strong>Test</strong>. WG Shield measures every <strong>server address</strong> in the box once: how long the first handshake takes ("connects in") and the average of 3 pings through the tunnel to 1.1.1.1. A line shows which server is being tested; it takes a few seconds per address. Nothing is switched: the rows are then grouped by server address, the fastest first and marked, and you pick. Every row shows its time, and each group says how old its result is.</p>
+  <p>Why per address: a VPN provider runs several "servers" on one machine. With Proton, <code>BG-14</code>, <code>BG-18</code>, <code>BG-20</code> and <code>BG-24</code> can all connect to the same address (the <em>Server</em> on the Dashboard) and leave through different exit addresses (the <em>Internet</em> address). They are as fast as each other and they usually fail together, so one measurement counts for the whole group. They are not duplicates - a different exit address can help when a site blocks one - but for a backup, keep tunnels on <strong>different server addresses</strong>.</p>
+  <p>How it measures without touching your connection: each address gets a second, temporary tunnel interface next to the running one, with one tunnel of that address; only the test's own packets use it, and it is removed right after (also if the test is stopped). The tunnel that is on keeps running and the kill switch keeps working; the address of the tunnel that is on is measured through it (ping only). A tunnel with the same key as the one that is on is never loaded twice (the server would drop one of them); another tunnel of that address is used, or the group says it was not tested.</p>
+  <p>Results: <em>no handshake</em> = the server did not answer at all; <em>no answer through it</em> = it connected but carried nothing. Results are kept (also after a reboot) until the next test of that box, and Auto-switch uses them (section 7).</p>
+  <h3>Import</h3>
   <p>Import reads the WireGuard app's export zip, or single <code>.conf</code> files, from Download. Files that do not fit (several peers, no full tunnel, an IPv6 endpoint) are skipped and the Log says why. Importing a tunnel with a name that already exists replaces it. Names keep letters, digits, <code>. _ -</code>; other characters become <code>_</code>.</p>
   <p>From a file the module uses only the WireGuard keys and addresses. <code>DNS</code> is ignored (DNS is left to the system or DNSCrypt Proxy), as are <code>PostUp</code>, <code>Table</code> and the like. A tunnel without <code>PersistentKeepalive</code> gets 25 s, so the health check always has fresh handshakes.</p>
   <div class="note warn">Private keys are stored in <code>/data/adb/wg-shield/tunnels/</code>, readable only by root. They never appear in the WebUI, the log, the status or the Report. The export in Download is readable by apps - delete it after importing.</div>
@@ -192,7 +206,7 @@
   <p>Every 30 seconds (or every 5 seconds, see <strong>Check every</strong> below; with the Battery profile only while the screen is on) WG Shield sends one ping through the tunnel (to 1.1.1.1, then 9.9.9.9 - never around it). Only an answer counts: traffic coming in alone does not prove that the way out works. No answer to two tries = the tunnel does not work, noticed within about 40 seconds (10 seconds with 5 s). A server that never answers a ping (some home servers drop it) is not called dead for that - for such a tunnel WireGuard's own 3-minute rule decides. While the phone has a network, WG Shield then fixes it without waiting for you:</p>
   <ol>
     <li><strong>Two restarts</strong> (always on). The tunnel is built again, which makes a fresh handshake from a new port and looks a host-name server up again. This fixes a router that was restarted, a lost connection, a server that hung for a moment. Each step gets 10 seconds; it counts as fixed only when an answer comes back through the tunnel, not just a handshake.</li>
-    <li><strong>Auto-switch on failure</strong> (Settings, off by default). If the restarts did not help, WG Shield tries your other tunnels, at most 5: first the <strong>same country</strong> - the two capital letters in the name, so <code>wg-BG-14</code> is followed by the other <code>*-BG-*</code> tunnels - then <strong>any other tunnel</strong> (another country, a home server). Inside each group, tunnels on another server address come first. The first one that answers stays on, and the Tunnels tab shows it switched on.</li>
+    <li><strong>Auto-switch on failure</strong> (Settings, off by default). If the restarts did not help, WG Shield tries your other tunnels, at most 5: first the <strong>same country</strong> - the two capital letters in the name, so <code>wg-BG-14</code> is followed by the other <code>*-BG-*</code> tunnels - then <strong>any other tunnel</strong> (another country, a home server). A tunnel on a server address that already failed in this attempt is never tried (tunnels on one address usually fail together). Inside each group the last <strong>speed test</strong> decides: the fastest address first, untested ones next, ones that failed the test last. The first one that answers stays on, and the Tunnels tab shows it switched on.</li>
     <li><strong>Nothing helped</strong>: WG Shield goes back to the tunnel you picked and it stays <span class="pill bad">down</span> - with the kill switch on, no internet. It keeps checking that tunnel quietly (every 15 seconds, every 30 with Check every 30 s) and is back the moment it answers; a new attempt starts when the network changes.</li>
   </ol>
   <p>The kill switch holds during every step - nothing leaves the phone outside the tunnel. Switching a tunnel yourself, pausing or turning it off stops an attempt at once.</p>
@@ -270,6 +284,8 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set checks 5|30|off'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   <span class="cm"># watchdog + tunnel again</span>
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh test BG'   <span class="cm"># speed test of a box: country code, others or favorites</span>
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh fav add &lt;name&gt;'   <span class="cm"># favorite (☆ → ★); fav del &lt;name&gt; removes it</span>
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm"># report, no keys</span></pre>
   <p>The <code>wg</code> tool is on the path too: <code>su -c '/system/bin/wg show wgs0'</code> (private key hidden). For an AmneziaWG tunnel use <code>awg</code>: <code>su -c '/system/bin/awg show wgs0'</code>. That output shows the header protection key, so do not share it - the Report hides it.</p>
@@ -306,6 +322,8 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
     <tr><td>/data/adb/wg-shield/</td><td>Everything the module keeps, in one folder:</td></tr>
     <tr><td>settings.conf</td><td>Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification (kept on update)</td></tr>
     <tr><td>tunnels/</td><td>Imported tunnels with their keys, root only (kept on update)</td></tr>
+    <tr><td>favorites</td><td>Favorite tunnel names, one per line (kept on update)</td></tr>
+    <tr><td>speedtest</td><td>Last speed test result per server address (kept on update and reboot)</td></tr>
     <tr><td>logs/wg-shield.log</td><td>Log (<strong>Clear</strong> in the Log tab empties it)</td></tr>
     <tr><td>state/</td><td>Runtime state, cleared at boot; <code>state/status</code> is read by the sibling modules</td></tr>
   </table></div>

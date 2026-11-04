@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.3-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.4-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
@@ -31,8 +31,11 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 - **Kernel WireGuard, no app** - one interface, `wgs0`, whichever tunnel is on
 - **AmneziaWG too** - a config with AmneziaWG settings (`Jc`, `S1`-`S4`, `H1`-`H4`, `I1`-`I5`, `HeaderProtectionKey`…) runs as an AmneziaWG tunnel, any other as plain WireGuard. Nothing to choose: the type is read from the file, the tunnel row shows an **AWG** badge. Same routing, kill switch and networking set for both
 - **Every tunnel a switch** - import the WireGuard app's export zip or single `.conf` files (WireGuard or AmneziaWG); one tunnel on at a time, all off = your normal connection
+- **Country boxes** - the Tunnels tab groups your tunnels by country: flag, code and count (`🇧🇬 BG · 7`), tap one to see only its tunnels. The country comes from the name (`wg-BG-14` → BG); names without a code go to **Others**. The tunnel that is on always stays at the top; a WireGuard / AmneziaWG filter when you have both
+- **Favorites** - a ★ on any tunnel puts it in the **Favorites** box, the first one
+- **Speed test** - one tap measures every **server address** in a box: how fast it connects and the ping through it, with the fastest marked. Several "servers" of a VPN provider often run on one machine (same server address, different exit addresses); the test groups them, measures them once and shows that they belong together. It runs on a second, temporary tunnel interface - the tunnel that is on and the kill switch are not touched, nothing is switched for you
 - **Kill switch** - tunnel on but not answering (no handshake for 180 s, WireGuard's own limit) → no internet at all, never the plain connection; from the first second of boot when a tunnel was on
-- **Self-healing** - the tunnel is pinged through itself every 30 s (or 5 s); no answer = noticed within about 40 s (10 s with 5 s), not after WireGuard's 3 minutes. It is restarted twice at once, and with **Auto-switch** on, your other tunnels are tried - the same country first (`wg-BG-14` → other BG tunnels), then any other. The kill switch holds the whole time
+- **Self-healing** - the tunnel is pinged through itself every 30 s (or 5 s); no answer = noticed within about 40 s (10 s with 5 s), not after WireGuard's 3 minutes. It is restarted twice at once, and with **Auto-switch** on, your other tunnels are tried - the same country first (`wg-BG-14` → other BG tunnels), then any other, never one on a server address that already failed, the fastest by the last speed test first. The kill switch holds the whole time
 - **One notification** when the tunnel could not be fixed (or after a switch to another tunnel), saying what was tried - you learn you have no internet without opening the manager
 - **Checks profile: Battery or Always** - Battery (default) checks only while the screen is on and checks at once when it comes on; Always checks day and night (hotspot devices, background apps)
 - **Check every: 5 s, 30 s or Off** - how often the tunnel is pinged (30 s by default); Off sends no pings at all and leaves it to WireGuard's 3-minute rule
@@ -71,6 +74,8 @@ your Wi-Fi or mobile network → VPN server → internet
 | 5020 | Everything not bound to one network → the tunnel |
 | 5021 | Everything bound to the current default network → the tunnel |
 | 5022 | Everything bound to another internet network (mobile data in the background, a Wi-Fi not yet in use) → the tunnel |
+
+During a speed test two more rules exist for a few seconds per server: 4990 (the test interface's own packets to that server go out through your network) and 4991 (pings bound to the test interface use its table 51821). Both, the interface `wgt0` and the table are removed right after each server.
 
 Carrier service networks keep Android's routing - that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working. Which network is which comes from Android itself: restricted networks (IMS and the like) are never touched, networks without internet (MMS only) are left alone after one look at `dumpsys connectivity`. No firewall (iptables) rules at all: nothing can conflict with Android's firewall lock or with the other modules' chains.
 
@@ -114,7 +119,7 @@ Tunnels and settings are kept on update.
 | Tab | |
 |---|---|
 | Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network, the other networks · the networking set · watchdog |
-| Tunnels | Every tunnel with a switch (one at a time), an **AWG** badge for AmneziaWG tunnels, and **✕** · import from Download, delete the export |
+| Tunnels | Country boxes (+ Favorites, Others) · WireGuard / AmneziaWG filter · every tunnel with a switch (one at a time), ★, an **AWG** badge for AmneziaWG tunnels, and **✕**; the tunnel that is on at the top · **Test** a box: results grouped by server address, fastest marked · import from Download, delete the export |
 | Settings | Kill switch · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
 | Log | Filterable by level |
 
@@ -183,6 +188,8 @@ internet
 | `/data/adb/wg-shield/` | Everything the module keeps, in one folder: |
 | `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification |
 | `  tunnels/` | Imported tunnels with their keys, root only (`0600`) |
+| `  favorites` | Favorite tunnel names, one per line |
+| `  speedtest` | Last speed test result per server address (the auto-switch order uses it) |
 | `  logs/wg-shield.log` | Log |
 | `  state/` | Runtime state, cleared at boot; `status` is read by the sibling modules |
 | `system/bin/wg` | `wg` from [wireguard-tools](https://git.zx2c4.com/wireguard-tools/) v1.0.20250521, static arm64 - also on the path: `su -c '/system/bin/wg show wgs0'` |
@@ -225,6 +232,8 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'   # how the notification looks
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   # watchdog + tunnel again
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove <name>'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh fav add <name>'   # favorite; fav del <name> removes it
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh test BG'   # speed test of a box: a country code, others or favorites
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   # report, no keys
 ```
@@ -251,6 +260,7 @@ Within about 40 seconds (10 with Check every 5 s) the banner shows *restart 1 of
 ## Notes
 
 - **The ping** goes through the tunnel only (bound to `wgs0`, to 1.1.1.1 / 9.9.9.9), so it shows nothing new to your network. A server that never answers a ping is not called dead for that - for such a tunnel WireGuard's own 180 s rule decides
+- **The speed test** sends, per server address, one WireGuard handshake and a few pings to 1.1.1.1 through that server - nothing outside a tunnel. A server can take a few seconds before it answers a key it has not seen for a while; the test waits up to 10 seconds for the answers
 - **Notifications** are posted through Android's shell, so they appear as *Shell* / *Command line*; HyperOS shows them when the screen comes on
 - **Host-name endpoints** are looked up with one plain DNS query to Quad9 outside the tunnel (the tunnel is not up yet); the same resolvers DNSCrypt Proxy lets root query directly
 - **Same LAN on both sides** - addresses of your own Wi-Fi network always stay local; a home VPN that uses the same range (both `192.168.1.x`) cannot reach its devices while you are on that Wi-Fi
