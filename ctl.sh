@@ -25,6 +25,8 @@ usage() {
         '  set autoswitch 0|1  1 = when restarts do not help, try other tunnels of the same country' \
         '  set notify 0|1      1 = a notification when the tunnel could not be fixed (default)' \
         '  set profile battery|always  checks only with the screen on (default) / day and night' \
+        '  set checks 5|30|off  ping through the tunnel every 5 s / 30 s (default) / never' \
+        '  restart             restart the watchdog and reconnect the tunnel' \
         '  notifytest          show a test notification' \
         '  log [lines|clear]   last log lines (default 40) / empty the log' \
         '  poll                everything the WebUI shows (key=value)' \
@@ -248,6 +250,15 @@ case "$cmd" in
                 settings_load; S_PROFILE=$2; settings_save
                 wlog INFO "ctl: profile $2"
                 tick_now; print_status ;;
+            checks|CHECKS)
+                case "$2" in 5|30|off) : ;; *) fail "usage: set checks 5|30|off" ;; esac
+                settings_load; S_CHECKS=$2; settings_save
+                if [ "$2" = off ]; then wlog INFO "ctl: checks off - only the handshake rule (180 s)"
+                else wlog INFO "ctl: checks every $2 s"; fi
+                rm -f "$STATE/live_probe_at"    # a new interval starts with a check
+                # off: an old "no answer" must not start a recovery now
+                [ "$2" = off ] && rm -f "$STATE/dead_at" "$STATE/alive_at"
+                tick_now; print_status ;;
             notify|NOTIFY)
                 case "$2" in 0|1) : ;; *) fail "usage: set notify 0|1" ;; esac
                 settings_load; S_NOTIFY=$2; settings_save
@@ -255,6 +266,37 @@ case "$cmd" in
                 tick_now; print_status ;;
             *) fail "unknown setting: $1" ;;
         esac
+        ;;
+    restart)
+        # 1. stop the watchdog (its TERM trap also stops its ip monitor)
+        p=$(cat "$STATE/watchdog.pid" 2>/dev/null)
+        if watchdog_alive; then
+            kill "$p" 2>/dev/null
+            n=0; while kill -0 "$p" 2>/dev/null && [ "$n" -lt 50 ]; do sleep 0.1 2>/dev/null || sleep 1; n=$((n + 1)); done
+            kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null
+        fi
+        m=$(cat "$STATE/monitor.pid" 2>/dev/null)
+        [ -n "$m" ] && grep -q monitor "/proc/$m/cmdline" 2>/dev/null && kill "$m" 2>/dev/null
+        rm -f "$STATE/watchdog.pid" "$STATE/monitor.pid" "$STATE/events"
+        # 2. a fresh tunnel interface (new port, new handshake) and a fresh
+        #    recovery; the kill switch holds meanwhile (table 51820's
+        #    unreachable route), a pause or "off" is kept
+        lock_get 20 || fail "busy - try again"
+        wlog INFO "ctl: restart"
+        "$IP" link del "$IFACE" 2>/dev/null
+        rm -f "$STATE/loaded" "$STATE/heal" "$STATE/rules.key" "$STATE/resolved_at" \
+              "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused"
+        lock_release
+        # 3. a new watchdog, in its own session: it keeps running after the
+        #    WebUI / terminal that started it is gone
+        if command -v setsid >/dev/null 2>&1; then SS=setsid; elif [ -x "$BB" ]; then SS="$BB setsid"; else SS=""; fi
+        $SS ${WGS_SH:-/system/bin/sh} "$MODDIR/service.sh" </dev/null >/dev/null 2>&1 &
+        n=0; while ! watchdog_alive && [ "$n" -lt 30 ]; do sleep 0.1 2>/dev/null || sleep 1; n=$((n + 1)); done
+        watchdog_alive || fail "the watchdog did not start - reboot the phone"
+        settings_load
+        [ -n "$S_ACTIVE" ] && [ ! -f "$STATE/pause_until" ] && wait_up
+        echo "restarted=1"
+        print_status
         ;;
     poll)
         if lock_try; then wgs_tick; lock_release; fi

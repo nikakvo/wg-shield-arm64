@@ -155,7 +155,7 @@
     <tr><td><span class="pill bad">error</span></td><td>The tunnel cannot be built (file gone, kernel refused it). Direct connection - the banner says why.</td></tr>
     <tr><td><span class="pill skip">off</span></td><td>No tunnel switched on. Your normal connection, nothing installed.</td></tr>
   </table></div>
-  <div class="note">A tunnel that stops answering is noticed within about 10 seconds (see 7, Self-healing). WireGuard's own limit - no handshake for 180 s - stays as a second check.</div>
+  <div class="note">A tunnel that stops answering is noticed within about 40 seconds, or 10 with Check every 5 s (see 7, Self-healing). WireGuard's own limit - no handshake for 180 s - stays as a second check.</div>
 </div>
 
 <div class="sec-title" id="dash">5 · dashboard</div>
@@ -189,19 +189,27 @@
   <p><strong>On</strong> (default): while a tunnel is switched on but not working, the phone has no internet at all. <strong>Off</strong>: the phone uses your connection directly while the tunnel is down, and goes back into the tunnel by itself when it answers again.</p>
   <p>The kill switch never blocks when <em>you</em> turn the tunnel off, pause it, or when it cannot be built at all (error).</p>
   <h3>Self-healing</h3>
-  <p>Every 5 seconds (with the Battery profile: while the screen is on, see below) WG Shield sends one ping through the tunnel (to 1.1.1.1, then 9.9.9.9 - never around it). Only an answer counts: traffic coming in alone does not prove that the way out works. No answer to two tries = the tunnel does not work, noticed within about 10 seconds. A server that never answers a ping (some home servers drop it) is not called dead for that - for such a tunnel WireGuard's own 3-minute rule decides. While the phone has a network, WG Shield then fixes it without waiting for you:</p>
+  <p>Every 30 seconds (or every 5 seconds, see <strong>Check every</strong> below; with the Battery profile only while the screen is on) WG Shield sends one ping through the tunnel (to 1.1.1.1, then 9.9.9.9 - never around it). Only an answer counts: traffic coming in alone does not prove that the way out works. No answer to two tries = the tunnel does not work, noticed within about 40 seconds (10 seconds with 5 s). A server that never answers a ping (some home servers drop it) is not called dead for that - for such a tunnel WireGuard's own 3-minute rule decides. While the phone has a network, WG Shield then fixes it without waiting for you:</p>
   <ol>
     <li><strong>Two restarts</strong> (always on). The tunnel is built again, which makes a fresh handshake from a new port and looks a host-name server up again. This fixes a router that was restarted, a lost connection, a server that hung for a moment. Each step gets 10 seconds; it counts as fixed only when an answer comes back through the tunnel, not just a handshake.</li>
     <li><strong>Auto-switch on failure</strong> (Settings, off by default). If the restarts did not help, WG Shield tries your other tunnels, at most 5: first the <strong>same country</strong> - the two capital letters in the name, so <code>wg-BG-14</code> is followed by the other <code>*-BG-*</code> tunnels - then <strong>any other tunnel</strong> (another country, a home server). Inside each group, tunnels on another server address come first. The first one that answers stays on, and the Tunnels tab shows it switched on.</li>
-    <li><strong>Nothing helped</strong>: WG Shield goes back to the tunnel you picked and it stays <span class="pill bad">down</span> - with the kill switch on, no internet. It keeps checking that tunnel quietly (every 15 seconds) and is back the moment it answers; a new attempt starts when the network changes.</li>
+    <li><strong>Nothing helped</strong>: WG Shield goes back to the tunnel you picked and it stays <span class="pill bad">down</span> - with the kill switch on, no internet. It keeps checking that tunnel quietly (every 15 seconds, every 30 with Check every 30 s) and is back the moment it answers; a new attempt starts when the network changes.</li>
   </ol>
   <p>The kill switch holds during every step - nothing leaves the phone outside the tunnel. Switching a tunnel yourself, pausing or turning it off stops an attempt at once.</p>
   <div class="note">A typical case for auto-switch: the same tunnel file (the same key) used on two devices at once. The server answers only one of them, so restarts cannot help, but another tunnel can. Give every device its own config.</div>
+  <h3>Check every: 5 s, 30 s or Off</h3>
+  <p>Settings → <strong>Check every</strong> decides how often the ping above is sent:</p>
+  <ul>
+    <li><strong>30 s</strong> (default) - 120 pings an hour, about 35 KB. A dead tunnel is found in about 40 seconds.</li>
+    <li><strong>5 s</strong> - 720 pings an hour, about 200 KB. A dead tunnel is found in about 10 seconds. While the phone is otherwise idle on mobile data, the frequent pings keep the modem awake, which costs some battery.</li>
+    <li><strong>Off</strong> - no pings at all. Only WireGuard itself watches the tunnel (no handshake for 3 minutes = down), which sends nothing extra. The self-healing and the notification still work, they just start later. Battery / Always has no effect then.</li>
+  </ul>
+  <p>A ping is tiny, and it goes through the tunnel: the resolver it is sent to sees the VPN server's address, not yours. A recovery that has started checks every few seconds, whatever is set here, so its steps can tell at once whether they worked. A network change checks at once too.</p>
   <h3>Checks: Battery or Always</h3>
-  <p>Settings → <strong>Checks</strong> decides when the tunnel is checked every 5 seconds:</p>
+  <p>Settings → <strong>Checks</strong> decides when the pings are sent:</p>
   <ul>
     <li><strong>Battery</strong> (default) - only while the screen is on. With the screen off nothing is pinged: no wake-ups, no data, the phone can sleep. The first check runs the moment the screen comes on, so a tunnel that died in your pocket is fixed within seconds of picking up the phone. While the screen is off, WireGuard's own limit (no handshake for 3 minutes) still notices a dead tunnel and starts the same recovery.</li>
-    <li><strong>Always</strong> - day and night, also with the screen off. For devices on your hotspot, or apps that must stay connected in the background. Costs a little battery and about 100 KB an hour while the phone is idle.</li>
+    <li><strong>Always</strong> - day and night, also with the screen off. For devices on your hotspot, or apps that must stay connected in the background. Costs a little battery while the phone is idle.</li>
   </ul>
   <p>A recovery that has started is always followed to the end, screen on or off.</p>
   <h3>Notification</h3>
@@ -258,6 +266,8 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set autoswitch 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set profile battery|always'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set checks 5|30|off'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   <span class="cm"># watchdog + tunnel again</span>
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
@@ -269,6 +279,8 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
 <div class="box">
   <h3>No internet</h3>
   <p>State <span class="pill bad">down</span>? The server does not answer, the restarts (and auto-switch, if on) did not help, and the kill switch holds. Switch to another tunnel, or pause. Stays <span class="pill warn">connecting</span>? Check the server is not blocked by ipset (see 8), then send the <strong>Report</strong>.</p>
+  <h3>Something looks stuck</h3>
+  <p>The Dashboard does not change, the watchdog shows <em>stopped</em>, or the tunnel does not come back after the network returned: Settings → Maintenance → <strong>Restart WG Shield</strong> (tap twice). It stops the watchdog, builds the tunnel again with a new connection to the server and starts the watchdog again, in a few seconds and without a reboot. Your tunnel, settings, a pause or "off" stay as they are; the kill switch keeps blocking while it restarts. If it does not help, send the <strong>Report</strong>.</p>
   <h3>Paused and I did not pause it</h3>
   <p>A VPN app is connected - the banner names it. Disconnect it.</p>
   <h3>Import skipped a tunnel</h3>
@@ -292,7 +304,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
   <div class="tw"><table>
     <tr><th>file</th><th></th></tr>
     <tr><td>/data/adb/wg-shield/</td><td>Everything the module keeps, in one folder:</td></tr>
-    <tr><td>settings.conf</td><td>Settings: active and last tunnel, kill switch, checks profile, auto-switch, notification (kept on update)</td></tr>
+    <tr><td>settings.conf</td><td>Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification (kept on update)</td></tr>
     <tr><td>tunnels/</td><td>Imported tunnels with their keys, root only (kept on update)</td></tr>
     <tr><td>logs/wg-shield.log</td><td>Log (<strong>Clear</strong> in the Log tab empties it)</td></tr>
     <tr><td>state/</td><td>Runtime state, cleared at boot; <code>state/status</code> is read by the sibling modules</td></tr>

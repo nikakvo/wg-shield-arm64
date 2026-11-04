@@ -2,9 +2,9 @@
 # WG Shield Arm64 - watchdog: every tick it brings the tunnel to the wanted
 # state, follows network changes and repairs rules (fast ticks after boot).
 #
-# Between ticks it checks every 5 s that the tunnel still answers (anything
-# received through wgs0, else a ping through it); no answer = tick at once,
-# and the self-healing in sh/recover.sh starts.
+# Between ticks it checks every 5 s or 30 s (settings CHECKS; off = never)
+# that the tunnel still answers (a ping through wgs0); no answer = tick at
+# once, and the self-healing in sh/recover.sh starts.
 #
 # Network changes are not waited for: `ip monitor rule` wakes the watchdog
 # the moment netd changes the default network (rule 31000), adds or removes

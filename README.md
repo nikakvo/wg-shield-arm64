@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.2-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.3-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
@@ -32,9 +32,11 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 - **AmneziaWG too** - a config with AmneziaWG settings (`Jc`, `S1`-`S4`, `H1`-`H4`, `I1`-`I5`, `HeaderProtectionKey`…) runs as an AmneziaWG tunnel, any other as plain WireGuard. Nothing to choose: the type is read from the file, the tunnel row shows an **AWG** badge. Same routing, kill switch and networking set for both
 - **Every tunnel a switch** - import the WireGuard app's export zip or single `.conf` files (WireGuard or AmneziaWG); one tunnel on at a time, all off = your normal connection
 - **Kill switch** - tunnel on but not answering (no handshake for 180 s, WireGuard's own limit) → no internet at all, never the plain connection; from the first second of boot when a tunnel was on
-- **Self-healing** - the tunnel is pinged through itself every 5 s; no answer = noticed within about 10 s (not after WireGuard's 3 minutes). It is restarted twice at once, and with **Auto-switch** on, your other tunnels are tried - the same country first (`wg-BG-14` → other BG tunnels), then any other. The kill switch holds the whole time
+- **Self-healing** - the tunnel is pinged through itself every 30 s (or 5 s); no answer = noticed within about 40 s (10 s with 5 s), not after WireGuard's 3 minutes. It is restarted twice at once, and with **Auto-switch** on, your other tunnels are tried - the same country first (`wg-BG-14` → other BG tunnels), then any other. The kill switch holds the whole time
 - **One notification** when the tunnel could not be fixed (or after a switch to another tunnel), saying what was tried - you learn you have no internet without opening the manager
 - **Checks profile: Battery or Always** - Battery (default) checks only while the screen is on and checks at once when it comes on; Always checks day and night (hotspot devices, background apps)
+- **Check every: 5 s, 30 s or Off** - how often the tunnel is pinged (30 s by default); Off sends no pings at all and leaves it to WireGuard's 3-minute rule
+- **Restart WG Shield** - one button (or `ctl.sh restart`) restarts the watchdog and rebuilds the tunnel when something looks stuck, without a reboot; the kill switch holds meanwhile
 - **Your choice is not a failure** - turn the tunnel off or pause it (15 min / 1 h / 4 h) and the phone simply uses your connection
 - **IPv4 and IPv6** - a tunnel with an IPv6 address and `::/0` carries IPv6 too; one without blocks IPv6 while it is on, so nothing goes around it
 - **Wi-Fi ↔ mobile data** - followed the moment Android switches: the watchdog watches Android's network rules and acts at once, not on its next check
@@ -113,7 +115,7 @@ Tunnels and settings are kept on update.
 |---|---|
 | Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network, the other networks · the networking set · watchdog |
 | Tunnels | Every tunnel with a switch (one at a time), an **AWG** badge for AmneziaWG tunnels, and **✕** · import from Download, delete the export |
-| Settings | Kill switch · checks profile (Battery / Always) · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) |
+| Settings | Kill switch · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
 | Log | Filterable by level |
 
 ---
@@ -179,7 +181,7 @@ internet
 | Path | |
 |---|---|
 | `/data/adb/wg-shield/` | Everything the module keeps, in one folder: |
-| `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile, auto-switch, notification |
+| `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification |
 | `  tunnels/` | Imported tunnels with their keys, root only (`0600`) |
 | `  logs/wg-shield.log` | Log |
 | `  state/` | Runtime state, cleared at boot; `status` is read by the sibling modules |
@@ -197,7 +199,7 @@ tunnel=<name>       endpoint=<ip:port>    endpoint_host=<host:port, if a name>
 handshake_age=<s>   killswitch=1|0        ipv6=tunnel|blocked|off
 default_net=…       android_vpn=…         updated=<epoch>
 recover=restart N/2|switch <name>|failed|  recover_from=<tunnel>
-profile=battery|always  autoswitch=0|1    notify=0|1
+profile=battery|always  checks=5|30|off   autoswitch=0|1    notify=0|1
 ```
 
 ---
@@ -217,9 +219,11 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh pause <minutes>'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh resume'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set profile battery|always'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set checks 5|30|off'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set autoswitch 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'   # how the notification looks
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   # watchdog + tunnel again
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove <name>'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   # report, no keys
@@ -233,14 +237,14 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   # report, no ke
 curl https://ifconfig.me          → the VPN's address
 ```
 
-Then block the server for a moment (the tunnel's *Server* on the Dashboard): internet stops at once - nothing goes around the tunnel.
+Then block the server for a moment (the first command reads the tunnel's server address from the status file and remembers it for the undo): internet stops at once - nothing goes around the tunnel.
 
 ```sh
-su -c '/system/bin/iptables -I OUTPUT -d <server-ip> -j DROP'     # test
-su -c '/system/bin/iptables -D OUTPUT -d <server-ip> -j DROP'     # undo - back within seconds
+su -c 'e=$(/system/bin/sed -n "s/^endpoint=\([^:]*\):.*/\1/p" /data/adb/wg-shield/state/status); echo $e > /data/local/tmp/wgs-block; /system/bin/iptables -I OUTPUT -d $e -j DROP'
+su -c '/system/bin/iptables -D OUTPUT -d $(/system/bin/cat /data/local/tmp/wgs-block) -j DROP'   # undo
 ```
 
-Within about 10 seconds the banner shows *restart 1 of 2*, then the recovery steps; after that comes the notification (or, with Auto-switch, another tunnel takes over).
+Within about 40 seconds (10 with Check every 5 s) the banner shows *restart 1 of 2*, then the recovery steps; after that comes the notification (or, with Auto-switch, another tunnel takes over).
 
 ---
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3
+
+Fewer checks by default, your choice how often, and a restart button.
+
+* **Check every: 5 s, 30 s or Off** (Settings, new) - how often the tunnel is pinged. **30 s** is the new default (120 pings an hour instead of 720; a dead tunnel is found in about 40 seconds). **5 s** is the 2.2 behaviour (found in about 10 seconds). **Off** sends no pings at all: only WireGuard's own 3-minute rule watches the tunnel, the self-healing and the notification still work, just later. A missed ping is tried again at once before anything happens; a recovery in progress, a network change and the screen coming on still check at once. Battery / Always works with every interval
+* **Restart WG Shield** (Settings → Maintenance, tap twice) - stops the watchdog, builds the tunnel again with a new connection to the server and starts the watchdog again, for when something looks stuck. A few seconds, no reboot; the tunnel, settings, a pause or "off" stay as they are, and the kill switch keeps blocking meanwhile
+* Command line: `set checks 5|30|off`, `restart`
+* Status file: new key `checks=` (all other keys unchanged)
+* **Help** - *Check every* in section 7, `set checks` and `restart` in section 10, *Something looks stuck* in Troubleshooting
+
+Tested on Poco F6 Pro, Xiaomi.eu ROM (HyperOS 3, Android 16), kernel [GKI_Kernel_SukiSU](https://github.com/nikakvo/GKI_Kernel_SukiSU), Proton VPN WireGuard: default 30 s interval, server blocked with 30 s, 5 s and Off (restarts, switch to another tunnel), Restart from the WebUI and from the terminal (watchdog keeps running after the terminal is closed), Restart while paused, normal use without false alarms.
+
+---
+
 ## 2.2
 
 A tunnel that stops working is noticed within seconds and fixed by itself.

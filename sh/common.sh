@@ -91,7 +91,7 @@ tunnel_name_ok() {
 
 # ---- settings (KEY=value, whitelist, never sourced) ---------------------------
 settings_load() {
-    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery
+    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30
     [ -f "$CONF" ] || return 0
     while IFS='=' read -r k v; do
         v=$(printf '%s' "$v" | tr -d '\r')
@@ -102,6 +102,7 @@ settings_load() {
             AUTOSWITCH) case "$v" in 0|1) S_AUTOSWITCH=$v ;; esac ;;
             NOTIFY) case "$v" in 0|1) S_NOTIFY=$v ;; esac ;;
             PROFILE) case "$v" in battery|always) S_PROFILE=$v ;; esac ;;
+            CHECKS) case "$v" in 5|30|off) S_CHECKS=$v ;; esac ;;
         esac
     done 2>/dev/null < "$CONF"
 }
@@ -116,6 +117,7 @@ settings_save() {
         echo "AUTOSWITCH=$S_AUTOSWITCH"
         echo "NOTIFY=$S_NOTIFY"
         echo "PROFILE=$S_PROFILE"
+        echo "CHECKS=$S_CHECKS"
     } > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$CONF"
 }
 
@@ -205,6 +207,7 @@ status_write() {
         echo "autoswitch=$S_AUTOSWITCH"
         echo "notify=$S_NOTIFY"
         echo "profile=$S_PROFILE"
+        echo "checks=$S_CHECKS"
         echo "updated=$(epoch_now)"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
     status_compat

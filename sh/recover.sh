@@ -6,7 +6,11 @@
 # night (hotspot devices, background apps). A recovery in progress is always
 # followed, screen or not. WireGuard's 180 s rule works in both.
 #
-# Liveness: every LIVE_EVERY s the watchdog pings through the tunnel
+# How often (settings CHECKS): 5 = every 5 s, 30 = every 30 s (default),
+# off = never - then only WireGuard's 180 s handshake rule finds a dead
+# tunnel (no requests at all; the self-healing still runs, just later).
+#
+# Liveness: every CHECKS s the watchdog pings through the tunnel
 # (1.1.1.1, then 9.9.9.9, ~3 s each; bound to wgs0). The rx counter is NOT
 # used: incoming traffic does not prove the way out works (with the way out
 # blocked the server kept sending for minutes). No answer twice = the tunnel
@@ -65,7 +69,8 @@ screen_on() {
 # tunnels that answered our ping at least once since boot: only for them a
 # missing answer means "dead" (a server that drops ICMP must not be
 # restarted forever; for it the handshake rule alone decides)
-tun_pingable() { grep -qxF "$1" "$STATE/pingable" 2>/dev/null; }
+# (Checks off: nothing is pinged, so no tunnel counts - the handshake decides)
+tun_pingable() { [ "$S_CHECKS" != off ] && grep -qxF "$1" "$STATE/pingable" 2>/dev/null; }
 heal_active() { [ -f "$STATE/heal" ] && ! grep -q '^done=1' "$STATE/heal" 2>/dev/null; }
 
 live_reset() { rm -f "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at"; }
@@ -74,6 +79,12 @@ live_reset() { rm -f "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$
 # writes its own files). 1 = something changed, tick now.
 live_check() {
     [ -f "$STATE/status" ] || return 0
+    # Checks off: no pings at all - only WireGuard's handshake rule (180 s)
+    if [ "$S_CHECKS" = off ]; then
+        rm -f "$STATE/live_paused"
+        if [ -f "$STATE/dead_at" ]; then live_reset; return 1; fi   # forget "no answer"
+        live_reset; return 0
+    fi
     _st=""; _ks=""; _tn=""
     while IFS='=' read -r _k _v; do
         case "$_k" in state) _st=$_v ;; killswitch) _ks=$_v ;; tunnel) _tn=$_v ;; esac
@@ -99,10 +110,21 @@ live_check() {
     # (measured: with the way out blocked the server still sends for minutes).
     [ -e "${WGS_SYSNET:-/sys/class/net}/$IFACE" ] || return 0
     _now=$(mono_now)
-    # while down, every 15 s is enough
+    # how often: CHECKS 5 = at every call (the watchdog calls every 5 s),
+    # 30 = every 30 s; while down every 15 s (5) / 30 s (30, 15 during a
+    # recovery) is enough;
+    # a recovery in progress is followed at every call (each step has only
+    # HEAL_WAIT s to answer). A network change or the screen coming on
+    # removes live_probe_at = check at once.
+    _iv=0
     if [ "$_st" != up ]; then
+        _iv=15; [ "$S_CHECKS" = 30 ] && ! heal_active && _iv=30
+    elif [ "$S_CHECKS" = 30 ] && ! heal_active; then
+        _iv=29     # (the calls come every ~5.1 s: 29 keeps it at 30, not 35)
+    fi
+    if [ "$_iv" -gt 0 ]; then
         _last=$(cat "$STATE/live_probe_at" 2>/dev/null || echo 0)
-        [ $(( _now - _last )) -ge 15 ] || return 0
+        [ $(( _now - _last )) -ge "$_iv" ] || return 0
     fi
     echo "$_now" > "$STATE/live_probe_at"
     if probe_once || { [ "$_st" = up ] && tun_pingable "$_tn" && probe_once; }; then
