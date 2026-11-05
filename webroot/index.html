@@ -193,6 +193,10 @@
     .tun .ms.r { color: var(--red); border-color: rgba(255,77,106,.35); }
     .tbtn { margin-left: auto; padding: 4px 10px !important; font-size: 9px !important; }
     .tun-head .tbtn + .fbtn { margin-left: 5px; }
+    .bk-btns { display: flex; gap: 5px; margin-top: 8px; }
+    .bk-btns .btn-s { flex: 1; }
+    .bk-btns .x-btn { height: auto; }
+    .btn-s.arm { border-color: var(--red); color: #fff; background: rgba(255,77,106,.14); }
     .tprog { font-size: 9px; color: var(--amber); padding: 6px 0 2px; }
     .star { flex-shrink: 0; background: transparent; border: none; color: var(--muted); font-size: 15px; width: 26px; height: 24px; cursor: pointer; line-height: 1; padding: 0; }
     .star.on { color: #fcd34d; }
@@ -345,6 +349,12 @@
       <div class="note">Tap a country to see only its tunnels, tap it again to see all. Test measures each server address of the box. ★ marks a favorite (the Favorites box). The tunnel that is on stays at the top. One tunnel at a time: switching one on switches the other off. All off = your normal connection, no kill switch. Clear all deletes every imported tunnel (tap twice to confirm); the tunnel turns off.</div>
     </div>
     <div class="section">
+      <div class="section-title"><span class="s-accent"></span>Backup<span class="s-note" id="bk-note"></span></div>
+      <div id="bk-body"><div class="empty">Looking for a backup…</div></div>
+      <div class="bk-btns"><button class="btn-s clip" id="bk-make" onclick="doBackup(this)">Backup</button><button class="btn-s clip m" id="bk-rest" onclick="doRestore(this)" disabled>Restore</button><button class="x-btn" id="bk-del" title="Delete the backup" onclick="delBackup(this)" disabled>✕</button></div>
+      <div class="note">Backup saves every tunnel (and your stars) to <b>/storage/emulated/0/wg-shield/wg-shield-backup.zip</b>, the same kind of zip the WireGuard app exports. There is one backup: a new one replaces it. It stays when you remove the module, so you can bring your tunnels back after a reinstall or a Clear all. Restore imports them again: a tunnel with the same name is replaced, the others stay. The files hold your private keys, like an export in Download.</div>
+    </div>
+    <div class="section">
       <div class="section-title"><span class="s-accent"></span>Import from Download<span class="s-note"><button class="fbtn" onclick="loadFiles()">Refresh</button></span></div>
       <div id="file-body"><div class="empty">Looking for exports…</div></div>
       <div class="warnbox"><b>Exports hold your private keys.</b> In the WireGuard app: ⋮ → Export tunnels (saved to Download). An AmneziaWG config (.conf) works the same way: put it in Download. Import it here, then delete the file. Imported tunnels are kept where only root can read them.</div>
@@ -493,7 +503,7 @@ async function sh(cmd, timeoutMs) {
 // ── One action at a time, with visible feedback ─────────────────────────
 let _pressed = null, _pressedAt = 0, _busyN = 0, _fgEndedAt = 0;
 document.addEventListener('pointerdown', e => { const b = e.target.closest && e.target.closest('button'); if (b) { _pressed = b; _pressedAt = Date.now(); } }, true);
-const BG_CMD = /^(poll|files|log \d)/;
+const BG_CMD = /^(poll|files|backupinfo|log \d)/;
 const LOCK_FREE = '.tab, .fbtn:not(.clr), .cbox, .chips button';
 document.addEventListener('click', e => {
   const t = e.target.closest && e.target.closest('button, label.sw, input[type=checkbox]');
@@ -566,7 +576,7 @@ function showTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
   if (name === 'log') loadLog();
-  if (name === 'tun') loadFiles();
+  if (name === 'tun') { loadFiles(); loadBackup(); }
 }
 
 // ── Render ──────────────────────────────────────────────────────────────
@@ -940,6 +950,48 @@ async function clearTunnels(b) {
     const r = parseKV(await ctl('removeall', 30000));
     toast(r.ok === '1' ? 'Deleted ' + num(r.removed) + (num(r.removed) === 1 ? ' tunnel' : ' tunnels') + ' - normal connection' : (r.error || 'Not deleted'), r.ok === '1' ? 'ok' : 'err');
   } finally { _tunBusy = false; TUN_SEL = null; _tunSig = ''; await poll(); }
+}
+let BK = { exists: false, n: 0 };
+async function loadBackup() {
+  const r = parseKV(await ctl('backupinfo', 20000));
+  if (r.ok !== '1') { $('bk-body').innerHTML = '<div class="empty">Could not read the backup folder.</div>'; return; }
+  BK = { exists: r.exists === '1', n: num(r.tunnels) };
+  if (BK.exists) {
+    const when = num(r.created) ? new Date(num(r.created) * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '?';
+    const nf = num(r.favorites);
+    $('bk-body').innerHTML = `<div class="row"><div class="rn"><b>${BK.n} ${BK.n === 1 ? 'tunnel' : 'tunnels'}</b><span>saved ${esc(when)}${nf ? ' · ' + nf + (nf === 1 ? ' favorite' : ' favorites') : ''}${num(r.size) ? ' · ' + fmtBytes(r.size) : ''}</span></div></div>`;
+    $('bk-note').textContent = 'saved';
+  } else {
+    $('bk-body').innerHTML = '<div class="empty">No backup yet.</div>';
+    $('bk-note').textContent = '';
+  }
+  $('bk-rest').disabled = !BK.exists; $('bk-del').disabled = !BK.exists;
+}
+async function doBackup(b) {
+  const n = (ST && ST.t || []).length;
+  if (!n) { toast('No tunnels to back up', 'err'); return; }
+  if (BK.exists && !armed(b, 'Replace?')) return;
+  try {
+    const r = parseKV(await ctl('backup', 60000));
+    toast(r.ok === '1' ? 'Backup saved: ' + num(r.backed_up) + (num(r.backed_up) === 1 ? ' tunnel' : ' tunnels') : (r.error || 'Backup failed'), r.ok === '1' ? 'ok' : 'err');
+  } finally { await loadBackup(); }
+}
+async function doRestore(b) {
+  if (!BK.exists || !armed(b, 'Restore ' + BK.n + '?')) return;
+  _tunBusy = true;
+  try {
+    const r = parseKV(await ctl('restore', 120000));
+    const done = num(r.imported), skip = num(r.skipped);
+    if (r.ok === '1') toast('Restored ' + done + (done === 1 ? ' tunnel' : ' tunnels') + (skip ? ', skipped ' + skip + ' (see Log)' : ''), 'ok');
+    else toast(r.error || 'Restore failed', 'err');
+  } finally { _tunBusy = false; _tunSig = ''; await poll(); await loadBackup(); }
+}
+async function delBackup(b) {
+  if (!BK.exists || !armed(b, 'Delete?')) return;
+  try {
+    const r = parseKV(await ctl('delbackup'));
+    toast(r.ok === '1' ? 'Backup deleted' : (r.error || 'Not deleted'), r.ok === '1' ? 'ok' : 'err');
+  } finally { await loadBackup(); }
 }
 async function toggleFav(b, name, on) {
   _tunBusy = true;

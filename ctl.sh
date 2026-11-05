@@ -20,6 +20,10 @@ usage() {
         '  down                turn the tunnel off - direct connection' \
         '  remove <name>       delete an imported tunnel' \
         '  removeall           delete every imported tunnel (the tunnel turns off)' \
+        '  backup              save all tunnels to /storage/emulated/0/wg-shield/wg-shield-backup.zip (replaces the old one)' \
+        '  restore             import the tunnels of the backup (same name = replaced)' \
+        '  backupinfo          is there a backup, how many tunnels, when' \
+        '  delbackup           delete the backup' \
         '  fav add|del <name>  mark / unmark a tunnel as favorite (WebUI star)' \
         '  test <box>          speed test: BG (a country code), others or favorites' \
         '  pause <minutes>     direct connection for a while (1-1440), then back on' \
@@ -241,6 +245,47 @@ case "$cmd" in
         wlog INFO "ctl: all tunnels removed ($ra_n)"
         tick_now; echo "removed=$ra_n"; print_status
         ;;
+    backup)
+        lock_get 20 || fail "busy - try again"
+        out=$(bk_make); rc=$?
+        lock_release
+        [ "$rc" = 0 ] || fail "$(echo "$out" | sed -n 's/^error=//p')"
+        wlog INFO "ctl: backup of $(echo "$out" | sed -n 's/^backed_up=//p') tunnels to $BKZIP"
+        echo "ok=1"; echo "$out"; echo "file=$BKZIP"; echo "favorites=$(fav_names | grep -c .)"
+        echo "note=the backup holds your private keys - shared storage is readable by apps with file access"
+        ;;
+    restore)
+        lock_get 20 || fail "busy - try again"
+        out=$(bk_restore); rc=$?
+        lock_release
+        err=$(echo "$out" | sed -n 's/^error=//p')
+        [ -z "$err" ] || fail "$err"
+        wlog INFO "ctl: restore from $BKZIP - $(echo "$out" | sed -n 's/^imported=//p') imported, $(echo "$out" | sed -n 's/^skipped=//p') skipped"
+        if [ "$rc" = 0 ]; then echo "ok=1"; else echo "ok=0"; echo "error=nothing imported (see Log)"; fi
+        echo "$out"
+        exit "$rc"
+        ;;
+    backupinfo)
+        bk_fix
+        n=$(bk_count)
+        echo "ok=1"; echo "file=$BKZIP"
+        if [ "$n" -gt 0 ]; then
+            c=$(bk_created); [ -n "$c" ] || c=$(stat -c %Y "$BKZIP" 2>/dev/null)
+            echo "exists=1"; echo "tunnels=$n"; echo "created=$c"; echo "favorites=$(bk_favs)"
+            echo "size=$(stat -c %s "$BKZIP" 2>/dev/null)"
+        else
+            echo "exists=0"
+        fi
+        ;;
+    delbackup)
+        bk_fix
+        [ -f "$BKZIP" ] || fail "no backup"
+        rm -f "$BKZIP" || fail "cannot delete $BKZIP"
+        rm -rf "$BACKUP_ROOT/backup"
+        rmdir "$BACKUP_ROOT" 2>/dev/null
+        wlog INFO "ctl: backup deleted"
+        echo "ok=1"; echo "deleted=1"
+        ;;
     fav)
         case "$1" in add|del) : ;; *) fail "usage: fav add|del <name>" ;; esac
         tunnel_name_ok "$2" || fail "not a valid tunnel name: $2"
@@ -421,6 +466,7 @@ case "$cmd" in
         echo; echo "== settings"; grep -v '^#' "$CONF" 2>/dev/null
         [ -f "$STATE/heal" ] && { echo; echo "== recovery"; cat "$STATE/heal"; }
         echo; echo "== favorites"; fav_names
+        echo; echo "== backup"; if [ "$(bk_count)" -gt 0 ]; then echo "$BKZIP: $(bk_count) tunnels, created $(bk_created)"; else echo "none ($BKZIP)"; fi
         echo; echo "== speed test (address|handshake ms|ping ms|result|epoch|tunnels)"; cat "$TEST_FILE" 2>/dev/null
         echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else echo "$n INVALID: $T_ERR"; fi; done
         k=$(iface_kind)

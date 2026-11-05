@@ -162,6 +162,131 @@ _fav_write() {  # names on stdin -> $FAVS (removed when empty)
 fav_add() { { fav_names; echo "$1"; } | _fav_write; }
 fav_del() { fav_names | grep -vxF "$1" | _fav_write; }
 
+# ---- backup (2.6) -------------------------------------------------------------
+# One zip, like the WireGuard app's export: <name>.conf per tunnel +
+# favorites.txt + backup-info.txt. Neither busybox nor toybox can create a zip,
+# so zip_store writes one itself (entries stored, not compressed - the files
+# are a few hundred bytes); the CRC-32 of each file comes from gzip, whose
+# last 8 bytes are CRC-32 + size. The new zip is written as a temp file,
+# unpacked again and compared file by file, and only then renamed over the
+# old one - a failed or damaged backup never replaces a good one.
+_bk_unzip() { if [ -x "$BB" ]; then "$BB" unzip "$@"; else unzip "$@"; fi; }
+_bk_gzip() { if [ -x "$BB" ]; then "$BB" gzip -c; else gzip -c; fi; }
+
+# _le VALUE BYTES - appends the printf escapes of a little-endian number to
+# $_F (no subshell: mksh forks for every $(...), 80 tunnels took 12 s that way)
+_le() {
+    _lv=$1; _ln=$2
+    while [ "$_ln" -gt 0 ]; do
+        _lb=$((_lv & 255))
+        # byte 37 is "%": some printf (coreutils) read an escaped \045 as the
+        # start of a conversion, so it is written as %% instead
+        if [ "$_lb" = 37 ]; then _F="$_F%%"; else _F="$_F\\$((_lb >> 6 & 7))$((_lb >> 3 & 7))$((_lb & 7))"; fi
+        _lv=$((_lv >> 8)); _ln=$((_ln - 1))
+    done
+}
+
+# zip_store OUT DIR NAME... - stored zip of DIR/NAME files (names: [A-Za-z0-9._-])
+zip_store() {
+    _zo=$1; _zd=$2; shift 2
+    _zl="$_zo.list"; : > "$_zo" || return 1; : > "$_zl"
+    set -- $(date '+%Y %m %d %H %M %S') "$@"
+    _zY=$1; _zM=${2#0}; _zD=${3#0}; _zh=${4#0}; _zm=${5#0}; _zs=${6#0}; shift 6
+    _F=""; _le $(( (_zh << 11) | (_zm << 5) | (_zs / 2) )) 2; _le $(( ((_zY - 1980) << 9) | (_zM << 5) | _zD )) 2
+    _zdt=$_F   # DOS time + date, the same for every entry
+    _zoff=0; _zn=0
+    for _zf in "$@"; do
+        _zp="$_zd/$_zf"
+        _zsz=$(wc -c < "$_zp") || return 1; _zsz=$((_zsz + 0))
+        # gzip trailer: CRC-32 (4 bytes, little-endian) then the size
+        set -- $(_bk_gzip < "$_zp" | tail -c 8 | od -An -tu1)
+        [ $# = 8 ] || return 1
+        _F=""; _le "$1" 1; _le "$2" 1; _le "$3" 1; _le "$4" 1; _zc=$_F
+        _znl=${#_zf}
+        _F='\120\113\003\004\024\000\000\000\000\000'"$_zdt$_zc"; _le $_zsz 4; _le $_zsz 4; _le $_znl 2; _F="$_F\\000\\000"
+        { printf "$_F"; printf '%s' "$_zf"; cat "$_zp"; } >> "$_zo" || return 1
+        printf '%s\n' "$_zf|$_zc|$_zsz|$_zoff" >> "$_zl"   # not echo: mksh's echo reads the backslashes
+        _zoff=$((_zoff + 30 + _znl + _zsz)); _zn=$((_zn + 1))
+    done
+    _zcd=$_zoff
+    while IFS='|' read -r _zf _zc _zsz _zfo; do
+        _F='\120\113\001\002\024\000\024\000\000\000\000\000'"$_zdt$_zc"; _le $_zsz 4; _le $_zsz 4; _le ${#_zf} 2
+        _F="$_F"'\000\000\000\000\000\000\000\000\000\000\000\000'; _le $_zfo 4
+        { printf "$_F"; printf '%s' "$_zf"; } >> "$_zo" || return 1
+        _zoff=$((_zoff + 46 + ${#_zf}))
+    done < "$_zl"
+    _F='\120\113\005\006\000\000\000\000'; _le $_zn 2; _le $_zn 2; _le $((_zoff - _zcd)) 4; _le $_zcd 4; _F="$_F\\000\\000"
+    printf "$_F" >> "$_zo" || return 1
+    rm -f "$_zl"
+}
+
+bk_fix() {  # leftovers: an interrupted backup, the folder of 2.6-test1
+    rm -f "$BACKUP_ROOT/.wg-shield-backup.zip.tmp" "$BACKUP_ROOT/.wg-shield-backup.zip.tmp.list" 2>/dev/null
+}
+bk_count() { if [ -f "$BKZIP" ]; then _bk_unzip -l "$BKZIP" 2>/dev/null | grep -cE '\.conf$'; else echo 0; fi; }
+bk_created() { _bk_unzip -p "$BKZIP" backup-info.txt 2>/dev/null | sed -n 's/^created_epoch=//p' | head -n 1; }
+bk_favs() { _bk_unzip -p "$BKZIP" favorites.txt 2>/dev/null | grep -c .; }
+
+# bk_make - prints backed_up=N; returns 1 (with error=) when nothing was written
+bk_make() {
+    _bn=0; for _bf in "$TUNDIR"/*.conf; do [ -f "$_bf" ] && _bn=$((_bn + 1)); done
+    [ "$_bn" -gt 0 ] || { echo "error=no tunnels to back up"; return 1; }
+    bk_fix
+    mkdir -p "$BACKUP_ROOT" 2>/dev/null || { echo "error=cannot create $BACKUP_ROOT"; return 1; }
+    _bs="$STATE/bk.$$"; rm -rf "$_bs"; mkdir -p "$_bs"; chmod 700 "$_bs"
+    for _bf in "$TUNDIR"/*.conf; do [ -f "$_bf" ] && cp -f "$_bf" "$_bs/"; done
+    fav_names > "$_bs/favorites.txt"
+    _bnow=$(date +%s)
+    { echo "WG Shield backup - $_bn tunnels, $(date '+%Y-%m-%d %H:%M')"
+      echo "The .conf files hold private keys. Restore: WG Shield WebUI -> Tunnels -> Backup -> Restore,"
+      echo "or import this zip in the WireGuard / AmneziaWG app."
+      echo "created_epoch=$_bnow"
+      echo "tunnels=$_bn"; } > "$_bs/backup-info.txt"
+    _bl=$(cd "$_bs" && ls *.conf | sort); [ -s "$_bs/favorites.txt" ] && _bl="$_bl favorites.txt"
+    _bt="$BACKUP_ROOT/.wg-shield-backup.zip.tmp"
+    if ! zip_store "$_bt" "$_bs" $_bl backup-info.txt; then
+        rm -rf "$_bs"; bk_fix; echo "error=cannot write $BACKUP_ROOT (storage full?)"; return 1
+    fi
+    # check: unpack the new zip and compare every file
+    _bv="$STATE/bkv.$$"; rm -rf "$_bv"; mkdir -p "$_bv"; chmod 700 "$_bv"
+    _bok=1
+    _bk_unzip -o -q "$_bt" -d "$_bv" >/dev/null 2>&1 || _bok=0
+    for _bf in $_bl backup-info.txt; do cmp -s "$_bs/$_bf" "$_bv/$_bf" || { _bok=0; break; }; done
+    rm -rf "$_bs" "$_bv"
+    [ "$_bok" = 1 ] || { bk_fix; echo "error=the new backup did not check out - the old one is kept"; return 1; }
+    mv -f "$_bt" "$BKZIP" || { bk_fix; echo "error=cannot replace the old backup"; return 1; }
+    rm -rf "$BACKUP_ROOT/backup"   # the folder of 2.6-test1
+    echo "backed_up=$_bn"
+}
+
+# bk_restore - imports every .conf of the backup (same name = replaced, other
+# tunnels stay) and gives the backed-up favorites their star again
+bk_restore() {
+    bk_fix
+    [ "$(bk_count)" -gt 0 ] || { echo "error=no backup in $BACKUP_ROOT"; return 1; }
+    mkdir -p "$TUNDIR"; chmod 700 "$DATA" "$TUNDIR"
+    _br="$STATE/restore.$$"; rm -rf "$_br"; mkdir -p "$_br"; chmod 700 "$_br"
+    _bk_unzip -o -q "$BKZIP" -d "$_br" >/dev/null 2>&1
+    _br_ok=0; _br_bad=0; _br_names=""
+    for _bf in $(find "$_br" -type f -name '*.conf' 2>/dev/null | sort); do
+        if tun_import_one "$_bf"; then _br_ok=$((_br_ok + 1)); _br_names="$_br_names $name"; else _br_bad=$((_br_bad + 1)); fi
+    done
+    _br_fav=0
+    if [ -f "$_br/favorites.txt" ]; then
+        _br_list=$(tr -d '\r' < "$_br/favorites.txt" | while IFS= read -r _fn; do
+            tunnel_name_ok "$_fn" || continue
+            case " $_br_names " in *" $_fn "*) echo "$_fn" ;; esac
+        done)
+        if [ -n "$_br_list" ]; then
+            { fav_names; echo "$_br_list"; } | _fav_write
+            _br_fav=$(echo "$_br_list" | grep -c .)
+        fi
+    fi
+    rm -rf "$_br"
+    echo "imported=$_br_ok"; echo "skipped=$_br_bad"; echo "favorites=$_br_fav"
+    [ "$_br_ok" -gt 0 ]
+}
+
 # tun_import_one FILE -> prints result line, returns 0 imported / 1 skipped
 tun_import_one() {
     src=$1

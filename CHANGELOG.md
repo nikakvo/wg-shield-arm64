@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.6
+
+Backup and restore of your tunnels.
+
+* **Backup** (Tunnels tab, new section) - saves every tunnel and your stars to `/storage/emulated/0/wg-shield/wg-shield-backup.zip` - the same kind of zip the WireGuard app exports (one `.conf` per tunnel, plus `favorites.txt` and `backup-info.txt`), so the WireGuard / AmneziaWG app can import it too. One backup: a new one replaces it (tap twice when one exists); the new zip is unpacked again and compared file by file before it takes the old one's place, so a failed backup never destroys the previous one. The section shows how many tunnels the backup has, when it was saved and its size
+* **Restore** (tap twice) - imports the tunnels of the backup and gives the backed-up favorites their star again; a tunnel with the same name is replaced, the others stay, the tunnel that is on is not changed
+* **The backup survives** removing or reinstalling the module and **Clear all**; **✕** (tap twice) deletes it
+* Command line: `backup`, `restore`, `backupinfo`, `delbackup`; the Report shows whether there is a backup
+* **Help** - *Backup and restore* in section 6, the commands in section 10, the backup folder and uninstall note in section 12
+
+Tested on Poco F6 Pro, Xiaomi.eu ROM (HyperOS 3, Android 16), kernel [GKI_Kernel_SukiSU](https://github.com/nikakvo/GKI_Kernel_SukiSU), 77 Proton VPN WireGuard tunnels and a self-hosted AmneziaWG server: backup of 78 tunnels from the WebUI and the terminal, replacing it, favorites in the backup, Clear all then Restore, the zip in Import from Download, the zip opened in a file manager and in the WireGuard app, deleting the backup.
+
+---
+
 ## 2.5
 
 Two small touches in the Tunnels tab.
@@ -8,6 +22,8 @@ Two small touches in the Tunnels tab.
 * **The dot of the tunnel that is on is green and pulses** while it is protected (orange while it connects or is paused, red when it is down), so the box of the working tunnel stands out
 * Command line: `removeall`
 * **Help** - *Clear all* and the dot colours in section 6, `removeall` in section 10
+
+Tested on Poco F6 Pro, Xiaomi.eu ROM (HyperOS 3, Android 16), 78 tunnels: Clear all from the WebUI, importing the exports again, the green dot.
 
 ---
 

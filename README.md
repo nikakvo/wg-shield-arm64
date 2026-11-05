@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.5-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.6-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
@@ -33,6 +33,7 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 - **Every tunnel a switch** - import the WireGuard app's export zip or single `.conf` files (WireGuard or AmneziaWG); one tunnel on at a time, all off = your normal connection
 - **Country boxes** - the Tunnels tab groups your tunnels by country: flag, code and count (`🇧🇬 BG · 7`), tap one to see only its tunnels. The country comes from the name (`wg-BG-14` → BG); names without a code go to **Others**. The tunnel that is on always stays at the top; a WireGuard / AmneziaWG filter when you have both
 - **Favorites** - a ★ on any tunnel puts it in the **Favorites** box, the first one
+- **Backup and restore** - one tap saves every tunnel (and your stars) to `/storage/emulated/0/wg-shield/wg-shield-backup.zip`, the same kind of zip the WireGuard app exports; it stays when the module is removed, so a reinstall or a **Clear all** is undone with **Restore**. One backup, a new one replaces it
 - **Speed test** - one tap measures every **server address** in a box: how fast it connects and the ping through it, with the fastest marked. Several "servers" of a VPN provider often run on one machine (same server address, different exit addresses); the test groups them, measures them once and shows that they belong together. It runs on a second, temporary tunnel interface - the tunnel that is on and the kill switch are not touched, nothing is switched for you
 - **Kill switch** - tunnel on but not answering (no handshake for 180 s, WireGuard's own limit) → no internet at all, never the plain connection; from the first second of boot when a tunnel was on
 - **Self-healing** - the tunnel is pinged through itself every 30 s (or 5 s); no answer = noticed within about 40 s (10 s with 5 s), not after WireGuard's 3 minutes. It is restarted twice at once, and with **Auto-switch** on, your other tunnels are tried - the same country first (`wg-BG-14` → other BG tunnels), then any other, never one on a server address that already failed, the fastest by the last speed test first. The kill switch holds the whole time
@@ -119,7 +120,7 @@ Tunnels and settings are kept on update.
 | Tab | |
 |---|---|
 | Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network, the other networks · the networking set · watchdog |
-| Tunnels | Country boxes (+ Favorites, Others) · WireGuard / AmneziaWG filter · every tunnel with a switch (one at a time), ★, an **AWG** badge for AmneziaWG tunnels, and **✕**; the tunnel that is on at the top (green pulsing dot on its box) · **Clear all** deletes every tunnel at once · **Test** a box: results grouped by server address, fastest marked · import from Download, delete the export |
+| Tunnels | Country boxes (+ Favorites, Others) · WireGuard / AmneziaWG filter · every tunnel with a switch (one at a time), ★, an **AWG** badge for AmneziaWG tunnels, and **✕**; the tunnel that is on at the top (green pulsing dot on its box) · **Clear all** deletes every tunnel at once · **Backup** / **Restore** / delete the backup · **Test** a box: results grouped by server address, fastest marked · import from Download, delete the export |
 | Settings | Kill switch · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
 | Log | Filterable by level |
 
@@ -192,6 +193,7 @@ internet
 | `  speedtest` | Last speed test result per server address (the auto-switch order uses it) |
 | `  logs/wg-shield.log` | Log |
 | `  state/` | Runtime state, cleared at boot; `status` is read by the sibling modules |
+| `/storage/emulated/0/wg-shield/wg-shield-backup.zip` | The backup (WebUI **Backup**): one `.conf` per tunnel, `favorites.txt`, `backup-info.txt`. Kept when the module is removed. Holds private keys, like an export in Download |
 | `system/bin/wg` | `wg` from [wireguard-tools](https://git.zx2c4.com/wireguard-tools/) v1.0.20250521, static arm64 - also on the path: `su -c '/system/bin/wg show wgs0'` |
 | `system/bin/awg` | `awg` from [amneziawg-tools](https://github.com/amnezia-vpn/amneziawg-tools) 3.1.20260812, static arm64 - for an AmneziaWG tunnel: `su -c '/system/bin/awg show wgs0'` (that output includes the header protection key - do not share it; `ctl.sh diag` hides it) |
 
@@ -233,6 +235,10 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'   # how the
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   # watchdog + tunnel again
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove <name>'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh removeall'   # delete every imported tunnel (the tunnel turns off)
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh backup'   # save all tunnels to /storage/emulated/0/wg-shield/wg-shield-backup.zip (replaces the old one)
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restore'   # import the tunnels of the backup
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh backupinfo'   # is there a backup, how many tunnels, when
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh delbackup'   # delete the backup
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh fav add <name>'   # favorite; fav del <name> removes it
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh test BG'   # speed test of a box: a country code, others or favorites
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
@@ -271,7 +277,7 @@ Within about 40 seconds (10 with Check every 5 s) the banner shows *restart 1 of
 
 ## Uninstall
 
-Remove the module in your root manager and reboot. The tunnel and every rule are removed, then settings, log and **all imported tunnels with their keys** are deleted.
+Remove the module in your root manager and reboot. The tunnel and every rule are removed, then settings, log and **all imported tunnels with their keys** are deleted. A backup in `/storage/emulated/0/wg-shield/` is kept - delete it in the WebUI before removing the module, or by hand, if you do not want it.
 
 ---
 

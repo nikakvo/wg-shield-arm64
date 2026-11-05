@@ -72,7 +72,7 @@
   <a href="#how">3 · How it works</a>
   <a href="#states">4 · States and the banner</a>
   <a href="#dash">5 · Dashboard</a>
-  <a href="#tunnels">6 · Tunnels, countries, favorites, speed test, import, AmneziaWG</a>
+  <a href="#tunnels">6 · Tunnels, countries, favorites, speed test, backup, import, AmneziaWG</a>
   <a href="#settings">7 · Kill switch, self-healing and pause</a>
   <a href="#set">8 · With the other modules of the set</a>
   <a href="#limits">9 · IPv6 and other limits</a>
@@ -170,7 +170,7 @@
   <p>Whether DNSCrypt Proxy, ipset and VPN Hotspot are installed and what they are doing (see 8).</p>
 </div>
 
-<div class="sec-title" id="tunnels">6 · tunnels, countries, favorites, speed test, import, amneziawg</div>
+<div class="sec-title" id="tunnels">6 · tunnels, countries, favorites, speed test, backup, import, amneziawg</div>
 <div class="box">
   <p>Every imported tunnel is a row with a switch. <strong>One at a time</strong>: switching one on switches the other off; the interface stays <code>wgs0</code>, only keys, server and address change. All off = your normal connection.</p>
   <h3>Country boxes</h3>
@@ -188,6 +188,10 @@
   <p>Results: <em>no handshake</em> = the server did not answer at all; <em>no answer through it</em> = it connected but carried nothing. Results are kept (also after a reboot) until the next test of that box, and Auto-switch uses them (section 7).</p>
   <h3>Clear all</h3>
   <p><strong>Clear all</strong>, at the right above the boxes, deletes every imported tunnel at once (with their keys and stars) instead of one ✕ at a time - for example before importing a fresh export. Tap it twice to confirm. The tunnel that was on turns off: your normal connection, no kill switch, until you import and switch one on again. Speed test results are kept.</p>
+  <h3>Backup and restore</h3>
+  <p>The <strong>Backup</strong> section saves every imported tunnel, and which ones have a star, to <code>/storage/emulated/0/wg-shield/wg-shield-backup.zip</code>: the same kind of zip the WireGuard app exports, one <code>.conf</code> per tunnel, plus <code>favorites.txt</code> and <code>backup-info.txt</code>. The WireGuard / AmneziaWG app can import it too, and so can <em>Import from Download</em> here. There is one backup: <strong>Backup</strong> again replaces it (tap twice when one exists). The new zip is written next to the old one, unpacked again and compared file by file, and only then put in its place - if anything fails, the old backup is still there.</p>
+  <p>The backup stays when you remove or reinstall the module, and after <strong>Clear all</strong>. <strong>Restore</strong> (tap twice) imports every tunnel of the backup and gives the backed-up favorites their star again; a tunnel with the same name is replaced, tunnels that are not in the backup stay. The tunnel that is on is not changed. <strong>✕</strong> (tap twice) deletes the backup.</p>
+  <p>To keep it somewhere else, copy the zip to your computer. The files hold your private keys, like an export in Download: apps with access to all files can read them.</p>
   <h3>Import</h3>
   <p>Import reads the WireGuard app's export zip, or single <code>.conf</code> files, from Download. Files that do not fit (several peers, no full tunnel, an IPv6 endpoint) are skipped and the Log says why. Importing a tunnel with a name that already exists replaces it. Names keep letters, digits, <code>. _ -</code>; other characters become <code>_</code>.</p>
   <p>From a file the module uses only the WireGuard keys and addresses. <code>DNS</code> is ignored (DNS is left to the system or DNSCrypt Proxy), as are <code>PostUp</code>, <code>Table</code> and the like. A tunnel without <code>PersistentKeepalive</code> gets 25 s, so the health check always has fresh handshakes.</p>
@@ -287,6 +291,10 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   <span class=
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh removeall'   <span class="cm"># delete every imported tunnel; the tunnel turns off</span>
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh backup'   <span class="cm"># save all tunnels to /storage/emulated/0/wg-shield/wg-shield-backup.zip (replaces the old one)</span>
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restore'   <span class="cm"># import the tunnels of the backup</span>
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh backupinfo'   <span class="cm"># is there a backup, how many tunnels, when</span>
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh delbackup'   <span class="cm"># delete the backup</span>
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh test BG'   <span class="cm"># speed test of a box: country code, others or favorites</span>
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh fav add &lt;name&gt;'   <span class="cm"># favorite (☆ → ★); fav del &lt;name&gt; removes it</span>
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
@@ -329,9 +337,10 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
     <tr><td>speedtest</td><td>Last speed test result per server address (kept on update and reboot)</td></tr>
     <tr><td>logs/wg-shield.log</td><td>Log (<strong>Clear</strong> in the Log tab empties it)</td></tr>
     <tr><td>state/</td><td>Runtime state, cleared at boot; <code>state/status</code> is read by the sibling modules</td></tr>
+    <tr><td>/storage/emulated/0/wg-shield/wg-shield-backup.zip</td><td>The backup (see 6): one .conf per tunnel, favorites.txt, backup-info.txt. Kept when the module is removed</td></tr>
   </table></div>
   <p><strong>Update:</strong> flash the new zip, reboot. Tunnels and settings stay.</p>
-  <p><strong>Uninstall:</strong> the tunnel and every rule are removed, then settings, log and <strong>all imported tunnels with their keys</strong> are deleted.</p>
+  <p><strong>Uninstall:</strong> the tunnel and every rule are removed, then settings, log and <strong>all imported tunnels with their keys</strong> are deleted. A backup in <code>/storage/emulated/0/wg-shield/</code> is kept - delete it first (Tunnels → Backup → ✕) if you do not want it.</p>
 </div>
 
 <div class="footer">WG Shield Arm64 · by Tears Burn · <a href="index.html">back to dashboard</a><br><br>"WireGuard" and the "WireGuard" logo are registered trademarks of Jason A. Donenfeld.<br>WG Shield is not affiliated with or endorsed by the WireGuard or AmneziaWG projects.</div>

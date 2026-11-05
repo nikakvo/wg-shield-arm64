@@ -17,6 +17,13 @@ STATE="${WGS_STATE:-$DATA/state}"
 CONF="${WGS_CONFFILE:-$DATA/settings.conf}"
 TUNDIR="$DATA/tunnels"
 FAVS="$DATA/favorites"   # favorite tunnels, one name per line (WebUI star)
+# 2.6: one backup of the tunnels in shared storage (kept when the module is
+# removed - that is the point): <root>/wg-shield-backup.zip, the same kind of
+# zip the WireGuard app exports (+ favorites.txt, backup-info.txt inside).
+# A new backup replaces the old one.
+BACKUP_ROOT="${WGS_BACKUP_ROOT:-/storage/emulated/0/wg-shield}"
+[ -n "$WGS_BACKUP_ROOT" ] || [ -d /storage/emulated/0 ] || BACKUP_ROOT=/sdcard/wg-shield
+BKZIP="$BACKUP_ROOT/wg-shield-backup.zip"
 LOGDIR="$DATA/logs"
 LOG="$LOGDIR/wg-shield.log"
 LOG_MAX=262144
