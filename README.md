@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.4-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.5-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
@@ -119,7 +119,7 @@ Tunnels and settings are kept on update.
 | Tab | |
 |---|---|
 | Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network, the other networks · the networking set · watchdog |
-| Tunnels | Country boxes (+ Favorites, Others) · WireGuard / AmneziaWG filter · every tunnel with a switch (one at a time), ★, an **AWG** badge for AmneziaWG tunnels, and **✕**; the tunnel that is on at the top · **Test** a box: results grouped by server address, fastest marked · import from Download, delete the export |
+| Tunnels | Country boxes (+ Favorites, Others) · WireGuard / AmneziaWG filter · every tunnel with a switch (one at a time), ★, an **AWG** badge for AmneziaWG tunnels, and **✕**; the tunnel that is on at the top (green pulsing dot on its box) · **Clear all** deletes every tunnel at once · **Test** a box: results grouped by server address, fastest marked · import from Download, delete the export |
 | Settings | Kill switch · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
 | Log | Filterable by level |
 
@@ -232,6 +232,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'   # how the notification looks
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   # watchdog + tunnel again
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove <name>'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh removeall'   # delete every imported tunnel (the tunnel turns off)
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh fav add <name>'   # favorite; fav del <name> removes it
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh test BG'   # speed test of a box: a country code, others or favorites
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'

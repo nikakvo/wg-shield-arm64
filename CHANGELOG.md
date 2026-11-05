@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.5
+
+Two small touches in the Tunnels tab.
+
+* **Clear all** (Tunnels tab, at the right above the boxes, tap twice) - deletes every imported tunnel at once, with their keys and stars, instead of one ✕ at a time. The tunnel that was on turns off (normal connection) until you import and switch one on again. Speed test results are kept
+* **The dot of the tunnel that is on is green and pulses** while it is protected (orange while it connects or is paused, red when it is down), so the box of the working tunnel stands out
+* Command line: `removeall`
+* **Help** - *Clear all* and the dot colours in section 6, `removeall` in section 10
+
+---
+
 ## 2.4
 
 Your tunnels by country, favorites, and a speed test that shows which tunnels share a server.

@@ -161,7 +161,11 @@
     .tun .ty { font-size: 8px; letter-spacing: .6px; color: var(--text); border: 1px dashed var(--acc-a); padding: 0 5px; border-radius: 2px; }
     .tun .ty.m { color: var(--muted); border-color: var(--border); }
     /* country boxes, type filter, favorites (Tunnels tab) */
-    .chips { display: flex; gap: 5px; margin-bottom: 8px; }
+    .tbar { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
+    .tbar[hidden] { display: none; }
+    .chips { display: flex; gap: 5px; }
+    .chips[hidden] { display: none; }
+    .tbar .clr { margin-left: auto; padding: 5px 9px; letter-spacing: .8px; text-transform: uppercase; white-space: nowrap; }
     .chips button { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 9px; letter-spacing: .8px; text-transform: uppercase; padding: 5px 9px; border-radius: 2px; cursor: pointer; }
     .chips button.on { color: var(--acc); border-color: var(--acc-a); background: var(--acc-t); }
     .boxes { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 5px; margin-bottom: 6px; }
@@ -171,8 +175,10 @@
     .cbox .cn { display: block; font-size: 8px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cbox.pick { --nb: var(--acc-a); border-color: var(--acc-a); background: var(--acc-t); }
     .cbox.pick .cc { color: var(--acc); }
-    .cbox.act::before { content: ''; position: absolute; top: 4px; left: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 0 2px rgba(125,211,252,.18); }
-    .cbox.act.a::before { background: var(--amber); } .cbox.act.r::before { background: var(--red); }
+    .cbox.act::before { content: ''; position: absolute; top: 4px; left: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--dnsc); box-shadow: 0 0 0 2px rgba(0,255,136,.2); animation: dotPulse 1.6s ease-in-out infinite; }
+    .cbox.act.a::before { background: var(--amber); box-shadow: 0 0 0 2px rgba(255,106,31,.2); animation: none; } .cbox.act.r::before { background: var(--red); box-shadow: 0 0 0 2px rgba(255,77,106,.2); animation: none; }
+    @keyframes dotPulse { 0%,100% { opacity: 1; box-shadow: 0 0 0 2px rgba(0,255,136,.25); } 50% { opacity: .45; box-shadow: 0 0 0 4px rgba(0,255,136,0); } }
+    @media (prefers-reduced-motion: reduce) { .cbox.act::before { animation: none; } }
     .tun-head { display: flex; align-items: center; gap: 8px; font-size: 9px; color: var(--muted); padding: 6px 0 4px; border-bottom: 1px solid var(--border); letter-spacing: .4px; }
     .tun-head b { color: var(--acc); font-weight: normal; }
     .tun-head .fbtn { margin-left: auto; }
@@ -328,12 +334,15 @@
   <div class="pane" id="tab-tun">
     <div class="section">
       <div class="section-title"><span class="s-accent"></span>Tunnels<span class="s-note" id="tun-note"></span></div>
-      <div class="chips" id="tun-chips" hidden>
-        <button data-f="all" onclick="setTunFilter('all')">All</button><button data-f="wireguard" onclick="setTunFilter('wireguard')">WireGuard</button><button data-f="amneziawg" onclick="setTunFilter('amneziawg')">AmneziaWG</button>
+      <div class="tbar" id="tun-bar" hidden>
+        <div class="chips" id="tun-chips" hidden>
+          <button data-f="all" onclick="setTunFilter('all')">All</button><button data-f="wireguard" onclick="setTunFilter('wireguard')">WireGuard</button><button data-f="amneziawg" onclick="setTunFilter('amneziawg')">AmneziaWG</button>
+        </div>
+        <button class="fbtn clr" id="tun-clear" onclick="clearTunnels(this)">Clear all</button>
       </div>
       <div class="boxes" id="tun-boxes"></div>
       <div id="tun-body"><div class="empty">Waiting for data…</div></div>
-      <div class="note">Tap a country to see only its tunnels, tap it again to see all. Test measures each server address of the box. ★ marks a favorite (the Favorites box). The tunnel that is on stays at the top. One tunnel at a time: switching one on switches the other off. All off = your normal connection, no kill switch.</div>
+      <div class="note">Tap a country to see only its tunnels, tap it again to see all. Test measures each server address of the box. ★ marks a favorite (the Favorites box). The tunnel that is on stays at the top. One tunnel at a time: switching one on switches the other off. All off = your normal connection, no kill switch. Clear all deletes every imported tunnel (tap twice to confirm); the tunnel turns off.</div>
     </div>
     <div class="section">
       <div class="section-title"><span class="s-accent"></span>Import from Download<span class="s-note"><button class="fbtn" onclick="loadFiles()">Refresh</button></span></div>
@@ -803,6 +812,7 @@ function renderTunnels(st) {
   const all = st.t.map(line => { const [name, ep, addr, valid, v6, type, fav] = line.split('|'); return { name, ep, addr, valid, v6, type, fav: fav === '1', cc: tunCountry(name) }; })
     .sort((a, b) => natCmp(a.name, b.name));
   $('tun-note').textContent = all.length ? all.length + (all.length === 1 ? ' tunnel' : ' tunnels') : '';
+  $('tun-bar').hidden = !all.length;
   if (!all.length) { $('tun-chips').hidden = true; $('tun-boxes').innerHTML = ''; $('tun-body').innerHTML = '<div class="empty">No tunnels yet.<br>Import a WireGuard or AmneziaWG export below.</div>'; return; }
 
   // type filter: only offered when both types are imported
@@ -921,6 +931,15 @@ async function delTunnel(b, name) {
     const r = parseKV(await ctl('remove ' + q(name)));
     toast(r.ok === '1' ? name + ' deleted' : (r.error || 'Not deleted'), r.ok === '1' ? 'ok' : 'err');
   } finally { _tunBusy = false; _tunSig = ''; await poll(); }
+}
+async function clearTunnels(b) {
+  const n = (ST && ST.t || []).length;
+  if (!n || !armed(b, 'Delete all ' + n + '?')) return;
+  _tunBusy = true;
+  try {
+    const r = parseKV(await ctl('removeall', 30000));
+    toast(r.ok === '1' ? 'Deleted ' + num(r.removed) + (num(r.removed) === 1 ? ' tunnel' : ' tunnels') + ' - normal connection' : (r.error || 'Not deleted'), r.ok === '1' ? 'ok' : 'err');
+  } finally { _tunBusy = false; TUN_SEL = null; _tunSig = ''; await poll(); }
 }
 async function toggleFav(b, name, on) {
   _tunBusy = true;

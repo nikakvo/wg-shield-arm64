@@ -19,6 +19,7 @@ usage() {
         '  switch <name>       switch to another tunnel (same as up <name>)' \
         '  down                turn the tunnel off - direct connection' \
         '  remove <name>       delete an imported tunnel' \
+        '  removeall           delete every imported tunnel (the tunnel turns off)' \
         '  fav add|del <name>  mark / unmark a tunnel as favorite (WebUI star)' \
         '  test <box>          speed test: BG (a country code), others or favorites' \
         '  pause <minutes>     direct connection for a while (1-1440), then back on' \
@@ -225,6 +226,20 @@ case "$cmd" in
         fav_has "$1" && fav_del "$1"
         wlog INFO "ctl: tunnel $1 removed"
         tick_now; echo "removed=$1"; print_status
+        ;;
+    removeall)
+        test_running && fail "a speed test is running - wait until it ends"
+        ra_n=0
+        for f in "$TUNDIR"/*.conf; do [ -f "$f" ] && ra_n=$((ra_n + 1)); done
+        settings_load; S_ACTIVE=""; S_LAST=""; settings_save
+        rm -f "$STATE/pause_until" "$STATE/heal"
+        for f in "$TUNDIR"/*.conf; do [ -f "$f" ] && rm -f "$f"; done
+        rm -f "$FAVS"
+        ra_left=0
+        for f in "$TUNDIR"/*.conf; do [ -f "$f" ] && ra_left=$((ra_left + 1)); done
+        [ "$ra_left" = 0 ] || fail "$ra_left tunnel(s) could not be deleted"
+        wlog INFO "ctl: all tunnels removed ($ra_n)"
+        tick_now; echo "removed=$ra_n"; print_status
         ;;
     fav)
         case "$1" in add|del) : ;; *) fail "usage: fav add|del <name>" ;; esac
