@@ -378,13 +378,31 @@ routes_ensure() {
     case "$r" in *unreachable*) : ;; *) "$IP" route replace unreachable default metric 4096 table "$TABLE" 2>/dev/null ;; esac
 }
 
-# resolve_host NAME -> first IPv4. Plain DNS to Quad9, sent around the tunnel
-# for a moment (rule 5001): the tunnel is not up yet, and these are the
-# resolvers DNSCrypt Proxy lets root query directly (its bootstrap exemption).
-RESOLVERS="9.9.9.9 149.112.112.112"
+# resolve_host NAME -> first IPv4. Plain DNS to Cloudflare, then Google, sent
+# around the tunnel for a moment (rule 5001): the tunnel is not up yet, and
+# these are the resolvers DNSCrypt Proxy lets root query directly (its
+# bootstrap exemption, 2.1.20-r4+). Quad9 was used up to 2.7; it stops
+# serving some countries. DNSCrypt Proxy before 2.1.20-r4 (versionCode 54)
+# exempts only Quad9 - with such a version installed and enabled Quad9 is
+# asked first (a query to the others would go into DNSCrypt, whose upstream
+# is in the tunnel that is not up yet).
+RESOLVERS="1.1.1.1 1.0.0.1 8.8.8.8"
+RESOLVERS_OLD="9.9.9.9 149.112.112.112"
+resolvers_now() {
+    _rd="${WGS_MODULES:-/data/adb/modules}/dnscrypt-proxy-android"
+    _rc=""
+    if [ -f "$_rd/module.prop" ] && [ ! -f "$_rd/disable" ] && [ ! -f "$_rd/remove" ]; then
+        _rc=$(sed -n 's/^versionCode=//p' "$_rd/module.prop" 2>/dev/null | head -n 1)
+    fi
+    case "$_rc" in
+        ''|*[!0-9]*) echo "$RESOLVERS" ;;
+        *) if [ "$_rc" -lt 54 ]; then echo "$RESOLVERS_OLD $RESOLVERS"; else echo "$RESOLVERS"; fi ;;
+    esac
+    unset _rd _rc
+}
 resolve_host() {
     [ -n "$DEF" ] || return 1
-    for srv in $RESOLVERS; do
+    for srv in $(resolvers_now); do
         "$IP" rule add pref 5001 iif lo to "$srv/32" lookup "$DEFN" 2>/dev/null
         out=$("$BB" timeout 6 "$BB" nslookup "$1" "$srv" 2>/dev/null)
         while "$IP" rule del pref 5001 2>/dev/null; do :; done

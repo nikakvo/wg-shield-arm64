@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.7-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.8-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
@@ -268,10 +268,10 @@ Within about 40 seconds (10 with Check every 5 s) the banner shows *restart 1 of
 
 ## Notes
 
-- **The ping** goes through the tunnel only (bound to `wgs0`, to 1.1.1.1 / 9.9.9.9), so it shows nothing new to your network. A server that never answers a ping is not called dead for that - for such a tunnel WireGuard's own 180 s rule decides
+- **The ping** goes through the tunnel only (bound to `wgs0`, to 1.1.1.1 / 8.8.8.8), so it shows nothing new to your network. A server that never answers a ping is not called dead for that - for such a tunnel WireGuard's own 180 s rule decides
 - **The speed test** sends, per server address, one WireGuard handshake and a few pings to 1.1.1.1 through that server - nothing outside a tunnel. A server can take a few seconds before it answers a key it has not seen for a while; the test waits up to 10 seconds for the answers
 - **Notifications** are posted through Android's shell, so they appear as *Shell* / *Command line*; HyperOS shows them when the screen comes on
-- **Host-name endpoints** are looked up with one plain DNS query to Quad9 outside the tunnel (the tunnel is not up yet); the same resolvers DNSCrypt Proxy lets root query directly
+- **Host-name endpoints** are looked up with one plain DNS query outside the tunnel to Cloudflare (`1.1.1.1`, `1.0.0.1`), then Google (`8.8.8.8`) (the tunnel is not up yet); the same resolvers DNSCrypt Proxy lets root query directly
 - **DNS already under way when the DNS redirect changes** - when the tunnel's DNS is turned on or off or changes, a DNS flow that already exists keeps its old address translation until the kernel forgets it (UDP about 30 s, longer while it keeps getting answers). Android's resolver uses a new port for every query, so new lookups follow at once. Android has no tool to clear only those kernel entries (no `conntrack` in toybox or busybox), so WG Shield does not try
 - **Same LAN on both sides** - addresses of your own Wi-Fi network always stay local; a home VPN that uses the same range (both `192.168.1.x`) cannot reach its devices while you are on that Wi-Fi
 - **Need internet now?** Action button (off), or disable the module in the root manager and reboot - nothing of it stays active

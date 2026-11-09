@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.8
+
+No more Quad9.
+
+* **Host-name endpoints are looked up at Cloudflare, then Google** (`1.1.1.1`, `1.0.0.1`, `8.8.8.8`) instead of Quad9 - Quad9 stops answering in some countries (France from 24 November 2026). These are the addresses DNSCrypt Proxy 2.1.20-r4 lets root query directly; with an older DNSCrypt Proxy installed, Quad9 is still asked first so such a tunnel keeps starting
+* **The self-healing ping goes to 1.1.1.1, then 8.8.8.8** (was 9.9.9.9) - still only through the tunnel
+* Help: self-healing, host-name endpoints
+
+Tested on Poco F6 Pro, Xiaomi.eu ROM (HyperOS 3, Android 16), kernel [GKI_Kernel_SukiSU](https://github.com/nikakvo/GKI_Kernel_SukiSU), with DNSCrypt Proxy 2.1.20-r4: a tunnel with a host-name server, a blocked server noticed by the ping and fixed by a restart, Proton and AmneziaWG tunnels, hotspot laptop through the tunnel, reboot.
+
+---
 ## 2.7
 
 Name lookups on mobile data without DNSCrypt Proxy, a faster first handshake, and a set of fixes - most of them found and written by [ivangotoy](https://github.com/ivangotoy) (pull request #1). Thank you!

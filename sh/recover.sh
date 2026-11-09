@@ -11,7 +11,7 @@
 # tunnel (no requests at all; the self-healing still runs, just later).
 #
 # Liveness: every CHECKS s the watchdog pings through the tunnel
-# (1.1.1.1, then 9.9.9.9, ~3 s each; bound to wgs0). The rx counter is NOT
+# (1.1.1.1, then 8.8.8.8, ~3 s each; bound to wgs0). The rx counter is NOT
 # used: incoming traffic does not prove the way out works (with the way out
 # blocked the server kept sending for minutes). No answer twice = the tunnel
 # carries nothing
@@ -44,7 +44,7 @@ HEAL_MAX_SWITCH=5
 SU="${WGS_SU:-/system/bin/su}"
 CMD="${WGS_CMD:-/system/bin/cmd}"
 PING="${WGS_PING:-/system/bin/ping}"
-PROBE_TARGETS="${WGS_PROBE:-1.1.1.1 9.9.9.9}"
+PROBE_TARGETS="${WGS_PROBE:-1.1.1.1 8.8.8.8}"
 LIVE_EVERY=${WGS_LIVE_EVERY:-5}
 
 # ---- liveness -------------------------------------------------------------------
