@@ -79,6 +79,16 @@ esac
 EOF
 # ip6tables: the same, in $WGS_IPT_DIR/v6
 printf '#!/bin/sh\nWGS_IPT_DIR="$WGS_IPT_DIR/v6" exec "%s" "$@"\n' "$FAKES/iptables" > "$FAKES/ip6tables"
+# iptables-save -t TABLE: chains as ":NAME - [0:0]", then the rules
+cat > "$FAKES/iptables-save" <<'XEOF'
+#!/bin/sh
+t=filter; [ "$1" = -t ] && t=$2
+f="$WGS_IPT_DIR/$t"
+echo "*$t"
+[ -f "$f" ] && { sed -n 's/^-N \(.*\)/:\1 - [0:0]/p' "$f"; grep -- '^-A ' "$f"; }
+echo COMMIT
+XEOF
+printf '#!/bin/sh\nWGS_IPT_DIR="$WGS_IPT_DIR/v6" exec "%s" "$@"\n' "$FAKES/iptables-save" > "$FAKES/ip6tables-save"
 # ip as on the phone: Android's ip reads netd's rt_tables, so rule listings
 # say "lookup wlan0"; the host's ip prints the number. Used by the DNS cases
 # (the redirect matches the interface named after the table).
@@ -117,7 +127,7 @@ export WGS_GETPROP="$FAKES/getprop" WGS_DUMPSYS="$FAKES/dumpsys" WGS_PM="$FAKES/
 export WGS_PING="$FAKES/ping" WGS_SU="$FAKES/su" WGS_CMD="$FAKES/cmd"
 export WGS_LINKTYPE=veth WGS_PROC6="$RUN/proc6" WGS_SYSNET="$RUN/sysnet"
 export WGS_SH="$TSH" WGS_HEAL_WAIT=1
-export WGS_IPT="$FAKES/iptables" WGS_IPT6="$FAKES/ip6tables" WGS_IPT_DIR="$RUN/ipt"
+export WGS_IPT="$FAKES/iptables" WGS_IPT6="$FAKES/ip6tables" WGS_IPTS="$FAKES/iptables-save" WGS_IPTS6="$FAKES/ip6tables-save" WGS_IPT_DIR="$RUN/ipt"
 STATE="$WGS_DATA/state"
 mkdir -p "$WGS_MODULES" "$WGS_DL" "$WGS_PROC6/all"
 echo 1 > "$WGS_PROC6/all/disable_ipv6"          # no IPv6 on the fake phone
@@ -514,62 +524,61 @@ if want dns; then
     check "OUTPUT jumps to wgs_dns" yes "$(hasnat "$J")"
     check "udp 53 DNAT to the tunnel DNS" yes "$(hasnat "$DN")"
     check "tcp 53 DNAT to the tunnel DNS" yes "$(hasnat "-A wgs_dns -o wgs0 -p tcp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
-    check "Android's network check left alone" yes "$(hasnat "-A wgs_dns -m owner --uid-owner 1073 -j RETURN")"
-    check "captive portal login left alone" yes "$(hasnat "-A wgs_dns -m owner --uid-owner 10050 -j RETURN")"
-    check "endpoint lookup resolver left alone" yes "$(hasnat "-A wgs_dns -d 9.9.9.9 -j RETURN")"
+    check "only the two DNAT rules (nothing by uid, no LAN resolver)" 2 "$(nat | grep -c -- '^-A wgs_dns ')"
     check "logged" 1 "$(grep -c "apps use the tunnel's DNS 10.2.0.1" "$WGS_DATA/logs/wg-shield.log")"
-    check "Wi-Fi LAN resolver: udp 53 DNAT to the tunnel DNS" yes "$(hasnat "-A wgs_dns -o wlan0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
-    check "Wi-Fi LAN resolver: tcp 53 DNAT to the tunnel DNS" yes "$(hasnat "-A wgs_dns -o wlan0 -p tcp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
-    check "POSTROUTING jumps to wgs_dnss" yes "$(hasnat "$JS")"
-    check "udp DNS into the tunnel: SNAT to the tunnel address" yes "$(hasnat "$SN")"
-    check "tcp DNS into the tunnel: SNAT to the tunnel address" yes "$(hasnat "-A wgs_dnss -o wgs0 -d 10.2.0.1 -p tcp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2")"
-    # a second internet network (captured) and a carrier service network on
-    # the same interface (stays outside): the chain follows the networks
+    check "Wi-Fi LAN resolver stays local (no DNAT on wlan0)" no "$(nat | grep -q -- '-o wlan0' && echo yes || echo no)"
+    check "no SNAT chain" "no no" "$(hasnat "$JS") $(nat | grep -qx -- '-N wgs_dnss' && echo yes || echo no)"
+    check "status dns=tunnel" "tunnel 10.2.0.1" "$(st dns) $(st dns_server)"
+    # a second captured internet network: nothing per network (its DNS is routed into wgs0)
     echo "1031 rmnetx" >> "$WGS_RT_TABLES"
     echo "103 INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED" >> "$RUN/networks"
     ip rule add pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
-    ip rule add pref 16000 fwmark 0xd0068/0xdffff iif lo lookup 1031
     ctl status >/dev/null
-    check "second network: its DNS to the tunnel DNS" yes "$(hasnat "-A wgs_dns -o rmnetx -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
-    check "carrier service network: left alone by its mark" yes "$(hasnat "-A wgs_dns -m mark --mark 0x68/0xffff -j RETURN")"
-    ip rule del pref 16000 fwmark 0xd0068/0xdffff iif lo lookup 1031
+    check "second network: chain unchanged" "2 no" "$(nat | grep -c -- '^-A wgs_dns ') $(nat | grep -q rmnetx && echo yes || echo no)"
     ip rule del pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
     sed -i '/^103 /d' "$RUN/networks"; sed -i '/^1031 /d' "$WGS_RT_TABLES"
-    ctl status >/dev/null
-    check "second network gone: its rule goes" no "$(hasnat "-A wgs_dns -o rmnetx -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
-    check "carrier network gone: its mark goes" no "$(hasnat "-A wgs_dns -m mark --mark 0x68/0xffff -j RETURN")"
     "$WGS_IPT" -w -t nat -D OUTPUT -j wgs_dns
     ctl status >/dev/null
     check "jump removed by someone else: repaired" yes "$(hasnat "$J")"
-    "$WGS_IPT" -w -t nat -D POSTROUTING -j wgs_dnss
+    check "repair logged once" 1 "$(grep -c 'changed by someone else - repaired' "$WGS_DATA/logs/wg-shield.log")"
+    "$WGS_IPT" -w -t nat -D wgs_dns -o wgs0 -p tcp --dport 53 -j DNAT --to-destination 10.2.0.1:53
     ctl status >/dev/null
-    check "SNAT jump removed by someone else: repaired" yes "$(hasnat "$JS")"
+    check "rule removed inside the chain: repaired" "2 1" "$(nat | grep -c -- '^-A wgs_dns ') $(nat | grep -cxF -- "$J")"
+    # a chain left by an unreleased build (SNAT): removed
+    "$WGS_IPT" -w -t nat -N wgs_dnss; "$WGS_IPT" -w -t nat -A wgs_dnss -o wgs0 -j SNAT --to-source 10.2.0.2; "$WGS_IPT" -w -t nat -A POSTROUTING -j wgs_dnss
+    ctl status >/dev/null
+    check "old SNAT chain removed" "no no" "$(hasnat "$JS") $(nat | grep -qx -- '-N wgs_dnss' && echo yes || echo no)"
     mkdir -p "$WGS_MODULES/dnscrypt-proxy-android"
+    ctl status >/dev/null
+    check "DNSCrypt installed but not taking DNS (paused): redirect stays" yes "$(hasnat "$DN")"
+    DC="-A OUTPUT -p udp -m udp --dport 53 -j DNAT --to-destination 127.0.0.1:5354"
+    echo "$DC" >> "$WGS_IPT_DIR/nat"
     ctl status >/dev/null
     check "DNSCrypt Proxy on: no redirect" no "$(hasnat "$J")"
     check "DNSCrypt Proxy on: chain removed" no "$(nat | grep -qx -- '-N wgs_dns' && echo yes || echo no)"
-    check "DNSCrypt Proxy on: SNAT removed" "no no" "$(hasnat "$JS") $(nat | grep -qx -- '-N wgs_dnss' && echo yes || echo no)"
-    touch "$WGS_MODULES/dnscrypt-proxy-android/disable"
+    check "DNSCrypt Proxy on: status" "dnscrypt " "$(st dns) $(st dns_server)"
+    check "DNSCrypt Proxy on: logged" 1 "$(grep -c 'DNS: left to DNSCrypt Proxy' "$WGS_DATA/logs/wg-shield.log")"
+    grep -vxF -- "$DC" "$WGS_IPT_DIR/nat" > "$WGS_IPT_DIR/nat.n"; mv "$WGS_IPT_DIR/nat.n" "$WGS_IPT_DIR/nat"
     ctl status >/dev/null
-    check "DNSCrypt Proxy disabled: redirect back" yes "$(hasnat "$DN")"
+    check "DNSCrypt Proxy paused (its DNAT gone): redirect back" yes "$(hasnat "$DN")"
     rm -rf "$WGS_MODULES/dnscrypt-proxy-android"
     ctl set killswitch 0 >/dev/null
     echo $(( $(date +%s) - 600 )) > "$STATE/fake_hs"
     ctl status >/dev/null
-    check "tunnel down, kill switch off: network DNS again" no "$(hasnat "$J")"
+    check "tunnel down, kill switch off: network DNS again" "no network" "$(hasnat "$J") $(st dns)"
     date +%s > "$STATE/fake_hs"; ctl set killswitch 1 >/dev/null; ctl status >/dev/null
     check "up again: redirect back" yes "$(hasnat "$J")"
     ctl down >/dev/null
     check "down: redirect removed" no "$(hasnat "$J")"
     check "down: chain removed" no "$(nat | grep -qx -- '-N wgs_dns' && echo yes || echo no)"
-    check "down: SNAT removed" "no no" "$(hasnat "$JS") $(nat | grep -qx -- '-N wgs_dnss' && echo yes || echo no)"
+    check "down: status dns empty" "" "$(st dns)"
     sed -i 's#^DNS = .*#DNS = fd00::53, 10.2.0.9, example.lan#' "$WGS_DL/wg-DE-1.conf"
     ctl import wg-DE-1.conf >/dev/null; ctl up wg-DE-1 >/dev/null
     check "first IPv4 of the DNS line" yes "$(hasnat "-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.9:53")"
     ctl down >/dev/null
     sed -i '/^DNS = /d' "$WGS_DL/wg-DE-1.conf"
     ctl import wg-DE-1.conf >/dev/null; ctl up wg-DE-1 >/dev/null
-    check "no DNS line: DNS left alone" no "$(hasnat "$J")"
+    check "no DNS line: DNS left alone" "no network" "$(hasnat "$J") $(st dns)"
     ctl down >/dev/null
     conf "$WGS_DL/wg-DE-1.conf" 203.0.113.61:51820
     ctl import wg-DE-1.conf >/dev/null
@@ -593,7 +602,7 @@ if want dns_reboot; then
     rm -rf "$WGS_IPT_DIR"                 # a reboot empties iptables
     $TSH "$MOD/post-fs-data.sh" >/dev/null 2>&1
     ctl status >/dev/null
-    check "after the reboot: no 'removed by someone else' warning" 0 "$(grep -c 'DNS: the redirect was removed by someone else' "$WGS_DATA/logs/wg-shield.log")"
+    check "after the reboot: no 'removed by someone else' warning" 0 "$(grep -c 'changed by someone else - repaired' "$WGS_DATA/logs/wg-shield.log")"
     check "after the reboot: set up again" 2 "$(grep -c "apps use the tunnel's DNS 10.2.0.1" "$WGS_DATA/logs/wg-shield.log")"
     ctl down >/dev/null
     export WGS_IP="$REALIP"
@@ -631,7 +640,7 @@ EOF
         conf "$WGS_DL/wg-DE-3.conf" 203.0.113.62:51820
         ctl import wg-DE-3.conf >/dev/null
         date +%s > "$STATE/fake_hs"
-        WGS_IPT=$IPTR ctl up wg-DE-3 >/dev/null
+        WGS_IPTS=$(command -v iptables-save) WGS_IPT=$IPTR ctl up wg-DE-3 >/dev/null
         # where one UDP query (socket mark as DnsResolver sets it) leaves:
         # "<out interface> <source> <destination>" from counting rules
         dns_leaves() {  # dns_leaves MARK SERVER
@@ -642,10 +651,13 @@ EOF
             python3 -I -c 'import socket, sys
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_MARK", 36), int(sys.argv[1], 16))
+if len(sys.argv) > 3:
+    import os
+    os.fchown(s.fileno(), int(sys.argv[3]), -1)   # like netd: a root socket handed to the app uid
 try:
     s.connect((sys.argv[2], 53)); s.send(b"q")
 except OSError:
-    pass' "$1" "$2"
+    pass' "$1" "$2" ${3:+"$3"}
             "$IPTR" -w -t mangle -L POSTROUTING -v -n -x | awk '$1 ~ /^[0-9]+$/ && $1 > 0 { print $7, $8, $9; exit }'
             "$IPTR" -w -t mangle -F POSTROUTING
         }
@@ -664,13 +676,19 @@ except OSError:
             "$IPTR" -w -t mangle -L PREROUTING -v -n -x | awk '$1 ~ /^[0-9]+$/ && $1 > 0 { print $8; f = 1; exit } END { if (!f) print "none" }'
             "$IPTR" -w -t mangle -F PREROUTING
         }
-        check "Wi-Fi LAN resolver: tunnel DNS" "wgs0 192.168.1.50 10.2.0.1" "$(dns_leaves 0x10064 192.168.1.1)"
-        check "Wi-Fi LAN resolver: leaves wgs0 from the tunnel address" 10.2.0.2 "$(dns_src_out 0x10064 192.168.1.1)"
+        check "Wi-Fi LAN resolver: stays local" "wlan0 192.168.1.50 192.168.1.1" "$(dns_leaves 0x10064 192.168.1.1)"
         check "resolver reached through the tunnel: tunnel DNS" "wgs0 10.2.0.2 10.2.0.1" "$(dns_leaves 0x10064 198.51.100.53)"
         check "resolver reached through the tunnel: source unchanged" 10.2.0.2 "$(dns_src_out 0x10064 198.51.100.53)"
+        if [ "${WGS_UIDS:-0}" = 1 ]; then
+            check "app (uid 10000, root socket like netd): tunnel DNS" "wgs0 10.2.0.2 10.2.0.1" "$(dns_leaves 0x10064 198.51.100.53 10000)"
+            check "Android's network check (uid 1073, root socket like netd): its network's DNS" "wlan0 192.168.1.50 198.51.100.53" "$(dns_leaves 0x10064 198.51.100.53 1073)"
+            check "captive portal login (uid 10050): its network's DNS" "wlan0 192.168.1.50 198.51.100.53" "$(dns_leaves 0x10064 198.51.100.53 10050)"
+        else
+            echo "  skip uid cases (no --map-auto)"
+        fi
         check "carrier service network: its own resolver" "rmnet1 10.65.0.2 10.65.0.53" "$(dns_leaves 0xd0066 10.65.0.53)"
         check "carrier service network on the Wi-Fi interface: its own resolver" "wlan0 192.168.1.50 192.168.1.1" "$(dns_leaves 0xd0067 192.168.1.1)"
-        WGS_IPT=$IPTR ctl down >/dev/null
+        WGS_IPTS=$(command -v iptables-save) WGS_IPT=$IPTR ctl down >/dev/null
         check "down: real nat table clean" 0 "$("$IPTR" -w -t nat -S 2>/dev/null | grep -c wgs_dns)"
         ip rule del pref 16000 fwmark 0xd0067/0xdffff iif lo lookup 1028
         ip rule del pref 16000 fwmark 0xd0066/0xdffff iif lo lookup 1030
@@ -699,10 +717,8 @@ if want dns6; then
     check "IPv6: OUTPUT jumps to wgs_dns" yes "$(hasnat6 "$J6")"
     check "IPv6: udp 53 into the tunnel to the IPv6 DNS" yes "$(hasnat6 "$DN6")"
     check "IPv6: tcp 53 into the tunnel to the IPv6 DNS" yes "$(hasnat6 "-A wgs_dns -o wgs0 -p tcp --dport 53 -j DNAT --to-destination [fd00::53]:53")"
-    check "IPv6: LAN resolver to the IPv6 DNS" yes "$(hasnat6 "-A wgs_dns -o wlan0 -p udp --dport 53 -j DNAT --to-destination [fd00::53]:53")"
-    check "IPv6: local resolvers left alone" yes "$(hasnat6 "-A wgs_dns -d ::1/128 -j RETURN")"
-    check "IPv6: Android's network check left alone" yes "$(hasnat6 "-A wgs_dns -m owner --uid-owner 1073 -j RETURN")"
-    check "IPv6: SNAT to the tunnel's IPv6 address" "yes yes" "$(hasnat6 "$JS6") $(hasnat6 "$SN6")"
+    check "IPv6: only the two DNAT rules" 2 "$(nat6 | grep -c -- '^-A wgs_dns ')"
+    check "IPv6: status lists both servers" "tunnel 10.2.0.1 fd00::53" "$(st dns) $(st dns_server)"
     check "IPv4 redirect as before" yes "$(hasnat "-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
     check "logged" 1 "$(grep -c "apps use the tunnel's DNS fd00::53 for IPv6" "$WGS_DATA/logs/wg-shield.log")"
     "$WGS_IPT6" -w -t nat -D OUTPUT -j wgs_dns
@@ -727,7 +743,7 @@ if want dns6; then
     # real ip6tables: a carrier IPv6 resolver routed into the tunnel
     IP6R=$(command -v ip6tables 2>/dev/null)
     if [ -n "$IP6R" ] && command -v python3 >/dev/null && "$IP6R" -w -t nat -L -n >/dev/null 2>&1 && "$IP6R" -w -t mangle -L -n >/dev/null 2>&1; then
-        WGS_IPT6=$IP6R ctl up wg-CH-6 >/dev/null
+        WGS_IPTS6=$(command -v ip6tables-save) WGS_IPT6=$IP6R ctl up wg-CH-6 >/dev/null
         "$IP6R" -w -t mangle -F POSTROUTING
         "$IP6R" -w -t mangle -A POSTROUTING -o wgs0 -s fd00::2 -d fd00::53 -p udp --dport 53 -j ACCEPT
         python3 -I -c 'import socket
@@ -739,7 +755,7 @@ except OSError:
     pass'
         check "real ip6tables: carrier IPv6 resolver -> tunnel IPv6 DNS" 1 "$("$IP6R" -w -t mangle -L POSTROUTING -v -n -x | awk '$1 ~ /^[0-9]+$/ { print $1; exit }')"
         "$IP6R" -w -t mangle -F POSTROUTING
-        WGS_IPT6=$IP6R ctl down >/dev/null
+        WGS_IPTS6=$(command -v ip6tables-save) WGS_IPT6=$IP6R ctl down >/dev/null
         check "real ip6tables: down, nat table clean" 0 "$("$IP6R" -w -t nat -S 2>/dev/null | grep -c wgs_dns)"
     else
         echo "  skip real ip6tables (no usable ip6tables nat/mangle or python3)"

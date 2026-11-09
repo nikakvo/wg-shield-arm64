@@ -255,6 +255,8 @@ status_write() {
             "notify=$S_NOTIFY" \
             "profile=$S_PROFILE" \
             "checks=$S_CHECKS" \
+            "dns=$ST_DNS" \
+            "dns_server=$ST_DNS_SERVER" \
             "updated=$(epoch_now)"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
     status_compat

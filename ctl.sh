@@ -499,6 +499,8 @@ case "$cmd" in
         fi
         echo; echo "== our rules"; "$IP" rule 2>/dev/null | grep -E '^50[0-9][0-9]:'; "$IP" -6 rule 2>/dev/null | grep -E '^50[0-9][0-9]:' | sed 's/^/v6 /'
         echo; echo "== table $TABLE"; "$IP" route show table "$TABLE" 2>/dev/null
+        echo; echo "== DNS (nat OUTPUT port 53 and our chain)"; _nat_dump "$IPTS" "$IPT" | grep -E 'wgs_dns|--dport 53'
+        [ -f "$STATE/dns6.want" ] && _nat_dump "$IPTS6" "$IPT6" | grep -E 'wgs_dns|--dport 53' | sed 's/^/v6 /'
         echo; echo "== rules wanted ($(grep -c . "$STATE/rules.want" 2>/dev/null))"; sed 's/ rule add pref / /' "$STATE/rules.want" 2>/dev/null
         echo "key $(cat "$STATE/rules.key" 2>/dev/null)"
         echo "kept on their own network (uids): $(cat "$STATE/exempt_uids" 2>/dev/null || echo "$NETSTACK_UID (package manager not asked yet)")"

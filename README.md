@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.6-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.7-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />
@@ -47,7 +47,7 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 - **Every internet network, not only the current one** - mobile data kept up in the background while you are on Wi-Fi, a Wi-Fi Android is still checking: whatever an app or Android sends over them goes through the tunnel too. A new network is caught the moment Android creates it. Only Android's own network check and the login page of a hotel / airport Wi-Fi go out on the network itself, so a broken Wi-Fi is never taken for a working one and a login page can open
 - **Host-name endpoints** - a home server on dynamic DNS works; the name is looked up again if the tunnel stops answering
 - **Steps aside for VPN apps** - connect WireGuard, Proton VPN or v2rayNG and WG Shield pauses itself, until that VPN disconnects
-- **Local stays local** - your Wi-Fi LAN (router, printer, SSH from a laptop) and hotspot devices are reached directly (only app DNS to the router goes to the tunnel's DNS instead, see *Without DNSCrypt Proxy* below)
+- **Local stays local** - your Wi-Fi LAN (router, printer, SSH from a laptop) and hotspot devices are reached directly
 - **Private keys stay private** - stored root-only, never shown in the WebUI, the log, the status or the report (the same for AmneziaWG's `HeaderProtectionKey`)
 - **Action button** in the root manager - tunnel on / off without opening anything
 - **WebUI** - route at a glance, exit address on demand, tunnels, import, kill switch, pause, log, report, help
@@ -70,7 +70,7 @@ your Wi-Fi or mobile network → VPN server → internet
 | Rule | What for |
 |---|---|
 | 5000 | The tunnel's own encrypted packets to the server go out through your network |
-| 5010–5013 | Local destinations stay local: Wi-Fi LAN, hotspot devices, the local range of every other network (app DNS to a LAN resolver excepted while the tunnel's DNS is used) |
+| 5010–5013 | Local destinations stay local: Wi-Fi LAN, hotspot devices, the local range of every other network |
 | 5014 | Android's own network check (NetworkStack) and the captive portal login page stay on the network they are for |
 | 5020 | Everything not bound to one network → the tunnel |
 | 5021 | Everything bound to the current default network → the tunnel |
@@ -175,7 +175,7 @@ internet
 ```
 
 - **DNS stays with DNSCrypt Proxy** - while DNSCrypt Proxy is on, WG Shield leaves DNS alone (the `DNS =` line of a config is not used); DNSCrypt's own queries simply travel inside the tunnel. Its System tab shows *Through WG Shield · tunnel*
-- **Without DNSCrypt Proxy, apps use the tunnel's DNS** - while the tunnel carries traffic, app DNS (port 53) that would go into the tunnel or out of a network the tunnel captures - also to a resolver on the Wi-Fi LAN, such as the router - is sent to the first IPv4 server of the config's `DNS =` line, through the tunnel and from the tunnel's own address; while the tunnel carries IPv6, IPv6 app DNS goes the same way to the first IPv6 server of that line (a tunnel without IPv6 blocks IPv6 DNS into it, and Android uses IPv4). Without this, name lookups fail on mobile data: Android asks the carrier's resolvers, which do not answer queries arriving from the VPN server; on Wi-Fi the router would see every lookup. Carrier service networks (VoLTE / IMS, MMS) keep their own resolvers; Android's network check, the captive portal login and the host-name endpoint lookup keep theirs too; a config without `DNS =` leaves DNS to the network
+- **Without DNSCrypt Proxy, apps use the tunnel's DNS** - app DNS (port 53) that goes into the tunnel is sent to the first IPv4 server of the config's `DNS =` line (and IPv6 DNS to its first IPv6 server while the tunnel carries IPv6). Without this, name lookups fail on mobile data: Android asks the carrier's resolvers through the tunnel, and they do not answer queries arriving from the VPN server. A resolver on your Wi-Fi (the router) stays local, as before; carrier services (VoLTE / IMS, MMS), Android's network check and the captive portal login keep their network's DNS. A config without `DNS =` leaves DNS to the network. While DNSCrypt Proxy takes the phone's DNS, WG Shield does nothing with DNS (while DNSCrypt Proxy is paused, the tunnel's DNS answers). The Dashboard *DNS* row and the status key `dns=` show which one answers
 - **Hotspot devices follow the tunnel** - WireGuard or AmneziaWG alike: VPN Hotspot (1.0-r13 or newer) reads WG Shield's status: through the tunnel when it is up, direct when you turn it off or pause it, blocked when it fails
 - **ipset** blocks as always; a tunnel server must never be in its lists (check it with its *Check* tool)
 - **LAN Cloak** - hides what the Wi-Fi network itself sees of the phone (DHCP, announcements); the tunnel covers the rest. WG Shield's Dashboard shows its state
@@ -210,6 +210,7 @@ handshake_age=<s>   killswitch=1|0        ipv6=tunnel|blocked|off
 default_net=…       android_vpn=…         updated=<epoch>
 recover=restart N/2|switch <name>|failed|  recover_from=<tunnel>
 profile=battery|always  checks=5|30|off   autoswitch=0|1    notify=0|1
+dns=tunnel|dnscrypt|network  dns_server=<the tunnel's DNS, IPv4 [IPv6]>
 ```
 
 ---

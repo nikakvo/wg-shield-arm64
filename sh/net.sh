@@ -397,145 +397,129 @@ resolve_host() {
     return 1
 }
 
-# Tunnel DNS. Android sends DNS to the resolvers of the network it is on: a
-# carrier's resolvers are reached through the tunnel and answer only their
-# own subscribers (every name lookup fails on mobile data), a Wi-Fi's are
-# usually on the LAN (5012) and would see every lookup. While the tunnel
-# captures traffic, app DNS (port 53) that leaves through the tunnel (-o
-# wgs0) or through a captured network (the default one and every other
-# network that goes through the tunnel, -o <its interface>) goes to the
-# tunnel's DNS instead (the first IPv4 of the config's DNS line). A query
-# redirected from a LAN resolver keeps its LAN source address; nat
-# POSTROUTING gives DNS leaving wgs0 for the tunnel's DNS the tunnel's own
-# address (SNAT), which is the only source the tunnel's server accepts.
-# Left alone: networks that stay outside (carrier service networks - IMS,
-# MMS - keep their own resolvers on their own network, also when they share
-# an interface: matched by their netId mark), Android's checks and the login
-# page (exempt uids), the lookup of a host-name endpoint ($RESOLVERS), local
-# resolvers (127/8), and everything when DNSCrypt Proxy is on (it answers
-# DNS on the phone itself).
-# IPv6 the same way with ip6tables, to the first IPv6 server of the DNS
-# line, while the tunnel carries IPv6 (V6ON=1). Without IPv6 in the tunnel
-# IPv6 DNS into it is unreachable (5020-5022) and the resolver uses IPv4; a
-# resolver on the LAN reached over IPv6 then stays local (an IPv4-only
-# tunnel cannot carry it).
+# Tunnel DNS. Android sends DNS to the resolvers of the network it is on.
+# On mobile data those are the carrier's: rule 5021 sends the query into the
+# tunnel, and a carrier's resolvers answer only their own subscribers, not
+# the VPN server - every name lookup would time out while the tunnel is up.
+# So app DNS (port 53) that the routing already sends INTO the tunnel (-o
+# wgs0) goes to the tunnel's DNS instead: the first IPv4 server of the
+# config's DNS line (the first IPv6 one while the tunnel carries IPv6).
+# Only -o wgs0, on purpose:
+# - Android's network check and the captive portal login are routed on
+#   their own network (5014), never into wgs0, so they keep the network's
+#   DNS. (iptables cannot tell them apart by uid: netd sends every app's DNS
+#   as uid 0 - measured on the phone. Routing sees the real uid.)
+# - carrier service networks (IMS, MMS) are not captured, never wgs0.
+# - a resolver on the Wi-Fi LAN (the router) stays local (5012), as before;
+#   the source address of a redirected query is already the tunnel's own.
+# - local resolvers (127/8, DNSCrypt Proxy) are not wgs0.
+# Nothing is done while DNSCrypt Proxy takes the phone's DNS (its nat OUTPUT
+# DNAT to 127.x, the same check VPN Hotspot uses): it answers DNS itself and
+# its own queries already go through the tunnel. When it is paused or in
+# failsafe its DNAT is gone and the tunnel's DNS takes over.
+# Every read is iptables-save (no xtables lock: wg-quick and other modules
+# fail while someone holds it); iptables is called only to change rules.
 IPT="${WGS_IPT:-/system/bin/iptables}"
 IPT6="${WGS_IPT6:-/system/bin/ip6tables}"
+IPTS="${WGS_IPTS:-/system/bin/iptables-save}"
+IPTS6="${WGS_IPTS6:-/system/bin/ip6tables-save}"
 DNSCHAIN=wgs_dns
-DNSSNAT=wgs_dnss
-dns_del() { _dns_del "$IPT" dns; _dns_del "$IPT6" dns6; }
-_dns_del() {  # _dns_del TOOL STATENAME
-    [ -f "$STATE/$2.want" ] || "$1" -w -t nat -S "$DNSCHAIN" >/dev/null 2>&1 ||
-        "$1" -w -t nat -S "$DNSSNAT" >/dev/null 2>&1 || return 0
-    # redirect first, then the SNAT it relies on
-    while "$1" -w -t nat -D OUTPUT -j "$DNSCHAIN" 2>/dev/null; do :; done
-    "$1" -w -t nat -F "$DNSCHAIN" 2>/dev/null
-    "$1" -w -t nat -X "$DNSCHAIN" 2>/dev/null
-    while "$1" -w -t nat -D POSTROUTING -j "$DNSSNAT" 2>/dev/null; do :; done
-    "$1" -w -t nat -F "$DNSSNAT" 2>/dev/null
-    "$1" -w -t nat -X "$DNSSNAT" 2>/dev/null
-    rm -f "$STATE/$2.want"
-}
-# dns_nets - sets DNS_OIFS (interfaces whose DNS is redirected: wgs0 and
-# the captured networks') and DNS_OUT (netId marks of networks that stay
-# outside). From the networks nets_classify wrote ($STATE/nets: "<netId>
-# <table> <class> <number>"; netd names a network's table after its
-# interface). A table without its name yet (netd adds it to rt_tables a
-# moment later, see tbl_num) is left out; the name is part of the dns.want
-# key, so the chain is rebuilt once it is there.
-dns_nets() {
-    DNS_OIFS=$IFACE; DNS_OUT=""
-    [ -n "$DEF" ] || return 0
-    _oifs=$IFS; IFS='
-'
-    for _l in $(tail -n +3 "$STATE/nets" 2>/dev/null); do
-        IFS=' '; set -- $_l; IFS='
-'
-        case "$3" in
-            default|tunnel|checking)
-                case "$2" in ""|*[!A-Za-z0-9._-]*) continue ;; *[!0-9]*) : ;; *) continue ;; esac
-                case " $DNS_OIFS " in *" $2 "*) : ;; *) DNS_OIFS="$DNS_OIFS $2" ;; esac ;;
-            outside)
-                case "$1" in 0x[0-9a-f]*) DNS_OUT="$DNS_OUT${DNS_OUT:+ }$1" ;; esac ;;
-        esac
-    done
-    IFS=$_oifs
-    unset _l _oifs
-}
-# the SNAT rule for PROTO (dns_apply and dns_ensure's check: the same text)
-dns_snat_rule() {  # dns_snat_rule PROTO SERVER ADDRESS
-    echo "-o $IFACE -d $2 -p $1 --dport 53 ! -s $3 -j SNAT --to-source $3"
-}
+DNSSNAT=wgs_dnss    # used only by an unreleased build: removed if found
+
+# _nat_dump SAVE TOOL - the nat table as "-A ..." lines (iptables-save, else -S)
+_nat_dump() { "$1" -t nat 2>/dev/null || "$2" -w -t nat -S 2>/dev/null; }
+# _nat_has DUMP CHAIN - the chain exists
+_nat_has() { printf '%s\n' "$1" | grep -qE "^(:$2 |-N $2\$)"; }
+# _nat_cnt DUMP TEXT - number of lines containing TEXT
+_nat_cnt() { printf '%s\n' "$1" | grep -cF -e "$2"; }
+# dnsc_dnat DUMP - DNSCrypt Proxy (or another local resolver) takes the phone's DNS
+dnsc_dnat() { printf '%s\n' "$1" | grep -E '^-A OUTPUT ' | grep -F -e '--dport 53' | grep -qF -e '-j DNAT --to-destination 127.'; }
 # dns_dnat_to SERVER - DNAT target (IPv6 in brackets)
 dns_dnat_to() { case "$1" in *:*) echo "[$1]:53" ;; *) echo "$1:53" ;; esac; }
-dns_apply() {  # dns_apply TOOL SERVER ADDRESS LOOPBACK [RETURN...] - uses DNS_OIFS DNS_OUT
-    _ax=$1; _as=$2; _aa=$3; shift 3
-    # the redirect off while it is rebuilt, the SNAT ready before it is back
-    "$_ax" -w -t nat -N "$DNSCHAIN" 2>/dev/null || "$_ax" -w -t nat -F "$DNSCHAIN" 2>/dev/null
-    "$_ax" -w -t nat -N "$DNSSNAT" 2>/dev/null || "$_ax" -w -t nat -F "$DNSSNAT" 2>/dev/null
+
+dns_present() { [ -f "$STATE/dns.want" ] || [ -f "$STATE/dns6.want" ]; }
+dns_del() {
+    _dns_del "$IPT" "$IPTS" dns
+    # IPv6: only when it was set up (no ip6tables-save on every teardown)
+    [ -f "$STATE/dns6.want" ] && _dns_del "$IPT6" "$IPTS6" dns6
+    return 0
+}
+_dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP]
+    _dd=${4-$(_nat_dump "$2" "$1")}
+    _dj=$(_nat_cnt "$_dd" "-A OUTPUT -j $DNSCHAIN")
+    while [ "${_dj:-0}" -gt 0 ]; do "$1" -w -t nat -D OUTPUT -j "$DNSCHAIN" 2>/dev/null || break; _dj=$((_dj - 1)); done
+    _nat_has "$_dd" "$DNSCHAIN" && { "$1" -w -t nat -F "$DNSCHAIN" 2>/dev/null; "$1" -w -t nat -X "$DNSCHAIN" 2>/dev/null; }
+    _dj=$(_nat_cnt "$_dd" "-A POSTROUTING -j $DNSSNAT")
+    while [ "${_dj:-0}" -gt 0 ]; do "$1" -w -t nat -D POSTROUTING -j "$DNSSNAT" 2>/dev/null || break; _dj=$((_dj - 1)); done
+    _nat_has "$_dd" "$DNSSNAT" && { "$1" -w -t nat -F "$DNSSNAT" 2>/dev/null; "$1" -w -t nat -X "$DNSSNAT" 2>/dev/null; }
+    rm -f "$STATE/$3.want"
+    unset _dd _dj
+}
+# _dns_ok DUMP SERVER - our chain is exactly what it should be
+_dns_ok() {
+    _ot=$(dns_dnat_to "$2")
+    [ "$(_nat_cnt "$1" "-A OUTPUT -j $DNSCHAIN")" = 1 ] &&
+    [ "$(_nat_cnt "$1" "-A $DNSCHAIN ")" = 2 ] &&
+    [ "$(printf '%s\n' "$1" | grep -F -e "-A $DNSCHAIN " | grep -F -e "-o $IFACE " | grep -F -e "--dport 53" | grep -cF -e "--to-destination $_ot")" = 2 ] &&
+    [ "$(_nat_cnt "$1" "-A POSTROUTING -j $DNSSNAT")" = 0 ]
+}
+_dns_apply() {  # _dns_apply TOOL SERVER
+    "$1" -w -t nat -N "$DNSCHAIN" 2>/dev/null || "$1" -w -t nat -F "$DNSCHAIN" 2>/dev/null
     for _p in udp tcp; do
-        # shellcheck disable=SC2046
-        "$_ax" -w -t nat -A "$DNSSNAT" $(dns_snat_rule "$_p" "$_as" "$_aa") 2>/dev/null
+        "$1" -w -t nat -A "$DNSCHAIN" -o "$IFACE" -p "$_p" --dport 53 -j DNAT --to-destination "$(dns_dnat_to "$2")" 2>/dev/null
     done
-    "$_ax" -w -t nat -C POSTROUTING -j "$DNSSNAT" 2>/dev/null || "$_ax" -w -t nat -A POSTROUTING -j "$DNSSNAT" 2>/dev/null
-    for _u in $(exempt_uids); do
-        "$_ax" -w -t nat -A "$DNSCHAIN" -m owner --uid-owner "$_u" -j RETURN 2>/dev/null
-    done
-    _al=$1; shift
-    for _d in "$_al" "$_as" "$@"; do
-        "$_ax" -w -t nat -A "$DNSCHAIN" -d "$_d" -j RETURN 2>/dev/null
-    done
-    for _m in $DNS_OUT; do
-        "$_ax" -w -t nat -A "$DNSCHAIN" -m mark --mark "$_m/0xffff" -j RETURN 2>/dev/null
-    done
-    for _o in $DNS_OIFS; do
-        for _p in udp tcp; do
-            "$_ax" -w -t nat -A "$DNSCHAIN" -o "$_o" -p "$_p" --dport 53 -j DNAT --to-destination "$(dns_dnat_to "$_as")" 2>/dev/null
-        done
-    done
-    "$_ax" -w -t nat -C OUTPUT -j "$DNSCHAIN" 2>/dev/null || "$_ax" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
-    unset _ax _as _aa _al _u _d _p _m _o
+    unset _p
 }
-# dns_ensure CAPTURE - the redirects (IPv4, IPv6) are there exactly when they should be
+
+# dns_ensure CAPTURE - sets ST_DNS (tunnel | dnscrypt | network) and ST_DNS_SERVER
 dns_ensure() {
-    _on=0; [ "$1" = 1 ] && ! dnsc_active && _on=1
-    dns_nets
-    _v=""; [ "$_on" = 1 ] && _v=$T_DNS
-    # shellcheck disable=SC2086
-    _dns_ensure "$IPT" dns "$_v" "${T_ADDR%/*}" "" 127.0.0.0/8 $RESOLVERS
-    _v=""; [ "$_on" = 1 ] && [ "$V6ON" = 1 ] && [ -n "$T_ADDR6" ] && _v=$T_DNS6
-    _dns_ensure "$IPT6" dns6 "$_v" "${T_ADDR6%/*}" " for IPv6" ::1/128
-    unset _on _v
+    _d4=$(_nat_dump "$IPTS" "$IPT")
+    _w4=""; _w6=""
+    if dnsc_dnat "$_d4"; then ST_DNS=dnscrypt
+    else
+        ST_DNS=network
+        [ "$1" = 1 ] && [ -n "$T_DNS" ] && _w4=$T_DNS
+        [ -n "$_w4" ] && [ "$V6ON" = 1 ] && [ -n "$T_DNS6" ] && _w6=$T_DNS6
+    fi
+    _dns_sync "$IPT" "$IPTS" dns "$_w4" "$_d4" "" && [ -n "$_w4" ] && { ST_DNS=tunnel; ST_DNS_SERVER=$_w4; }
+    if [ -n "$_w6" ] || [ -f "$STATE/dns6.want" ]; then
+        _dns_sync "$IPT6" "$IPTS6" dns6 "$_w6" "$(_nat_dump "$IPTS6" "$IPT6")" " for IPv6" &&
+            [ -n "$_w6" ] && [ "$ST_DNS" = tunnel ] && ST_DNS_SERVER="$ST_DNS_SERVER $_w6"
+    fi
+    unset _d4 _w4 _w6
 }
-_dns_ensure() {  # _dns_ensure TOOL STATENAME SERVER ADDRESS LABEL LOOPBACK [RETURN...]
-    _x=$1; _n=$2; _t=$3; _a=$4; _w=$5; shift 5
+# _dns_sync TOOL SAVE STATENAME SERVER DUMP LABEL - 0 when the state is as wanted
+_dns_sync() {
+    _x=$1; _s=$2; _n=$3; _t=$4; _du=$5; _w=$6
     if [ -z "$_t" ]; then
         rm -f "$STATE/$_n.bad"
-        if [ -f "$STATE/$_n.want" ]; then _dns_del "$_x" "$_n"; wlog INFO "DNS$_w: left to the network"; fi
-        unset _x _n _t _a _w; return 0
-    fi
-    _k="$_t|-o $DNS_OIFS|snat $_a|outside $DNS_OUT|$(exempt_uids | tr -s ' ' ',')"
-    if [ "$_k" != "$(cat "$STATE/$_n.want" 2>/dev/null)" ] || ! "$_x" -w -t nat -C OUTPUT -j "$DNSCHAIN" 2>/dev/null ||
-       ! "$_x" -w -t nat -C POSTROUTING -j "$DNSSNAT" 2>/dev/null; then
-        _old=$(cat "$STATE/$_n.want" 2>/dev/null)
-        dns_apply "$_x" "$_t" "$_a" "$@"
-        # shellcheck disable=SC2046
-        if "$_x" -w -t nat -C OUTPUT -j "$DNSCHAIN" 2>/dev/null &&
-           "$_x" -w -t nat -C "$DNSCHAIN" -o "$IFACE" -p udp --dport 53 -j DNAT --to-destination "$(dns_dnat_to "$_t")" 2>/dev/null &&
-           "$_x" -w -t nat -C POSTROUTING -j "$DNSSNAT" 2>/dev/null &&
-           "$_x" -w -t nat -C "$DNSSNAT" $(dns_snat_rule udp "$_t" "$_a") 2>/dev/null; then
-            echo "$_k" > "$STATE/$_n.want"; rm -f "$STATE/$_n.bad"
-            if [ "$_old" = "$_k" ]; then wlog WARN "DNS$_w: the redirect was removed by someone else - repaired"
-            else wlog INFO "DNS: apps use the tunnel's DNS $_t$_w (DNS leaving through $(echo "$DNS_OIFS" | sed 's/ /, /g'))"; fi
-        else
-            _dns_del "$_x" "$_n"
-            if [ "$_k" != "$(cat "$STATE/$_n.bad" 2>/dev/null)" ]; then
-                echo "$_k" > "$STATE/$_n.bad"
-                wlog WARN "DNS: could not send DNS$_w to $_t (${_x##*/}) - apps keep the network's resolvers"
-            fi
+        if [ -f "$STATE/$_n.want" ] || _nat_has "$_du" "$DNSCHAIN" || _nat_has "$_du" "$DNSSNAT"; then
+            [ -f "$STATE/$_n.want" ] && wlog INFO "DNS$_w: left to $( [ "$ST_DNS" = dnscrypt ] && echo 'DNSCrypt Proxy' || echo 'the network')"
+            _dns_del "$_x" "$_s" "$_n" "$_du"
         fi
+        unset _x _s _n _t _du _w; return 0
     fi
-    unset _x _n _t _a _w _k _old
+    _old=$(cat "$STATE/$_n.want" 2>/dev/null)
+    if [ "$_old" = "$_t" ] && _dns_ok "$_du" "$_t"; then unset _x _s _n _t _du _w _old; return 0; fi
+    # something is off (new server, or rules changed by someone else): rebuild
+    _dns_del "$_x" "$_s" "$_n" "$_du"
+    _dns_apply "$_x" "$_t"
+    "$_x" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
+    if _dns_ok "$(_nat_dump "$_s" "$_x")" "$_t"; then
+        echo "$_t" > "$STATE/$_n.want"; rm -f "$STATE/$_n.bad"
+        if [ "$_old" = "$_t" ]; then wlog WARN "DNS$_w: the redirect to the tunnel's DNS was changed by someone else - repaired"
+        else wlog INFO "DNS: apps use the tunnel's DNS $_t$_w"; fi
+        _r=0
+    else
+        _dns_del "$_x" "$_s" "$_n"
+        if [ "$_t" != "$(cat "$STATE/$_n.bad" 2>/dev/null)" ]; then
+            echo "$_t" > "$STATE/$_n.bad"
+            wlog WARN "DNS: could not send DNS$_w to $_t (${_x##*/}) - apps keep the network's resolvers"
+        fi
+        _r=1
+    fi
+    unset _x _s _n _t _du _w _old
+    return $_r
 }
 
 # boot guard (post-fs-data): block everything not bound to a network until the tunnel is up
@@ -557,6 +541,7 @@ iface_kind() {
 
 anything_present() {
     iface_exists && return 0
+    dns_present && return 0
     [ -n "$(rules_sig)" ]
 }
 
@@ -702,7 +687,7 @@ wgs_tick() {
     prev=$(cat "$STATE/last_state" 2>/dev/null)
     ST_TUNNEL=$S_ACTIVE; ST_ENDPOINT=""; ST_HSAGE="-"; ST_DEF=$DEF; ST_ANDVPN=$ANDVPN
     ST_REASON=""; ST_RX=""; ST_TX=""; ST_EPHOST=""; ST_IPV6=""; V6ON=0; ST_PAUSELEFT=$(pause_left)
-    ST_TYPE=""; T_TYPE=""; T_DNS=""; T_DNS6=""; ST_NETS=""; EXTRA=""; EXTRA_NAMES=""; ST_RECOVER=""; ST_RECOVER_FROM=""
+    ST_TYPE=""; T_TYPE=""; T_DNS=""; T_DNS6=""; ST_DNS=""; ST_DNS_SERVER=""; ST_NETS=""; EXTRA=""; EXTRA_NAMES=""; ST_RECOVER=""; ST_RECOVER_FROM=""
 
     if [ -z "$S_ACTIVE" ]; then
         ST_STATE=off
