@@ -705,7 +705,7 @@ function renderSet(st) {
   const ipm = st.dnscrypt_ipmode;
   const dnTxt = st.dnscrypt === 'on'
     ? 'Resolves all DNS; its own queries go through this tunnel.' + (ipm && ipm !== 'ipv4' ? (st.ipv6 === 'tunnel' ? ' IPv6 mode ' + esc(ipm) + ': IPv6 goes through the tunnel too.' : st.ipv6 === 'blocked' ? ' IPv6 mode ' + esc(ipm) + ', but this tunnel is IPv4 only: IPv6 is blocked while it is on.' : '') : '')
-    : 'Without it, apps use your network\'s DNS - WG Shield never sets DNS itself.';
+    : 'Without it, app DNS (also to a resolver on your Wi-Fi LAN) is sent to the tunnel\'s DNS (the config\'s DNS line); without that line, apps use your network\'s DNS.';
   const vhsNew = num(st.vhs_code) >= 13;
   const vhsTxt = st.vhs !== 'on' ? 'Shares the tunnel with hotspot devices.'
     : !vhsNew ? 'This version does not see WG Shield\'s tunnel: with its kill switch on, hotspot devices get no internet while WG Shield is on. Update it to 1.0-r13 or newer.'
@@ -800,10 +800,10 @@ function tunRow(t, st, pinned) {
   const n = esc(t.name);
   const tr = TM[t.name];
   return `<div class="row tun${on ? ' on' : ''}${pinned ? ' pin' : ''}">` +
-    `<button class="star${t.fav ? ' on' : ''}" title="${t.fav ? 'Remove from favorites' : 'Add to favorites'}" onclick="toggleFav(this, '${n}', ${t.fav ? 0 : 1})">${t.fav ? '★' : '☆'}</button>` +
+    `<button class="star${t.fav ? ' on' : ''}" title="${t.fav ? 'Remove from favorites' : 'Add to favorites'}" data-n="${n}" data-on="${t.fav ? 0 : 1}" onclick="toggleFav(this, this.dataset.n, +this.dataset.on)">${t.fav ? '★' : '☆'}</button>` +
     `<div class="rn"><b>${n} ${tyb}${testBadge(tr)}${badge}</b><span>${pinned ? '<span class="pinl">on · </span>' : ''}${sub}</span></div>` +
-    `<button class="x-btn" title="Delete" onclick="delTunnel(this, '${n}')">✕</button>` +
-    `<label class="sw"><input type="checkbox" ${on ? 'checked' : ''} ${can ? '' : 'disabled'} onchange="toggleTunnel(this, '${n}')"><i></i></label></div>`;
+    `<button class="x-btn" title="Delete" data-n="${n}" onclick="delTunnel(this, this.dataset.n)">✕</button>` +
+    `<label class="sw"><input type="checkbox" ${on ? 'checked' : ''} ${can ? '' : 'disabled'} data-n="${n}" onchange="toggleTunnel(this, this.dataset.n)"><i></i></label></div>`;
 }
 
 function renderTunnels(st) {
@@ -846,7 +846,7 @@ function renderTunnels(st) {
     const isAct = act && (k === 'fav' ? act.fav : boxOf(act) === k);
     const fl = k === 'fav' ? '★' : k === 'oth' ? '🌐' : ccFlag(k);
     const nm = k === 'fav' ? 'your stars' : k === 'oth' ? 'no country code' : ccName(k);
-    return `<button class="cbox${k === sel ? ' pick' : ''}${isAct ? ' act' + actCls : ''}" title="${esc(nm)}" onclick="selBox('${k}')">` +
+    return `<button class="cbox${k === sel ? ' pick' : ''}${isAct ? ' act' + actCls : ''}" title="${esc(nm)}" data-k="${esc(k)}" onclick="selBox(this.dataset.k)">` +
       `<span class="fl"${k === 'fav' ? ' style="color:#fcd34d;font-family:var(--mono)"' : ''}>${fl}</span><span class="cc">${esc(boxLabel(k))} · ${n}</span><span class="cn">${esc(nm)}</span></button>`;
   }).join('');
 
@@ -856,7 +856,7 @@ function renderTunnels(st) {
   const run = (st.test_run || '').split('|');   // box|i|n|address while a test runs
   const busy = !!st.test_run || _testing;
   const head = `<div class="tun-head">${sel === '' ? (filt === 'all' ? 'All tunnels' : filt === 'amneziawg' ? '<b>AmneziaWG</b>' : '<b>WireGuard</b>') : '<b>' + esc(sel === 'fav' ? 'Favorites' : sel === 'oth' ? 'Others' : ccName(sel)) + '</b>'} · ${inBox.length} of ${all.length}` +
-    (sel !== '' ? `<button class="btn-s tbtn"${busy ? ' disabled' : ''} onclick="runTest(this)">${busy ? 'Testing…' : 'Test'}</button><button class="fbtn" onclick="selBox('${sel}')">Show all</button>` : '') + '</div>' +
+    (sel !== '' ? `<button class="btn-s tbtn"${busy ? ' disabled' : ''} onclick="runTest(this)">${busy ? 'Testing…' : 'Test'}</button><button class="fbtn" data-k="${esc(sel)}" onclick="selBox(this.dataset.k)">Show all</button>` : '') + '</div>' +
     (st.test_run ? `<div class="tprog">Testing ${esc(run[0])}: server ${esc(run[1])} of ${esc(run[2])} (${esc(run[3])})…</div>` : '');
   let body;
   if (sel === '' || !rest.length) {

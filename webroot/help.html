@@ -122,7 +122,7 @@
   <div class="tw"><table>
     <tr><th>rule</th><th>what for</th></tr>
     <tr><td>5000</td><td>The tunnel's own encrypted packets to the server go out through your network.</td></tr>
-    <tr><td>5010–5013</td><td>Local destinations stay local: your Wi-Fi LAN (router, printer, SSH from a laptop), hotspot devices, the local range of every other network.</td></tr>
+    <tr><td>5010–5013</td><td>Local destinations stay local: your Wi-Fi LAN (router, printer, SSH from a laptop), hotspot devices, the local range of every other network. App DNS to a resolver on the LAN goes to the tunnel's DNS instead while it is used (see 6).</td></tr>
     <tr><td>5014</td><td>Android's own network check and the hotel / airport login page stay on the network they are for.</td></tr>
     <tr><td>5020</td><td>Everything not bound to one network → the tunnel.</td></tr>
     <tr><td>5021</td><td>Everything bound to the current default network (Wi-Fi or mobile) → the tunnel.</td></tr>
@@ -194,7 +194,7 @@
   <p>To keep it somewhere else, copy the zip to your computer. The files hold your private keys, like an export in Download: apps with access to all files can read them.</p>
   <h3>Import</h3>
   <p>Import reads the WireGuard app's export zip, or single <code>.conf</code> files, from Download. Files that do not fit (several peers, no full tunnel, an IPv6 endpoint) are skipped and the Log says why. Importing a tunnel with a name that already exists replaces it. Names keep letters, digits, <code>. _ -</code>; other characters become <code>_</code>.</p>
-  <p>From a file the module uses only the WireGuard keys and addresses. <code>DNS</code> is ignored (DNS is left to the system or DNSCrypt Proxy), as are <code>PostUp</code>, <code>Table</code> and the like. A tunnel without <code>PersistentKeepalive</code> gets 25 s, so the health check always has fresh handshakes.</p>
+  <p>From a file the module uses only the WireGuard keys and addresses. <code>DNS</code>: the first IPv4 server is used while the tunnel is on for app DNS, also for a resolver on the Wi-Fi LAN (carrier service networks keep their own), and the first IPv6 server for IPv6 DNS while the tunnel carries IPv6, unless DNSCrypt Proxy is on (see 8); <code>PostUp</code>, <code>Table</code> and the like are ignored. A tunnel without <code>PersistentKeepalive</code> gets 25 s, so the health check always has fresh handshakes.</p>
   <div class="note warn">Private keys are stored in <code>/data/adb/wg-shield/tunnels/</code>, readable only by root. They never appear in the WebUI, the log, the status or the Report. The export in Download is readable by apps - delete it after importing.</div>
   <h3>AmneziaWG</h3>
   <p>AmneziaWG is WireGuard with extra settings that make the traffic harder to recognise and block. A file with any AmneziaWG setting (<code>Jc</code>, <code>Jmin</code>, <code>Jmax</code>, <code>S1</code>-<code>S4</code>, <code>H1</code>-<code>H4</code>, <code>I1</code>-<code>I5</code>, <code>HeaderProtectionKey</code>, <code>ContentPaddingAddition</code>, <code>RandomTrailers</code> and the like) is an AmneziaWG tunnel; any other file is plain WireGuard. Nothing to choose: the tunnel row shows an <span class="pill ok">AWG</span> badge and Dashboard → Tunnel → Type says which one runs.</p>
@@ -248,7 +248,7 @@
     app traffic → <span class="ip">ipset</span> blocklists → <b>tunnel</b>
   </div>
   <h3>DNSCrypt Proxy</h3>
-  <p>WG Shield never sets DNS. DNSCrypt Proxy keeps answering every DNS query on the phone; its own connections to the resolvers simply go through the tunnel. Its IP mode decides whether the phone has IPv6 at all (see 9).</p>
+  <p>While DNSCrypt Proxy is on, WG Shield leaves DNS alone. DNSCrypt Proxy keeps answering every DNS query on the phone; its own connections to the resolvers simply go through the tunnel. Its IP mode decides whether the phone has IPv6 at all (see 9).</p>
   <h3>ipset</h3>
   <p>Its lists apply as always. A tunnel server must never be listed, or the tunnel cannot connect: check the server's address with ipset's <strong>Check</strong> tool, and add it to its allowlist if needed.</p>
   <h3>VPN Hotspot</h3>
@@ -264,6 +264,7 @@
     <li><strong>The server is reached over IPv4.</strong> Proton's commented-out IPv6 <code>Endpoint</code> line is only another way to reach the server, not needed for IPv6 inside the tunnel - leave it commented.</li>
     <li><strong>One peer, full tunnel.</strong> Split tunnels and several peers are not supported.</li>
     <li><strong>Host-name endpoints</strong> (e.g. a home server on dynamic DNS) are looked up when the tunnel starts, with one plain DNS query to Quad9 sent outside the tunnel - before the tunnel is up there is no other way. If such a tunnel stops answering, the name is looked up again (at most once a minute), so an address change at home is followed by itself. IPv6 endpoints are not supported.</li>
+    <li><strong>DNS already under way when the tunnel's DNS changes.</strong> A DNS flow that already exists when the redirect to the tunnel's DNS is turned on or off keeps its old address translation until the kernel forgets it (UDP about 30 s). Android's resolver uses a new port for every query, so new lookups follow at once; Android has no tool to clear only those entries.</li>
     <li><strong>Same LAN on both sides.</strong> Addresses of your own Wi-Fi network always stay local. If a home VPN uses the same range as your Wi-Fi (both <code>192.168.1.x</code>), devices behind that VPN cannot be reached while you are on that Wi-Fi.</li>
     <li><strong>No per-app bypass.</strong> Everything the phone sends goes through the tunnel, except carrier services (IMS, MMS), Android's network check and the captive portal login page (see 3).</li>
     <li><strong>What the network still sees.</strong> Android's network check runs on each new network (a request to Google's <code>generate_204</code>); a VPN cannot hide it without breaking Wi-Fi detection. What the router sees on the local network (DHCP host name, device announcements) is outside a VPN's reach.</li>

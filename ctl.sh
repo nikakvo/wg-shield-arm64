@@ -44,7 +44,24 @@ usage() {
         '  version'
 }
 
-fail() { echo "ok=0"; echo "error=$*"; exit 1; }
+fail() { lock_release 2>/dev/null; echo "ok=0"; echo "error=$*"; exit 1; }
+
+# Settings are changed only under the watchdog's lock: a tick can rewrite
+# settings.conf itself (the auto-switch saves the tunnel it switched to),
+# and a change made between its settings_load and settings_save would be
+# lost (a "down" or "set killswitch" undone). fail() releases it.
+ctl_lock() { lock_get 20 || fail "busy - try again"; }
+# set_locked KEY VALUE - one setting, saved under the lock (kept held: the
+# caller ticks and releases)
+set_locked() {
+    ctl_lock; settings_load
+    case "$1" in
+        KILLSWITCH) S_KILLSWITCH=$2 ;; AUTOSWITCH) S_AUTOSWITCH=$2 ;; NOTIFY) S_NOTIFY=$2 ;;
+        PROFILE) S_PROFILE=$2 ;; CHECKS) S_CHECKS=$2 ;;
+    esac
+    settings_save || fail "cannot write $CONF"
+}
+tick_locked() { wgs_tick; lock_release; }
 
 [ "$(id -u)" = 0 ] || fail "run as root: su -c '/system/bin/sh $MODDIR/ctl.sh $*'"
 mkdir -p "$STATE" "$TUNDIR"; chmod 700 "$DATA" "$TUNDIR" 2>/dev/null
@@ -196,6 +213,7 @@ case "$cmd" in
         exit "$rc"
         ;;
     up|switch)
+        ctl_lock
         settings_load
         n=$1
         if [ -z "$n" ]; then
@@ -208,34 +226,38 @@ case "$cmd" in
         if [ "$T_TYPE" = amneziawg ] && [ "$FAKE_LINK" = 0 ] && ! awg_kernel_ok; then
             fail "$n is an AmneziaWG tunnel and this kernel has no AmneziaWG (CONFIG_AMNEZIAWG) - WireGuard tunnels still work"
         fi
-        S_ACTIVE=$n; S_LAST=$n; settings_save
+        S_ACTIVE=$n; S_LAST=$n; settings_save || fail "cannot write $CONF"
         rm -f "$STATE/pause_until" "$STATE/heal"
         wlog INFO "ctl: up $n"
+        lock_release
         wait_up
         print_status
         ;;
     down)
-        settings_load; S_ACTIVE=""; settings_save
+        ctl_lock
+        settings_load; S_ACTIVE=""; settings_save || fail "cannot write $CONF"
         rm -f "$STATE/pause_until" "$STATE/heal"
         wlog INFO "ctl: down"
-        tick_now; print_status
+        tick_locked; print_status
         ;;
     remove)
         tun_exists "$1" || fail "no such tunnel: $1"
+        ctl_lock
         settings_load
         if [ "$S_ACTIVE" = "$1" ]; then S_ACTIVE=""; fi
         [ "$S_LAST" = "$1" ] && S_LAST=""
-        settings_save
+        settings_save || fail "cannot write $CONF"
         rm -f "$(tun_file "$1")"
         fav_has "$1" && fav_del "$1"
         wlog INFO "ctl: tunnel $1 removed"
-        tick_now; echo "removed=$1"; print_status
+        tick_locked; echo "removed=$1"; print_status
         ;;
     removeall)
         test_running && fail "a speed test is running - wait until it ends"
         ra_n=0
         for f in "$TUNDIR"/*.conf; do [ -f "$f" ] && ra_n=$((ra_n + 1)); done
-        settings_load; S_ACTIVE=""; S_LAST=""; settings_save
+        ctl_lock
+        settings_load; S_ACTIVE=""; S_LAST=""; settings_save || fail "cannot write $CONF"
         rm -f "$STATE/pause_until" "$STATE/heal"
         for f in "$TUNDIR"/*.conf; do [ -f "$f" ] && rm -f "$f"; done
         rm -f "$FAVS"
@@ -243,7 +265,7 @@ case "$cmd" in
         for f in "$TUNDIR"/*.conf; do [ -f "$f" ] && ra_left=$((ra_left + 1)); done
         [ "$ra_left" = 0 ] || fail "$ra_left tunnel(s) could not be deleted"
         wlog INFO "ctl: all tunnels removed ($ra_n)"
-        tick_now; echo "removed=$ra_n"; print_status
+        tick_locked; echo "removed=$ra_n"; print_status
         ;;
     backup)
         lock_get 20 || fail "busy - try again"
@@ -327,33 +349,33 @@ case "$cmd" in
         case "$1" in
             killswitch|KILLSWITCH)
                 case "$2" in 0|1) : ;; *) fail "usage: set killswitch 0|1" ;; esac
-                settings_load; S_KILLSWITCH=$2; settings_save
+                set_locked KILLSWITCH "$2"
                 wlog INFO "ctl: kill switch $2"
-                tick_now; print_status ;;
+                tick_locked; print_status ;;
             autoswitch|AUTOSWITCH)
                 case "$2" in 0|1) : ;; *) fail "usage: set autoswitch 0|1" ;; esac
-                settings_load; S_AUTOSWITCH=$2; settings_save
+                set_locked AUTOSWITCH "$2"
                 wlog INFO "ctl: auto-switch $2"
-                tick_now; print_status ;;
+                tick_locked; print_status ;;
             profile|PROFILE)
                 case "$2" in battery|always) : ;; *) fail "usage: set profile battery|always" ;; esac
-                settings_load; S_PROFILE=$2; settings_save
+                set_locked PROFILE "$2"
                 wlog INFO "ctl: profile $2"
-                tick_now; print_status ;;
+                tick_locked; print_status ;;
             checks|CHECKS)
                 case "$2" in 5|30|off) : ;; *) fail "usage: set checks 5|30|off" ;; esac
-                settings_load; S_CHECKS=$2; settings_save
+                set_locked CHECKS "$2"
                 if [ "$2" = off ]; then wlog INFO "ctl: checks off - only the handshake rule (180 s)"
                 else wlog INFO "ctl: checks every $2 s"; fi
                 rm -f "$STATE/live_probe_at"    # a new interval starts with a check
                 # off: an old "no answer" must not start a recovery now
                 [ "$2" = off ] && rm -f "$STATE/dead_at" "$STATE/alive_at"
-                tick_now; print_status ;;
+                tick_locked; print_status ;;
             notify|NOTIFY)
                 case "$2" in 0|1) : ;; *) fail "usage: set notify 0|1" ;; esac
-                settings_load; S_NOTIFY=$2; settings_save
+                set_locked NOTIFY "$2"
                 wlog INFO "ctl: notifications $2"
-                tick_now; print_status ;;
+                tick_locked; print_status ;;
             *) fail "unknown setting: $1" ;;
         esac
         ;;

@@ -14,7 +14,7 @@
 # tun_parse FILE -> T_* variables, T_ERR empty when usable, T_WARN notes
 tun_parse() {
     T_ADDR=""; T_EP=""; T_EPIP=""; T_MTU=1420; T_KA=""; T_ERR=""; T_WARN=""; T_TYPE=wireguard; _awg=0; _hpk=0
-    _ni=0; _np=0; _pk=0; _pub=0; _psk=0; T_ADDR6=""; T_V6=0; _addr=""; _mtu=""; _dns=0; _ign=""; _aips=""
+    _ni=0; _np=0; _pk=0; _pub=0; _psk=0; T_ADDR6=""; T_V6=0; _addr=""; _mtu=""; _dns=""; _ign=""; _aips=""; T_DNS=""; T_DNS6=""
     [ -f "$1" ] || { T_ERR="file not found"; return 1; }
     _out=$(tr -d '\r' 2>/dev/null < "$1" | awk '
     function trim(s) { gsub(/[ \t]/, "", s); return s }
@@ -31,7 +31,7 @@ tun_parse() {
             if (k == "privatekey") pk = (length(v) == 44 && v ~ /^[A-Za-z0-9+\/]+=$/) ? 1 : (v == "" ? 0 : 2)
             else if (k == "address") addr = (addr == "" ? v : addr "," v)
             else if (k == "mtu") mtu = v
-            else if (k == "dns") dns = 1
+            else if (k == "dns") dns = (dns == "" ? v : dns "," v)
             else if (k == "table" || k == "preup" || k == "postup" || k == "predown" || k == "postdown" || k == "saveconfig") ign = ign " " k
             else if (k == "headerprotectionkey") { awg = 1; hpk = (length(v) == 44 && v ~ /^[A-Za-z0-9+\/]+=$/) ? 1 : 2 }
             else if (k ~ /^(jc|jmin|jmax|s[1-4]|h[1-4]|i[1-5]|contentpaddingaddition|randomtrailers|disablecookies|keepalivetimeout|maxhandshakeattempts|rejectaftertime|rekeyaftertime|rekeytimeout)$/) awg = 1
@@ -46,7 +46,7 @@ tun_parse() {
     }
     END {
         printf "PSK=%d\nAWG=%d\nHPK=%d\n", psk, awg, hpk
-        printf "NI=%d\nNP=%d\nPK=%d\nPUB=%d\nADDR=%s\nMTU=%s\nDNS=%d\nIGN=%s\nEP=%s\nAIPS=%s\nKA=%s\n", ni, np, pk, pub, addr, mtu, dns, ign, ep, aips, ka
+        printf "NI=%d\nNP=%d\nPK=%d\nPUB=%d\nADDR=%s\nMTU=%s\nDNS=%s\nIGN=%s\nEP=%s\nAIPS=%s\nKA=%s\n", ni, np, pk, pub, addr, mtu, dns, ign, ep, aips, ka
     }')
     _oifs=$IFS; IFS='
 '
@@ -77,10 +77,17 @@ tun_parse() {
         */*) : ;;
         *) T_ADDR="$T_ADDR/32" ;;
     esac
+    _pl=${T_ADDR#*/}
+    ipv4_ok "${T_ADDR%%/*}" && case "$_pl" in ""|*[!0-9]*) false ;; *) [ "${#_pl}" -le 2 ] && [ "$_pl" -le 32 ] ;; esac ||
+        { T_ERR="bad Address '$T_ADDR'"; return 1; }
     # Endpoint: IPv4 literal, or a host name (resolved when the tunnel loads)
     T_EPIP=""; T_EPHOST=""; T_PORT=${T_EP##*:}; _h=${T_EP%:*}
     [ -n "$T_EP" ] && [ "$_h" != "$T_EP" ] || { T_ERR="Endpoint needs host:port (got '$T_EP')"; return 1; }
-    case "$T_PORT" in ""|*[!0-9]*) T_ERR="Endpoint has no valid port (got '$T_EP')"; return 1 ;; esac
+    case "$T_PORT" in
+        ""|*[!0-9]*) T_ERR="Endpoint has no valid port (got '$T_EP')"; return 1 ;;
+        *) [ "${#T_PORT}" -le 5 ] && [ "$T_PORT" -ge 1 ] && [ "$T_PORT" -le 65535 ] ||
+               { T_ERR="Endpoint port must be 1-65535 (got '$T_EP')"; return 1; } ;;
+    esac
     case "$_h" in
         "") T_ERR="Endpoint has no host"; return 1 ;;
         *[!0-9.]*)
@@ -89,7 +96,8 @@ tun_parse() {
                 *.*) T_EPHOST=$_h ;;
                 *) T_ERR="Endpoint host name has no domain (got '$T_EP')"; return 1 ;;
             esac ;;
-        *) T_EPIP=$_h ;;
+        *) ipv4_ok "$_h" || { T_ERR="Endpoint is not a valid IPv4 address (got '$T_EP')"; return 1; }
+           T_EPIP=$_h ;;
     esac
     case ",$_aips," in *,0.0.0.0/0,*) : ;; *) T_ERR="AllowedIPs must include 0.0.0.0/0 (full tunnel)"; return 1 ;; esac
     # IPv6 through the tunnel: an IPv6 address and ::/0
@@ -101,7 +109,16 @@ tun_parse() {
     case "$_mtu" in "") : ;; *[!0-9]*) T_WARN="$T_WARN bad-MTU-ignored" ;;
         *) if [ "$_mtu" -ge 1280 ] && [ "$_mtu" -le 1500 ]; then T_MTU=$_mtu; else T_WARN="$T_WARN MTU-out-of-range-ignored"; fi ;;
     esac
-    [ "$_dns" = 1 ] && T_WARN="$T_WARN DNS-ignored(dns-is-left-to-the-system/dnscrypt-proxy)"
+    # DNS: the first IPv4 server is used while the tunnel is on, the first
+    # IPv6 server while it carries IPv6 too (sh/net.sh dns_ensure); search
+    # domains are not used
+    for _d in $(echo "$_dns" | tr ',' ' '); do
+        if ipv4_ok "$_d"; then [ -z "$T_DNS" ] && T_DNS=$_d
+        else
+            case "$_d" in *:*:*) case "$_d" in *[!0-9A-Fa-f:]*|*:::*) : ;; *) [ -z "$T_DNS6" ] && [ "${#_d}" -le 39 ] && T_DNS6=$_d ;; esac ;; esac
+        fi
+    done
+    [ -n "$_dns" ] && [ -z "$T_DNS" ] && T_WARN="$T_WARN DNS-without-IPv4-ignored"
     [ -n "$T_EPHOST" ] && T_WARN="$T_WARN host-name-endpoint(resolved-at-connect)"
     [ -n "$_ign" ] && T_WARN="$T_WARN ignored:$(echo $_ign | tr ' ' ',')"
     [ -z "$T_KA" ] && T_WARN="$T_WARN no-PersistentKeepalive(25-is-used)"
@@ -268,9 +285,15 @@ bk_restore() {
     _br="$STATE/restore.$$"; rm -rf "$_br"; mkdir -p "$_br"; chmod 700 "$_br"
     _bk_unzip -o -q "$BKZIP" -d "$_br" >/dev/null 2>&1
     _br_ok=0; _br_bad=0; _br_names=""
+    # one file per line: names with spaces stay whole, nothing is globbed
+    _br_ifs=$IFS; IFS='
+'
+    set -f
     for _bf in $(find "$_br" -type f -name '*.conf' 2>/dev/null | sort); do
+        IFS=$_br_ifs; set +f
         if tun_import_one "$_bf"; then _br_ok=$((_br_ok + 1)); _br_names="$_br_names $name"; else _br_bad=$((_br_bad + 1)); fi
     done
+    IFS=$_br_ifs; set +f
     _br_fav=0
     if [ -f "$_br/favorites.txt" ]; then
         _br_list=$(tr -d '\r' < "$_br/favorites.txt" | while IFS= read -r _fn; do
@@ -317,10 +340,16 @@ tun_import() {
             tmp="$STATE/import.$$"; rm -rf "$tmp"; mkdir -p "$tmp"; chmod 700 "$tmp"
             if [ -x "$BB" ]; then "$BB" unzip -o -q "$p" -d "$tmp" >/dev/null 2>&1; else unzip -o -q "$p" -d "$tmp" >/dev/null 2>&1; fi
             found=0
+            # one file per line: names with spaces stay whole, nothing is globbed
+            _ti_ifs=$IFS; IFS='
+'
+            set -f
             for f in $(find "$tmp" -type f -name '*.conf' 2>/dev/null | sort); do
+                IFS=$_ti_ifs; set +f
                 found=1
                 if tun_import_one "$f"; then ok=$((ok + 1)); else bad=$((bad + 1)); fi
             done
+            IFS=$_ti_ifs; set +f
             rm -rf "$tmp"
             [ "$found" = 1 ] || { echo "ok=0"; echo "error=no .conf files in $p"; return 1; }
             ;;

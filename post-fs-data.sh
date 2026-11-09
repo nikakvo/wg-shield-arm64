@@ -16,7 +16,7 @@ rm -f "$STATE/status" "$STATE/pause_until" "$STATE/loaded" "$STATE/tunnel.info" 
       "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/last_state" \
       "$STATE/watchdog.pid" "$STATE/boot.log" "$STATE/nets" "$STATE/last_nets" \
       "$STATE/monitor.pid" "$STATE/events" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" \
-      "$STATE/exempt_uids" "$STATE/heal" \
+      "$STATE/exempt_uids" "$STATE/heal" "$STATE/dns.want" "$STATE/dns.bad" "$STATE/dns6.want" "$STATE/dns6.bad" \
       "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/pingable"
 settings_load
 if [ -n "$S_ACTIVE" ] && [ "$S_KILLSWITCH" = 1 ]; then

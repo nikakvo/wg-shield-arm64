@@ -5,11 +5,11 @@
 # Needs: curl or git, tar, make, zig. Run in WSL:  bash build.sh
 # Result: ./out/wg and ./out/awg -> copy to <module>/system/bin/
 # zig 0.16.0 gives the same files as the release (SHA-256 printed at the end):
-#   wg  b460f9dddaa75b1293eefdd6f7152a30ccf3ffa19267968c52654efdbe056cd0
+#   wg  92efd615c43f6668826ee84338a05587b24e5ad5dc3a5586f9312ca825b827da
 #   awg db3c9a3e384e8bf779fd72408db59b7e061ce214f570438f0e6a87f9fa559a04
 set -euo pipefail
 
-WG_VER="${WG_TOOLS_VERSION:-1.0.20250521}"
+WG_VER="${WG_TOOLS_VERSION:-1.0.20260223}"
 # amneziawg-tools 3.1.20260812 ("feat: add awg 3.1 params"). Pinned on purpose:
 # change it only together with a test on a phone with the AmneziaWG kernel module.
 AWG_SHA="${AWG_TOOLS_COMMIT:-ee0f0a9aa34ff0a0da4b3433b9512781cfe02843}"
