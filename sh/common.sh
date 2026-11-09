@@ -41,7 +41,16 @@ WG="${WGS_WG:-$MODDIR/system/bin/wg}"
 AWG="${WGS_AWG:-$MODDIR/system/bin/awg}"
 # AmneziaWG kernel module (built in or loaded): /sys/module/amneziawg/version
 AWG_SYS="${WGS_AWG_SYS:-/sys/module/amneziawg}"
-BB="${WGS_BB:-/data/adb/ksu/bin/busybox}"
+# busybox of the root manager: KernelSU / SukiSU, APatch, Magisk (the first
+# one present). nslookup and timeout (host-name endpoints) come only from it.
+if [ -n "$WGS_BB" ]; then BB=$WGS_BB
+else
+    BB="$WGS_ADB_DIR/ksu/bin/busybox"
+    for _b in "$WGS_ADB_DIR/ksu/bin/busybox" "$WGS_ADB_DIR/ap/bin/busybox" "$WGS_ADB_DIR/magisk/busybox"; do
+        [ -x "$_b" ] && { BB=$_b; break; }
+    done
+    unset _b
+fi
 GETPROP="${WGS_GETPROP:-/system/bin/getprop}"
 RT_TABLES="${WGS_RT_TABLES:-/data/misc/net/rt_tables}"
 
@@ -98,6 +107,17 @@ tunnel_name_ok() {
     [ "${#1}" -le 40 ]
 }
 
+# ipv4_ok ADDRESS - four dot-separated numbers 0-255 (no prefix)
+ipv4_ok() {
+    case "$1" in ""|*[!0-9.]*|.*|*.|*..*) return 1 ;; esac
+    _o=$IFS; IFS=.; set -f; set -- $1; set +f; IFS=$_o; unset _o
+    [ $# = 4 ] || return 1
+    for _x in "$@"; do
+        [ "${#_x}" -le 3 ] && [ "$_x" -le 255 ] 2>/dev/null || { unset _x; return 1; }
+    done
+    unset _x
+}
+
 # ---- settings (KEY=value, whitelist, never sourced) ---------------------------
 settings_load() {
     S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30
@@ -134,6 +154,7 @@ settings_save() {
 lock_try() {
     mkdir -p "$STATE"
     if mkdir "$STATE/lock" 2>/dev/null; then echo $$ > "$STATE/lock/pid"; return 0; fi
+    i=$(stat -c %i "$STATE/lock" 2>/dev/null)
     p=$(cat "$STATE/lock/pid" 2>/dev/null)
     if [ -n "$p" ]; then
         kill -0 "$p" 2>/dev/null && return 1
@@ -142,8 +163,23 @@ lock_try() {
         m=$(stat -c %Y "$STATE/lock" 2>/dev/null || echo 0)
         [ $(( $(epoch_now) - m )) -lt 30 ] && return 1
     fi
-    mv "$STATE/lock" "$STATE/lock.stale.$$" 2>/dev/null && rm -rf "$STATE/lock.stale.$$"
-    if mkdir "$STATE/lock" 2>/dev/null; then echo $$ > "$STATE/lock/pid"; return 0; fi
+    # the holder is gone. Only one process may take its lock over: mkdir of
+    # lock/takeover is atomic. The winner checks that "lock" is still the
+    # dead holder's (same directory, same pid) - another process may have
+    # taken it over meanwhile and hold a fresh lock there - before it
+    # replaces it. A takeover left behind by a process that died in the
+    # middle is cleared after 30 s.
+    if ! mkdir "$STATE/lock/takeover" 2>/dev/null; then
+        m=$(stat -c %Y "$STATE/lock/takeover" 2>/dev/null || epoch_now)
+        [ $(( $(epoch_now) - m )) -ge 30 ] && rmdir "$STATE/lock/takeover" 2>/dev/null
+        return 1
+    fi
+    if [ -n "$i" ] && [ "$(stat -c %i "$STATE/lock" 2>/dev/null)" = "$i" ] && [ "$(cat "$STATE/lock/pid" 2>/dev/null)" = "$p" ]; then
+        rm -rf "$STATE/lock"
+        if mkdir "$STATE/lock" 2>/dev/null; then echo $$ > "$STATE/lock/pid"; return 0; fi
+    else
+        rmdir "$STATE/lock/takeover" 2>/dev/null
+    fi
     return 1
 }
 
@@ -193,31 +229,33 @@ status_compat() {
 }
 status_write() {
     tmp="$STATE/status.tmp.$$"
+    # printf, not echo: mksh's echo would interpret a backslash in a value
     {
-        echo "state=$ST_STATE"
-        echo "reason=$ST_REASON"
-        echo "iface=$IFACE"
-        echo "table=$TABLE"
-        echo "type=$ST_TYPE"
-        echo "tunnel=$ST_TUNNEL"
-        echo "endpoint=$ST_ENDPOINT"
-        echo "endpoint_host=$ST_EPHOST"
-        echo "ipv6=$ST_IPV6"
-        echo "handshake_age=$ST_HSAGE"
-        echo "killswitch=$S_KILLSWITCH"
-        echo "default_net=$ST_DEF"
-        echo "android_vpn=$ST_ANDVPN"
-        echo "pause_left=$ST_PAUSELEFT"
-        echo "rx=$ST_RX"
-        echo "tx=$ST_TX"
-        echo "nets=$ST_NETS"
-        echo "recover=$ST_RECOVER"
-        echo "recover_from=$ST_RECOVER_FROM"
-        echo "autoswitch=$S_AUTOSWITCH"
-        echo "notify=$S_NOTIFY"
-        echo "profile=$S_PROFILE"
-        echo "checks=$S_CHECKS"
-        echo "updated=$(epoch_now)"
+        printf '%s\n' \
+            "state=$ST_STATE" \
+            "reason=$ST_REASON" \
+            "iface=$IFACE" \
+            "table=$TABLE" \
+            "type=$ST_TYPE" \
+            "tunnel=$ST_TUNNEL" \
+            "endpoint=$ST_ENDPOINT" \
+            "endpoint_host=$ST_EPHOST" \
+            "ipv6=$ST_IPV6" \
+            "handshake_age=$ST_HSAGE" \
+            "killswitch=$S_KILLSWITCH" \
+            "default_net=$ST_DEF" \
+            "android_vpn=$ST_ANDVPN" \
+            "pause_left=$ST_PAUSELEFT" \
+            "rx=$ST_RX" \
+            "tx=$ST_TX" \
+            "nets=$ST_NETS" \
+            "recover=$ST_RECOVER" \
+            "recover_from=$ST_RECOVER_FROM" \
+            "autoswitch=$S_AUTOSWITCH" \
+            "notify=$S_NOTIFY" \
+            "profile=$S_PROFILE" \
+            "checks=$S_CHECKS" \
+            "updated=$(epoch_now)"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
     status_compat
 }
