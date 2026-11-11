@@ -46,6 +46,7 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 - **Wi-Fi ↔ mobile data** - followed the moment Android switches: the watchdog watches Android's network rules and acts at once, not on its next check
 - **Every internet network, not only the current one** - mobile data kept up in the background while you are on Wi-Fi, a Wi-Fi Android is still checking: whatever an app or Android sends over them goes through the tunnel too. A new network is caught the moment Android creates it. Only Android's own network check and the login page of a hotel / airport Wi-Fi go out on the network itself, so a broken Wi-Fi is never taken for a working one and a login page can open
 - **Host-name endpoints** - a home server on dynamic DNS works; the name is looked up again if the tunnel stops answering
+- **LAN DNS through the tunnel** (opt-in) - while the tunnel is up, lookups sent to a resolver on your Wi-Fi (the router) go to the tunnel's DNS too, so the router does not see them
 - **Steps aside for VPN apps** - connect WireGuard, Proton VPN or v2rayNG and WG Shield pauses itself, until that VPN disconnects
 - **Local stays local** - your Wi-Fi LAN (router, printer, SSH from a laptop) and hotspot devices are reached directly
 - **Private keys stay private** - stored root-only, never shown in the WebUI, the log, the status or the report (the same for AmneziaWG's `HeaderProtectionKey`)
@@ -121,7 +122,7 @@ Tunnels and settings are kept on update.
 |---|---|
 | Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network, the other networks · the networking set · watchdog |
 | Tunnels | Country boxes (+ Favorites, Others) · WireGuard / AmneziaWG filter · every tunnel with a switch (one at a time), ★, an **AWG** badge for AmneziaWG tunnels, and **✕**; the tunnel that is on at the top (green pulsing dot on its box) · **Clear all** deletes every tunnel at once · **Backup** / **Restore** / delete the backup · **Test** a box: results grouped by server address, fastest marked · import from Download, delete the export |
-| Settings | Kill switch · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
+| Settings | Kill switch · LAN DNS through the tunnel · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
 | Log | Filterable by level |
 
 ---
@@ -176,6 +177,7 @@ internet
 
 - **DNS stays with DNSCrypt Proxy** - while DNSCrypt Proxy is on, WG Shield leaves DNS alone (the `DNS =` line of a config is not used); DNSCrypt's own queries simply travel inside the tunnel. Its System tab shows *Through WG Shield · tunnel*
 - **Without DNSCrypt Proxy, apps use the tunnel's DNS** - app DNS (port 53) that goes into the tunnel is sent to the first IPv4 server of the config's `DNS =` line (and IPv6 DNS to its first IPv6 server while the tunnel carries IPv6). Without this, name lookups fail on mobile data: Android asks the carrier's resolvers through the tunnel, and they do not answer queries arriving from the VPN server. A resolver on your Wi-Fi (the router) stays local, as before; carrier services (VoLTE / IMS, MMS), Android's network check and the captive portal login keep their network's DNS. A config without `DNS =` leaves DNS to the network. While DNSCrypt Proxy takes the phone's DNS, WG Shield does nothing with DNS (while DNSCrypt Proxy is paused, the tunnel's DNS answers). The Dashboard *DNS* row and the status key `dns=` show which one answers
+- **LAN DNS through the tunnel** (Settings, off by default; `ctl.sh set landns 1`) - a resolver on your Wi-Fi sees every name the phone looks up. With this on, and only while the tunnel is up, plain DNS (port 53, IPv4) that leaves through the Wi-Fi - or another network that goes through the tunnel - is sent to the tunnel's DNS as well (nat chain `wgs_dns`, and `wgs_dnss` gives those queries the tunnel's own source address). Names only the router knows (`printer.lan`) stop resolving meanwhile. While the tunnel is connecting or down, also with the kill switch on, the router is asked again and sees the lookups made then: Android's network check and a login page need the network's own resolver, and their lookups cannot be told apart from an app's (so while the tunnel is up they go to the tunnel's DNS too; on a new Wi-Fi with a login page the prompt can come late, until WG Shield has noticed that the tunnel does not answer there). Not redirected: carrier services, a network Android is still checking, a resolver reached over IPv6 (on a Wi-Fi with IPv6 the router can still see lookups), Private DNS. Nothing is done while DNSCrypt Proxy takes the phone's DNS. The *DNS* row shows `+ LAN` while it is active, the status key `dns_lan=` lists the interfaces
 - **Hotspot devices follow the tunnel** - WireGuard or AmneziaWG alike: VPN Hotspot (1.0-r13 or newer) reads WG Shield's status: through the tunnel when it is up, direct when you turn it off or pause it, blocked when it fails
 - **ipset** blocks as always; a tunnel server must never be in its lists (check it with its *Check* tool)
 - **LAN Cloak** - hides what the Wi-Fi network itself sees of the phone (DHCP, announcements); the tunnel covers the rest. WG Shield's Dashboard shows its state
@@ -188,7 +190,7 @@ internet
 | Path | |
 |---|---|
 | `/data/adb/wg-shield/` | Everything the module keeps, in one folder: |
-| `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification |
+| `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification, LAN DNS through the tunnel |
 | `  tunnels/` | Imported tunnels with their keys, root only (`0600`) |
 | `  favorites` | Favorite tunnel names, one per line |
 | `  speedtest` | Last speed test result per server address (the auto-switch order uses it) |
@@ -211,6 +213,7 @@ default_net=…       android_vpn=…         updated=<epoch>
 recover=restart N/2|switch <name>|failed|  recover_from=<tunnel>
 profile=battery|always  checks=5|30|off   autoswitch=0|1    notify=0|1
 dns=tunnel|dnscrypt|network  dns_server=<the tunnel's DNS, IPv4 [IPv6]>
+landns=0|1          dns_lan=<interfaces whose DNS goes to the tunnel's DNS too, empty when none>
 ```
 
 ---
@@ -233,6 +236,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set profile battery|alw
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set checks 5|30|off'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set autoswitch 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set landns 0|1'   # LAN DNS through the tunnel
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'   # how the notification looks
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   # watchdog + tunnel again
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove <name>'

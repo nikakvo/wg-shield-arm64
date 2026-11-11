@@ -6,7 +6,7 @@ MODDIR="${WGS_MODDIR:-/data/adb/modules/wg-shield}"
 # 1.0-r4: everything in ONE folder (up to r3: /data/adb/wg-shield.conf and
 # /data/adb/wg-shield-state/ next to it - see LEGACY_* and layout_migrate):
 #   /data/adb/wg-shield/
-#     settings.conf   active / last tunnel, kill switch
+#     settings.conf   active / last tunnel, kill switch, the other settings
 #     tunnels/        imported tunnels with their keys (root only)
 #     favorites       favorite tunnel names (2.4+)
 #     logs/           wg-shield.log (+ .1)
@@ -123,7 +123,7 @@ ipv4_ok() {
 
 # ---- settings (KEY=value, whitelist, never sourced) ---------------------------
 settings_load() {
-    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30
+    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30; S_LANDNS=0
     [ -f "$CONF" ] || return 0
     while IFS='=' read -r k v; do
         v=$(printf '%s' "$v" | tr -d '\r')
@@ -135,6 +135,7 @@ settings_load() {
             NOTIFY) case "$v" in 0|1) S_NOTIFY=$v ;; esac ;;
             PROFILE) case "$v" in battery|always) S_PROFILE=$v ;; esac ;;
             CHECKS) case "$v" in 5|30|off) S_CHECKS=$v ;; esac ;;
+            LANDNS) case "$v" in 0|1) S_LANDNS=$v ;; esac ;;
         esac
     done 2>/dev/null < "$CONF"
 }
@@ -150,6 +151,7 @@ settings_save() {
         echo "NOTIFY=$S_NOTIFY"
         echo "PROFILE=$S_PROFILE"
         echo "CHECKS=$S_CHECKS"
+        echo "LANDNS=$S_LANDNS"
     } > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$CONF"
 }
 
@@ -260,7 +262,9 @@ status_write() {
             "checks=$S_CHECKS" \
             "dns=$ST_DNS" \
             "dns_server=$ST_DNS_SERVER" \
-            "updated=$(epoch_now)"
+            "updated=$(epoch_now)" \
+            "landns=$S_LANDNS" \
+            "dns_lan=$ST_DNS_LAN"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
     status_compat
 }

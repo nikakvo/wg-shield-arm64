@@ -194,7 +194,7 @@
   <p>To keep it somewhere else, copy the zip to your computer. The files hold your private keys, like an export in Download: apps with access to all files can read them.</p>
   <h3>Import</h3>
   <p>Import reads the WireGuard app's export zip, or single <code>.conf</code> files, from Download. Files that do not fit (several peers, no full tunnel, an IPv6 endpoint) are skipped and the Log says why. Importing a tunnel with a name that already exists replaces it. Names keep letters, digits, <code>. _ -</code>; other characters become <code>_</code>.</p>
-  <p>From a file the module uses the WireGuard keys, the addresses and the <code>DNS</code> line. <code>DNS</code>: app DNS that goes into the tunnel is sent to its first IPv4 server, and IPv6 DNS to its first IPv6 server while the tunnel carries IPv6 - unless DNSCrypt Proxy takes the phone's DNS (see 8). A resolver on your Wi-Fi (the router) stays local; carrier services, Android's network check and the login page keep the network's DNS. Without this, name lookups fail on mobile data: a carrier's resolvers do not answer queries that come from the VPN server. <code>PostUp</code>, <code>Table</code> and the like are ignored. A tunnel without <code>PersistentKeepalive</code> gets 25 s, so the health check always has fresh handshakes.</p>
+  <p>From a file the module uses the WireGuard keys, the addresses and the <code>DNS</code> line. <code>DNS</code>: app DNS that goes into the tunnel is sent to its first IPv4 server, and IPv6 DNS to its first IPv6 server while the tunnel carries IPv6 - unless DNSCrypt Proxy takes the phone's DNS (see 8). A resolver on your Wi-Fi (the router) stays local (unless <strong>LAN DNS through the tunnel</strong> is on, see 7); carrier services, Android's network check and the login page keep the network's DNS. Without this, name lookups fail on mobile data: a carrier's resolvers do not answer queries that come from the VPN server. <code>PostUp</code>, <code>Table</code> and the like are ignored. A tunnel without <code>PersistentKeepalive</code> gets 25 s, so the health check always has fresh handshakes.</p>
   <div class="note warn">Private keys are stored in <code>/data/adb/wg-shield/tunnels/</code>, readable only by root. They never appear in the WebUI, the log, the status or the Report. The export in Download is readable by apps - delete it after importing.</div>
   <h3>AmneziaWG</h3>
   <p>AmneziaWG is WireGuard with extra settings that make the traffic harder to recognise and block. A file with any AmneziaWG setting (<code>Jc</code>, <code>Jmin</code>, <code>Jmax</code>, <code>S1</code>-<code>S4</code>, <code>H1</code>-<code>H4</code>, <code>I1</code>-<code>I5</code>, <code>HeaderProtectionKey</code>, <code>ContentPaddingAddition</code>, <code>RandomTrailers</code> and the like) is an AmneziaWG tunnel; any other file is plain WireGuard. Nothing to choose: the tunnel row shows an <span class="pill ok">AWG</span> badge and Dashboard → Tunnel → Type says which one runs.</p>
@@ -208,6 +208,16 @@
   <h3>Kill switch</h3>
   <p><strong>On</strong> (default): while a tunnel is switched on but not working, the phone has no internet at all. <strong>Off</strong>: the phone uses your connection directly while the tunnel is down, and goes back into the tunnel by itself when it answers again.</p>
   <p>The kill switch never blocks when <em>you</em> turn the tunnel off, pause it, or when it cannot be built at all (error).</p>
+  <h3>LAN DNS through the tunnel</h3>
+  <p><strong>Off</strong> (default): a resolver on your Wi-Fi (usually the router) is asked directly, like every other address of the Wi-Fi - the router sees every name the phone looks up. <strong>On</strong>: while the tunnel is up, plain DNS (port 53, IPv4) that would leave through the Wi-Fi - or through another network that goes through the tunnel - is sent to the tunnel's DNS instead (the first IPv4 server of the config's <code>DNS</code> line), and the router sees none of it.</p>
+  <ul>
+    <li>Names only the router knows (<code>printer.lan</code>, <code>nas.home</code>) stop resolving while the tunnel is up. The devices are still reached by their address.</li>
+    <li>While the tunnel is connecting or down - also with the kill switch on - the router's resolver is asked again, and the router sees the lookups made then. This is on purpose: Android's network check and the login page of a hotel / airport Wi-Fi need the network's own resolver, and their lookups cannot be told apart from an app's.</li>
+    <li>On a new Wi-Fi with a login page the prompt can come late: until WG Shield has noticed that the tunnel does not answer there (about 40 seconds with the default checks, up to 3 minutes with the checks off), the lookups of Android's check still go to the tunnel's DNS.</li>
+    <li>Not redirected: carrier services (VoLTE / IMS, MMS), a network Android is still checking, and a resolver on the Wi-Fi that is reached over IPv6 - on a Wi-Fi with IPv6 the router can still see lookups. Private DNS (DNS over TLS) is not plain DNS and is not touched.</li>
+    <li>Nothing is done while DNSCrypt Proxy answers the phone's DNS; a tunnel without a <code>DNS</code> line has nothing to redirect to.</li>
+  </ul>
+  <p>Dashboard → Tunnel → DNS shows <em>tunnel's DNS … + LAN</em> while it is active.</p>
   <h3>Self-healing</h3>
   <p>Every 30 seconds (or every 5 seconds, see <strong>Check every</strong> below; with the Battery profile only while the screen is on) WG Shield sends one ping through the tunnel (to 1.1.1.1, then 8.8.8.8 - never around it). Only an answer counts: traffic coming in alone does not prove that the way out works. No answer to two tries = the tunnel does not work, noticed within about 40 seconds (10 seconds with 5 s). A server that never answers a ping (some home servers drop it) is not called dead for that - for such a tunnel WireGuard's own 3-minute rule decides. While the phone has a network, WG Shield then fixes it without waiting for you:</p>
   <ol>
@@ -288,6 +298,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set autoswitch 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set profile battery|always'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set checks 5|30|off'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set landns 0|1'   <span class="cm"># LAN DNS through the tunnel</span>
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   <span class="cm"># watchdog + tunnel again</span>
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;'

@@ -672,12 +672,12 @@ except OSError:
         ip link set "$peer" up
         # wgs0 is a veth here: no ARP for the tunnel DNS (a real wgs0 has none)
         ip neigh replace 10.2.0.1 lladdr "$(ip -o link show "$peer" | sed -n 's/.*link\/ether \([0-9a-f:]*\).*/\1/p')" dev wgs0 nud permanent
-        dns_src_out() {  # dns_src_out MARK SERVER
+        dns_src_out() {  # dns_src_out MARK SERVER [UID]
             "$IPTR" -w -t mangle -F PREROUTING
             for s in 192.168.1.50 10.2.0.2; do
                 "$IPTR" -w -t mangle -A PREROUTING -i "$peer" -s "$s" -d 10.2.0.1 -p udp --dport 53 -j ACCEPT
             done
-            dns_leaves "$1" "$2" >/dev/null
+            dns_leaves "$1" "$2" ${3:+"$3"} >/dev/null
             "$IPTR" -w -t mangle -L PREROUTING -v -n -x | awk '$1 ~ /^[0-9]+$/ && $1 > 0 { print $8; f = 1; exit } END { if (!f) print "none" }'
             "$IPTR" -w -t mangle -F PREROUTING
         }
@@ -693,6 +693,41 @@ except OSError:
         fi
         check "carrier service network: its own resolver" "rmnet1 10.65.0.2 10.65.0.53" "$(dns_leaves 0xd0066 10.65.0.53)"
         check "carrier service network on the Wi-Fi interface: its own resolver" "wlan0 192.168.1.50 192.168.1.1" "$(dns_leaves 0xd0067 192.168.1.1)"
+        # LAN DNS through the tunnel (landns=1): DNS leaving through the Wi-Fi
+        # goes to the tunnel's DNS too, with the tunnel's own source address
+        rctl() { WGS_IPTS=$(command -v iptables-save) WGS_IPT=$IPTR ctl "$@"; }
+        rctl set landns 1 >/dev/null
+        check "landns: set up once, nothing repaired, no warning" "1 0 0" "$(grep -c 'LAN DNS through the tunnel too' "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log") $(grep -c 'could not send DNS' "$WGS_DATA/logs/wg-shield.log")"
+        rctl status >/dev/null
+        check "landns: the next tick finds the chains as wanted" "1 0" "$(grep -c 'LAN DNS through the tunnel too' "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log")"
+        check "landns: Wi-Fi LAN resolver -> tunnel DNS" "wgs0 192.168.1.50 10.2.0.1" "$(dns_leaves 0x10064 192.168.1.1)"
+        check "landns: it leaves wgs0 with the tunnel's own address" 10.2.0.2 "$(dns_src_out 0x10064 192.168.1.1)"
+        check "landns: resolver reached through the tunnel: as before" "wgs0 10.2.0.2 10.2.0.1" "$(dns_leaves 0x10064 198.51.100.53)"
+        check "landns: a query to the tunnel's DNS itself: untouched" "wgs0 10.2.0.2 10.2.0.1" "$(dns_leaves 0x10064 10.2.0.1)"
+        if [ "${WGS_UIDS:-0}" = 1 ]; then
+            # no exemption by uid is possible; the redirected query must then
+            # reach the tunnel's DNS (the IPv4 re-route after DNAT has no uid)
+            check "landns: Android's network check (uid 1073), LAN resolver -> tunnel DNS" "wgs0 192.168.1.50 10.2.0.1" "$(dns_leaves 0x10064 192.168.1.1 1073)"
+            check "landns: Android's network check: the tunnel's own address" 10.2.0.2 "$(dns_src_out 0x10064 192.168.1.1 1073)"
+            check "landns: Android's network check, resolver outside the LAN -> tunnel DNS" "wgs0 192.168.1.50 10.2.0.1" "$(dns_leaves 0x10064 198.51.100.53 1073)"
+        else
+            echo "  skip landns uid cases (no --map-auto)"
+        fi
+        check "landns: carrier service network: its own resolver" "rmnet1 10.65.0.2 10.65.0.53" "$(dns_leaves 0xd0066 10.65.0.53)"
+        check "landns: carrier service network on the Wi-Fi interface: its own resolver" "wlan0 192.168.1.50 192.168.1.1" "$(dns_leaves 0xd0067 192.168.1.1)"
+        # root's lookup of a host-name endpoint (rule 5001) is not redirected
+        ip rule add pref 5001 iif lo to 1.1.1.1/32 lookup 1028
+        check "landns: the endpoint lookup's resolver around the tunnel: not redirected" "wlan0 192.168.1.50 1.1.1.1" "$(dns_leaves 0x0 1.1.1.1)"
+        ip rule del pref 5001
+        # the tunnel stops answering (kill switch on): the network's resolver again
+        echo $(( $(date +%s) - 600 )) > "$STATE/fake_hs"
+        rctl status >/dev/null
+        check "landns, tunnel not up: Wi-Fi LAN resolver stays local" "no wlan0 192.168.1.50 192.168.1.1" "$([ "$(st state)" = up ] && echo yes || echo no) $(dns_leaves 0x10064 192.168.1.1)"
+        check "landns, tunnel down: no SNAT chain" 0 "$("$IPTR" -w -t nat -S 2>/dev/null | grep -c wgs_dnss)"
+        check "landns, tunnel down: DNS into the tunnel still to its DNS" "wgs0 10.2.0.2 10.2.0.1" "$(dns_leaves 0x10064 198.51.100.53)"
+        date +%s > "$STATE/fake_hs"
+        rctl status >/dev/null
+        check "landns, up again: Wi-Fi LAN resolver -> tunnel DNS" "up wgs0 192.168.1.50 10.2.0.1" "$(st state) $(dns_leaves 0x10064 192.168.1.1)"
         WGS_IPTS=$(command -v iptables-save) WGS_IPT=$IPTR ctl down >/dev/null
         check "down: real nat table clean" 0 "$("$IPTR" -w -t nat -S 2>/dev/null | grep -c wgs_dns)"
         ip rule del pref 16000 fwmark 0xd0067/0xdffff iif lo lookup 1028
@@ -701,6 +736,125 @@ except OSError:
         sed -i '/^1030 /d' "$WGS_RT_TABLES"
         export WGS_IP="$REALIP"; IPTR=$IPTR0
     fi
+fi
+
+if want landns; then
+    echo "landns: LAN DNS through the tunnel (opt-in): chain layout, rebuilt with the networks, removed"
+    nat() { cat "$WGS_IPT_DIR/nat" 2>/dev/null; }
+    hasnat() { nat | grep -qxF -- "$1" && echo yes || echo no; }
+    natn() { nat | grep -nxF -- "$1" | head -n 1 | cut -d: -f1; }      # line number of a rule
+    J="-A OUTPUT -j wgs_dns"; JS="-A POSTROUTING -j wgs_dnss"
+    DW="-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53"
+    DL="-A wgs_dns -o wlan0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53"
+    DLT="-A wgs_dns -o wlan0 -p tcp --dport 53 -j DNAT --to-destination 10.2.0.1:53"
+    SN="-A wgs_dnss -o wgs0 -d 10.2.0.1 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2"
+    SNT="-A wgs_dnss -o wgs0 -d 10.2.0.1 -p tcp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2"
+    export WGS_IP="$FAKES/ipn"
+    reset_state; rm -rf "$WGS_IPT_DIR"
+    conf "$WGS_DL/wg-LD-1.conf" 203.0.113.64:51820
+    ctl import wg-LD-1.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-LD-1 >/dev/null
+    check "default: setting off, only DNS routed into wgs0" "0 2 no no" "$(st landns) $(nat | grep -c -- '^-A wgs_dns ') $(hasnat "$DL") $(hasnat "$JS")"
+    # settings written by an older version: no LANDNS line
+    grep -v '^LANDNS=' "$WGS_DATA/settings.conf" > "$RUN/settings.old"; cp "$RUN/settings.old" "$WGS_DATA/settings.conf"
+    ctl status >/dev/null
+    check "settings without the key: off" "0 2" "$(st landns) $(nat | grep -c -- '^-A wgs_dns ')"
+    check "set landns: only 0 or 1" 0 "$(ctl set landns 2 2>&1 | kv ok)"
+    check "set landns 1" "1 1" "$(ctl set landns 1 | kv ok) $(setting LANDNS)"
+    check "status: setting, DNS still the tunnel's, the redirected interface" "1 tunnel 10.2.0.1 wlan0" "$(st landns) $(st dns) $(st dns_server) $(st dns_lan)"
+    check "DNS leaving through the Wi-Fi -> tunnel DNS (udp, tcp)" "yes yes" "$(hasnat "$DL") $(hasnat "$DLT")"
+    check "DNS routed into the tunnel as before" "yes 1" "$(hasnat "$DW") $(nat | grep -cxF -- "$J")"
+    check "SNAT to the tunnel's own address (udp, tcp), one jump" "yes yes 1 2" "$(hasnat "$SN") $(hasnat "$SNT") $(nat | grep -cxF -- "$JS") $(nat | grep -c -- '^-A wgs_dnss ')"
+    check "loopback and the tunnel's DNS itself: RETURN, before every redirect" "yes yes" \
+        "$([ "$(natn "-A wgs_dns -d 127.0.0.0/8 -j RETURN")" -lt "$(natn "$DW")" ] && echo yes || echo no) $([ "$(natn "-A wgs_dns -d 10.2.0.1 -j RETURN")" -lt "$(natn "$DW")" ] && echo yes || echo no)"
+    check "the endpoint lookup's resolvers: RETURN after the wgs0 rules, before the Wi-Fi ones" "yes yes" \
+        "$([ "$(natn "-A wgs_dns -d 1.1.1.1 -j RETURN")" -gt "$(natn "$DW")" ] && echo yes || echo no) $([ "$(natn "-A wgs_dns -d 8.8.8.8 -j RETURN")" -lt "$(natn "$DL")" ] && echo yes || echo no)"
+    check "nothing by uid" 0 "$(nat | grep -c -- 'owner')"
+    check "logged" 1 "$(grep -c 'DNS: LAN DNS through the tunnel too - DNS leaving through wlan0 goes to 10.2.0.1' "$WGS_DATA/logs/wg-shield.log")"
+    n0=$(nat | grep -c -- '^-A wgs_dns ')
+    ctl status >/dev/null; ctl status >/dev/null
+    check "stable: nothing rebuilt by the next ticks" "1 0 $n0" "$(grep -c 'LAN DNS through the tunnel too' "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log") $(nat | grep -c -- '^-A wgs_dns ')"
+    # a second internet network that goes through the tunnel: its interface too
+    echo "1031 rmnetx" >> "$WGS_RT_TABLES"
+    echo "103 INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED" >> "$RUN/networks"
+    ip rule add pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
+    ctl status >/dev/null
+    check "second captured network: its interface redirected too" "yes wlan0,rmnetx" "$(hasnat "-A wgs_dns -o rmnetx -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53") $(st dns_lan | tr ' ' ',')"
+    check "second captured network: logged, not as a repair" "2 0" "$(grep -c 'LAN DNS through the tunnel too' "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log")"
+    # the same network while Android is still checking it: not redirected (a
+    # login page may be waiting there), marked RETURN before the interface rules
+    echo "100 INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED" > "$RUN/networks"; echo "103 INTERNET&NOT_RESTRICTED&TRUSTED" >> "$RUN/networks"
+    ip rule del pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
+    ctl status >/dev/null
+    ip rule add pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
+    ctl status >/dev/null
+    check "network Android is still checking: not redirected" "1 no yes" "$(st nets | grep -c '1031/checking\|rmnetx/checking') $(nat | grep -q -- '-o rmnetx' && echo yes || echo no) $([ "$(natn "-A wgs_dns -m mark --mark 0x67/0xffff -j RETURN")" -gt "$(natn "$DW")" ] 2>/dev/null && echo yes || echo no)"
+    ip rule del pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
+    sed -i '/^103 /d' "$RUN/networks"; sed -i '/^1031 /d' "$WGS_RT_TABLES"
+    # a carrier service network that shares the Wi-Fi's interface: RETURN by its mark, first
+    ip rule add pref 16000 fwmark 0xd0068/0xdffff iif lo lookup 1028
+    ctl status >/dev/null
+    check "network that stays outside: RETURN by its netId mark before any redirect" yes "$([ "$(natn "-A wgs_dns -m mark --mark 0x68/0xffff -j RETURN")" -lt "$(natn "$DW")" ] 2>/dev/null && echo yes || echo no)"
+    check "network gone / outside one added: no rmnetx rule left" no "$(nat | grep -q rmnetx && echo yes || echo no)"
+    ip rule del pref 16000 fwmark 0xd0068/0xdffff iif lo lookup 1028
+    ctl status >/dev/null
+    check "outside network gone: its RETURN gone" no "$(nat | grep -q -- '--mark 0x68/0xffff' && echo yes || echo no)"
+    # changed by someone else: repaired
+    w0=$(grep -c "redirect to the tunnel's DNS was changed by someone else - repaired" "$WGS_DATA/logs/wg-shield.log")
+    "$WGS_IPT" -w -t nat -D wgs_dns -o wlan0 -p tcp --dport 53 -j DNAT --to-destination 10.2.0.1:53
+    ctl status >/dev/null
+    check "Wi-Fi rule removed by someone else: repaired" "yes $((w0 + 1))" "$(hasnat "$DLT") $(grep -c "redirect to the tunnel's DNS was changed by someone else - repaired" "$WGS_DATA/logs/wg-shield.log")"
+    "$WGS_IPT" -w -t nat -D POSTROUTING -j wgs_dnss
+    ctl status >/dev/null
+    check "SNAT jump removed by someone else: repaired" "1 $((w0 + 2))" "$(nat | grep -cxF -- "$JS") $(grep -c "redirect to the tunnel's DNS was changed by someone else - repaired" "$WGS_DATA/logs/wg-shield.log")"
+    "$WGS_IPT" -w -t nat -D wgs_dnss -o wgs0 -d 10.2.0.1 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2
+    "$WGS_IPT" -w -t nat -A wgs_dnss -o wgs0 -d 10.2.0.1 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.20
+    ctl status >/dev/null
+    check "SNAT to another address (10.2.0.20) is not taken for ours: repaired" "yes no" "$(hasnat "$SN") $(nat | grep -q -- '--to-source 10.2.0.20' && echo yes || echo no)"
+    # the tunnel does not answer (kill switch on): the network's resolver must be reachable
+    echo $(( $(date +%s) - 600 )) > "$STATE/fake_hs"
+    ctl status >/dev/null
+    # (the state is down, or handshaking while the self-healing restarts it)
+    check "tunnel not up, kill switch on: Wi-Fi DNS left alone, no SNAT, wgs0 rules kept" "no no no 2 yes wgs0" "$([ "$(st state)" = up ] && echo yes || echo no) $(hasnat "$DL") $(hasnat "$JS") $(nat | grep -c -- '^-A wgs_dns ') $(hasnat "$DW") $(route_of)"
+    check "tunnel down: status" "1 tunnel -" "$(st landns) $(st dns) $(st dns_lan)-"
+    check "tunnel down: no SNAT chain left" no "$(nat | grep -qx -- '-N wgs_dnss' && echo yes || echo no)"
+    check "tunnel down: logged" 1 "$(grep -c 'DNS: LAN DNS left to the network again' "$WGS_DATA/logs/wg-shield.log")"
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "up again: Wi-Fi DNS redirected again" "up yes yes" "$(st state) $(hasnat "$DL") $(hasnat "$SN")"
+    # connecting (no handshake yet) on a new tunnel: not redirected
+    conf "$WGS_DL/wg-LD-2.conf" 203.0.113.65:51820
+    ctl import wg-LD-2.conf >/dev/null
+    rm -f "$STATE/fake_hs"
+    ctl up wg-LD-2 >/dev/null
+    check "handshaking: Wi-Fi DNS left alone" "handshaking no no yes" "$(st state) $(hasnat "$DL") $(hasnat "$JS") $(hasnat "$DW")"
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "up: redirected" yes "$(hasnat "$DL")"
+    # DNSCrypt Proxy takes DNS: nothing of ours
+    DC="-A OUTPUT -p udp -m udp --dport 53 -j DNAT --to-destination 127.0.0.1:5354"
+    echo "$DC" >> "$WGS_IPT_DIR/nat"
+    ctl status >/dev/null
+    check "DNSCrypt Proxy on: no redirect, no SNAT, no chains" "dnscrypt no no 0" "$(st dns) $(hasnat "$J") $(hasnat "$JS") $(nat | grep -c -- 'wgs_dns')"
+    grep -vxF -- "$DC" "$WGS_IPT_DIR/nat" > "$WGS_IPT_DIR/nat.n"; mv "$WGS_IPT_DIR/nat.n" "$WGS_IPT_DIR/nat"
+    ctl status >/dev/null
+    check "DNSCrypt Proxy paused: both back" "yes yes" "$(hasnat "$DL") $(hasnat "$SN")"
+    ctl set landns 0 >/dev/null
+    check "set landns 0: as before the setting" "0 2 no no no" "$(st landns) $(nat | grep -c -- '^-A wgs_dns ') $(hasnat "$DL") $(hasnat "$JS") $(nat | grep -qx -- '-N wgs_dnss' && echo yes || echo no)"
+    ctl set landns 1 >/dev/null
+    ctl pause 5 >/dev/null
+    check "paused: everything removed" "paused 0" "$(st state) $(nat | grep -c -- 'wgs_dns')"
+    ctl resume >/dev/null
+    check "resumed: redirected again" "up yes" "$(st state) $(hasnat "$DL")"
+    ctl down >/dev/null
+    check "down: both chains and both jumps removed" 0 "$(nat | grep -c -- 'wgs_dns')"
+    check "down: status" "1 -" "$(st landns) $(st dns_lan)-"
+    # a tunnel without a DNS line: nothing to redirect to
+    sed -i '/^DNS = /d' "$WGS_DL/wg-LD-1.conf"
+    ctl import wg-LD-1.conf >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-LD-1 >/dev/null
+    check "no DNS line: nothing set up" "up network 0" "$(st state) $(st dns) $(nat | grep -c -- 'wgs_dns')"
+    ctl down >/dev/null
+    check "lock released" no "$([ -d "$STATE/lock" ] && echo yes || echo no)"
+    export WGS_IP="$REALIP"
 fi
 
 if want dns6; then

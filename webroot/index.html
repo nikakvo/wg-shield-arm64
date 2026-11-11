@@ -370,6 +370,10 @@
         <div class="rn"><b>Kill switch</b><span>A tunnel is on but not working → no internet at all, never your mobile or Wi-Fi connection directly. Off: the phone goes direct until the tunnel answers again.</span></div>
         <label class="sw" id="sw-ks"><input type="checkbox" id="cb-ks" onchange="setKs(this)"><i></i></label>
       </div>
+      <div class="row">
+        <div class="rn"><b>LAN DNS through the tunnel</b><span>On: while the tunnel is up, name lookups sent to a resolver on your Wi-Fi (the router) go to the tunnel's DNS too, so the router does not see them. Names only the router knows (printer.lan) stop resolving. While the tunnel is connecting or down the router is asked again and sees those lookups - a login page (hotel, airport) needs that. Off (default): the router's resolver is asked directly. Nothing changes while DNSCrypt Proxy answers DNS.</span></div>
+        <label class="sw" id="sw-ld"><input type="checkbox" id="cb-ld" onchange="setOpt(this, 'landns', 'LAN DNS through the tunnel')"><i></i></label>
+      </div>
       <div class="row col">
         <div class="rn"><b>Checks</b><span id="prof-note"></span></div>
         <div class="seg" id="prof-seg">
@@ -689,7 +693,7 @@ function renderTunnel(st) {
   $('t-nets').className = 'v wrap ' + (on && st.nets ? '' : 'm');
   $('t-heal').textContent = !on ? '-' : st.recover ? healText(st) : (st.checks === 'off' ? 'handshake only (checks off)' : 'watching every ' + (st.checks === '5' ? '5' : '30') + ' s' + (st.profile === 'always' ? '' : ' while the screen is on')) + ' - 2 restarts' + (st.autoswitch === '1' ? ', then other tunnels (same country first)' : ' (auto-switch off)');
   const dn = st.dns || '';
-  $('t-dns').textContent = dn === 'tunnel' ? "tunnel's DNS " + (st.dns_server || '').trim().split(/\s+/).join(' + ') : dn === 'dnscrypt' ? 'DNSCrypt Proxy' : dn === 'network' ? "the network's" : '-';
+  $('t-dns').textContent = dn === 'tunnel' ? "tunnel's DNS " + (st.dns_server || '').trim().split(/\s+/).join(' + ') + (st.dns_lan ? ' + LAN' : '') : dn === 'dnscrypt' ? 'DNSCrypt Proxy' : dn === 'network' ? "the network's" : '-';
   $('t-dns').className = 'v wrap ' + (dn ? '' : 'm');
   $('t-heal').className = 'v wrap ' + (!on ? 'm' : st.recover === 'failed' ? 'r' : st.recover ? 'a' : '');
   $('w-run').textContent = st.watchdog === 'running' ? 'yes' : 'NO'; $('w-run').className = 'v ' + (st.watchdog === 'running' ? '' : 'r');
@@ -709,7 +713,7 @@ function renderSet(st) {
   const ipm = st.dnscrypt_ipmode;
   const dnTxt = st.dnscrypt === 'on'
     ? 'Resolves all DNS; its own queries go through this tunnel.' + (ipm && ipm !== 'ipv4' ? (st.ipv6 === 'tunnel' ? ' IPv6 mode ' + esc(ipm) + ': IPv6 goes through the tunnel too.' : st.ipv6 === 'blocked' ? ' IPv6 mode ' + esc(ipm) + ', but this tunnel is IPv4 only: IPv6 is blocked while it is on.' : '') : '')
-    : 'Without it, app DNS that goes into the tunnel is sent to the tunnel\'s DNS (the config\'s DNS line); a resolver on your Wi-Fi (the router) stays local.';
+    : 'Without it, app DNS that goes into the tunnel is sent to the tunnel\'s DNS (the config\'s DNS line); ' + (st.landns === '1' ? 'DNS to a resolver on your Wi-Fi (the router) too while the tunnel is up (LAN DNS through the tunnel).' : 'a resolver on your Wi-Fi (the router) stays local.');
   const vhsNew = num(st.vhs_code) >= 13;
   const vhsTxt = st.vhs !== 'on' ? 'Shares the tunnel with hotspot devices.'
     : !vhsNew ? 'This version does not see WG Shield\'s tunnel: with its kill switch on, hotspot devices get no internet while WG Shield is on. Update it to 1.0-r13 or newer.'
@@ -891,6 +895,7 @@ function renderSettings(st) {
   if (!$('sw-ks').classList.contains('busy')) $('cb-ks').checked = ks(st);
   if (!$('sw-as').classList.contains('busy')) $('cb-as').checked = st.autoswitch === '1';
   if (!$('sw-nt').classList.contains('busy')) $('cb-nt').checked = st.notify !== '0';
+  if (!$('sw-ld').classList.contains('busy')) $('cb-ld').checked = st.landns === '1';
   const prof = st.profile === 'always' ? 'always' : 'battery';
   document.querySelectorAll('#prof-seg button').forEach(b => b.classList.toggle('on', b.dataset.p === prof));
   const chk = st.checks === '5' || st.checks === 'off' ? st.checks : '30';

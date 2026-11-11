@@ -33,6 +33,7 @@ usage() {
         '  set notify 0|1      1 = a notification when the tunnel could not be fixed (default)' \
         '  set profile battery|always  checks only with the screen on (default) / day and night' \
         '  set checks 5|30|off  ping through the tunnel every 5 s / 30 s (default) / never' \
+        '  set landns 0|1      1 = while the tunnel is up, DNS to a resolver on the Wi-Fi (the router) goes to the tunnel DNS too' \
         '  restart             restart the watchdog and reconnect the tunnel' \
         '  notifytest          show a test notification' \
         '  log [lines|clear]   last log lines (default 40) / empty the log' \
@@ -57,7 +58,7 @@ set_locked() {
     ctl_lock; settings_load
     case "$1" in
         KILLSWITCH) S_KILLSWITCH=$2 ;; AUTOSWITCH) S_AUTOSWITCH=$2 ;; NOTIFY) S_NOTIFY=$2 ;;
-        PROFILE) S_PROFILE=$2 ;; CHECKS) S_CHECKS=$2 ;;
+        PROFILE) S_PROFILE=$2 ;; CHECKS) S_CHECKS=$2 ;; LANDNS) S_LANDNS=$2 ;;
     esac
     settings_save || fail "cannot write $CONF"
 }
@@ -376,6 +377,11 @@ case "$cmd" in
                 set_locked NOTIFY "$2"
                 wlog INFO "ctl: notifications $2"
                 tick_locked; print_status ;;
+            landns|LANDNS)
+                case "$2" in 0|1) : ;; *) fail "usage: set landns 0|1" ;; esac
+                set_locked LANDNS "$2"
+                wlog INFO "ctl: LAN DNS through the tunnel $2"
+                tick_locked; print_status ;;
             *) fail "unknown setting: $1" ;;
         esac
         ;;
@@ -499,7 +505,7 @@ case "$cmd" in
         fi
         echo; echo "== our rules"; "$IP" rule 2>/dev/null | grep -E '^50[0-9][0-9]:'; "$IP" -6 rule 2>/dev/null | grep -E '^50[0-9][0-9]:' | sed 's/^/v6 /'
         echo; echo "== table $TABLE"; "$IP" route show table "$TABLE" 2>/dev/null
-        echo; echo "== DNS (nat OUTPUT port 53 and our chain)"; _nat_dump "$IPTS" "$IPT" | grep -E 'wgs_dns|--dport 53'
+        echo; echo "== DNS (nat OUTPUT port 53 and our chains)"; _nat_dump "$IPTS" "$IPT" | grep -E 'wgs_dns|--dport 53'
         [ -f "$STATE/dns6.want" ] && _nat_dump "$IPTS6" "$IPT6" | grep -E 'wgs_dns|--dport 53' | sed 's/^/v6 /'
         echo; echo "== rules wanted ($(grep -c . "$STATE/rules.want" 2>/dev/null))"; sed 's/ rule add pref / /' "$STATE/rules.want" 2>/dev/null
         echo "key $(cat "$STATE/rules.key" 2>/dev/null)"
