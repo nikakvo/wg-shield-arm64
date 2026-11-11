@@ -95,7 +95,9 @@ wlog() {  # wlog LEVEL message...
     if [ -f "$LOG" ] && [ "$(wc -c 2>/dev/null < "$LOG")" -gt "$LOG_MAX" ] 2>/dev/null; then
         mv -f "$LOG" "$LOG.1" 2>/dev/null
     fi
-    echo "$(log_ts) [$lvl] $*" >> "$LOG"
+    # printf, not echo: mksh's echo would read a backslash in the message
+    # (text quoted from a tunnel file) - "\n" would start a log line of its own
+    printf '%s\n' "$(log_ts) [$lvl] $*" >> "$LOG"
 }
 
 # before the clock is set (early boot) the date is 1970: show time since boot instead
@@ -357,5 +359,5 @@ module_desc() {  # keep the manager's description line in sync with the state
     line="description=Always-on kernel WireGuard / AmneziaWG tunnel without an app, with kill switch. Status: $d"
     grep -qxF "$line" "$prop" 2>/dev/null && return 0
     tmp="$prop.tmp.$$"
-    { grep -v '^description=' "$prop"; echo "$line"; } > "$tmp" 2>/dev/null && mv -f "$tmp" "$prop"
+    { grep -v '^description=' "$prop"; printf '%s\n' "$line"; } > "$tmp" 2>/dev/null && mv -f "$tmp" "$prop"
 }

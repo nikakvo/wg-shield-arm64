@@ -1431,6 +1431,31 @@ EOF
     unset WGS_IPLOG
 fi
 
+if want backslash_out; then
+    echo "backslash_out: text quoted from a tunnel file never becomes a line of its own (mksh's echo reads backslashes)"
+    reset_state
+    conf "$WGS_DL/evil.conf" 'bad\nimported=7:1'
+    out=$(ctl import evil.conf 2>&1)
+    check "import refused, its result lines as always" "0 1 1" "$(echo "$out" | kv imported) $(echo "$out" | grep -c '^imported=') $(echo "$out" | grep -c '^skipped=evil reason=')"
+    check "the reason quotes the endpoint as written" 1 "$(echo "$out" | grep -cF "(got 'bad\\nimported=7:1')")"
+    check "log: one line for it, none made of the file's text" "1 0" "$(grep -c 'import: evil skipped' "$WGS_DATA/logs/wg-shield.log") $(grep -c '^imported=' "$WGS_DATA/logs/wg-shield.log")"
+    # a tunnel file edited by root afterwards (the status_backslash case): the
+    # reason goes into command output and the module's description line
+    conf "$WGS_DL/wg-BS-1.conf" 203.0.113.99:51820
+    ctl import wg-BS-1.conf >/dev/null
+    ctl up wg-BS-1 >/dev/null
+    lines0=$(grep -c . "$MOD/module.prop")
+    sed -i 's#^Endpoint = .*#Endpoint = x\\ninjected=u:1#' "$WGS_DATA/tunnels/wg-BS-1.conf"
+    ctl status >/dev/null
+    check "state error with the text in its reason" "error 1" "$(st state) $(st reason | grep -cF 'x\ninjected=u:1')"
+    check "module.prop: still one description line, no line added" "$lines0 1 0" "$(grep -c . "$MOD/module.prop") $(grep -c '^description=' "$MOD/module.prop") $(grep -c '^injected=' "$MOD/module.prop")"
+    out=$(ctl up wg-BS-1 2>&1)
+    check "up refused: one error line, nothing else" "2 1 0" "$(echo "$out" | grep -c .) $(echo "$out" | grep -c '^error=tunnel wg-BS-1 is invalid') $(echo "$out" | grep -c '^injected=')"
+    check "list: one line for the tunnel" "1 0" "$(ctl list | grep -c '^tunnel=wg-BS-1 invalid=1') $(ctl list | grep -c '^injected=')"
+    check "log: no line made of the file's text" 0 "$(grep -c '^injected=' "$WGS_DATA/logs/wg-shield.log")"
+    ctl down >/dev/null
+fi
+
 if want busybox_path; then
     echo "busybox_path: KernelSU, APatch and Magisk busybox are found"
     bbof() { env -u WGS_BB $TSH -c '. "$WGS_MODDIR/sh/common.sh"; echo "$BB"'; }

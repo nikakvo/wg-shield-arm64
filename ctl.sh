@@ -46,7 +46,8 @@ usage() {
         '  version'
 }
 
-fail() { lock_release 2>/dev/null; echo "ok=0"; echo "error=$*"; exit 1; }
+# (printf: an error can quote a tunnel file's text; mksh's echo would read its backslashes)
+fail() { lock_release 2>/dev/null; echo "ok=0"; printf '%s\n' "error=$*"; exit 1; }
 
 # Settings are changed only under the watchdog's lock: a tick can rewrite
 # settings.conf itself (the auto-switch saves the tunnel it switched to),
@@ -215,7 +216,7 @@ case "$cmd" in
             if tun_parse "$(tun_file "$n")"; then
                 echo "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 type=$T_TYPE active=$a fav=$f"
             else
-                echo "tunnel=$n invalid=1 active=$a fav=$f error=$(echo "$T_ERR" | tr ' ' '_')"
+                printf '%s\n' "tunnel=$n invalid=1 active=$a fav=$f error=$(printf '%s' "$T_ERR" | tr ' ' '_')"
             fi
         done
         echo "ok=1"; echo "count=$c"; echo "active=$S_ACTIVE"; echo "last=$S_LAST"
@@ -297,11 +298,11 @@ case "$cmd" in
         lock_get 20 || fail "busy - try again"
         out=$(bk_restore); rc=$?
         lock_release
-        err=$(echo "$out" | sed -n 's/^error=//p')
+        err=$(printf '%s\n' "$out" | sed -n 's/^error=//p')
         [ -z "$err" ] || fail "$err"
-        wlog INFO "ctl: restore from $BKZIP - $(echo "$out" | sed -n 's/^imported=//p') imported, $(echo "$out" | sed -n 's/^skipped=//p') skipped"
+        wlog INFO "ctl: restore from $BKZIP - $(printf '%s\n' "$out" | sed -n 's/^imported=//p') imported, $(printf '%s\n' "$out" | sed -n 's/^skipped=//p') skipped"
         if [ "$rc" = 0 ]; then echo "ok=1"; else echo "ok=0"; echo "error=nothing imported (see Log)"; fi
-        echo "$out"
+        printf '%s\n' "$out"
         exit "$rc"
         ;;
     backupinfo)
@@ -532,7 +533,7 @@ case "$cmd" in
         echo; echo "== favorites"; fav_names
         echo; echo "== backup"; if [ "$(bk_count)" -gt 0 ]; then echo "$BKZIP: $(bk_count) tunnels, created $(bk_created)"; else echo "none ($BKZIP)"; fi
         echo; echo "== speed test (address|handshake ms|ping ms|result|epoch|tunnels)"; cat "$TEST_FILE" 2>/dev/null
-        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else echo "$n INVALID: $T_ERR"; fi; done
+        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else printf '%s\n' "$n INVALID: $T_ERR"; fi; done
         k=$(iface_kind)
         if [ "$k" = amneziawg ]; then
             echo; echo "== awg (keys hidden)"; "$AWG" show "$IFACE" 2>&1 | grep -viE 'private key|preshared|protection key'

@@ -329,7 +329,7 @@ tun_import_one() {
     name=$(printf '%s' "$base" | sed 's/[^A-Za-z0-9._-]/_/g' | cut -c1-40)
     case "$name" in .*|"") name="tunnel_$name" ;; esac
     if ! tun_parse "$src"; then
-        echo "skipped=$base reason=$T_ERR"
+        printf '%s\n' "skipped=$base reason=$T_ERR"    # not echo: mksh's echo reads the backslashes
         wlog WARN "import: $base skipped - $T_ERR"
         return 1
     fi
