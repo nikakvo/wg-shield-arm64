@@ -495,23 +495,25 @@ case "$cmd" in
         # HTTPS first: ipinfo.io (ip, country, city, org), then ipwho.is (ip,
         # country, city, isp). Plain HTTP - where anyone on the way can read
         # and change the answer - only without curl or when both fail.
-        # proto= says which it was (via= is taken: the tunnel's interface)
+        # proto= says which it was (via= is taken: the tunnel's interface).
+        # The answer's values are printed with printf, not echo: mksh's echo
+        # would read a backslash in them ("\n" = a line of its own)
         ip=""; proto=https
         if [ -x "$CURL" ]; then
             _exit_https https://ipinfo.io/json org || _exit_https https://ipwho.is/ isp
         fi
         if [ -n "$ip" ]; then
-            echo "ip=$ip"; echo "country=$e_country"; echo "city=$e_city"; echo "isp=$e_isp"
+            printf '%s\n' "ip=$ip" "country=$e_country" "city=$e_city" "isp=$e_isp"
         else
             proto=http
             j=$(_http_get ip-api.com '/json/?fields=status,country,countryCode,city,isp,query')
             ip=$(_json_str "$j" query)
             if [ -n "$ip" ]; then
-                echo "ip=$ip"; echo "country=$(_json_str "$j" country)"; echo "city=$(_json_str "$j" city)"; echo "isp=$(_json_str "$j" isp)"
+                printf '%s\n' "ip=$ip" "country=$(_json_str "$j" country)" "city=$(_json_str "$j" city)" "isp=$(_json_str "$j" isp)"
             else
                 j=$(_http_get ipinfo.io /json); ip=$(_json_str "$j" ip)
                 [ -n "$ip" ] || fail "no answer from ipinfo.io, ipwho.is or ip-api.com"
-                echo "ip=$ip"; echo "country=$(_json_str "$j" country)"; echo "city=$(_json_str "$j" city)"; echo "isp=$(_json_str "$j" org)"
+                printf '%s\n' "ip=$ip" "country=$(_json_str "$j" country)" "city=$(_json_str "$j" city)" "isp=$(_json_str "$j" org)"
             fi
         fi
         echo "via=$via"; echo "proto=$proto"; echo "ok=1"

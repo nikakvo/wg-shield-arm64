@@ -1193,6 +1193,16 @@ EOF
     : > "$WGS_CURLMODE"
     out=$(ex)
     check "nothing answers: an error, no address" "0 0 1" "$(echo "$out" | kv ok) $(echo "$out" | grep -c '^ip=') $(echo "$out" | grep -c '^error=no answer')"
+    # a value with backslashes (the WebUI's shell, mksh, reads them in echo):
+    # printed as it came, never a line of its own
+    printf '{\n  "ip": "203.0.113.7",\n  "city": "Exampleton",\n  "country": "ZZ",\n  "org": "AS64500 Back\\nvia=wgs0 \\c slash"\n}\n' > "$CD/bs.json"
+    printf 'ipinfo.io bs.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "HTTPS answer with backslashes: printed as it is, no extra line" "7 1 1" "$(echo "$out" | grep -c .) $(echo "$out" | grep -c '^via=') $(echo "$out" | grep -cF 'isp=AS64500 Back\nvia=wgs0 \c slash')"
+    printf '{"status":"success","country":"Exampleland","city":"Testburg","isp":"Plain\\nvia=wgs0 \\c x","query":"203.0.113.9"}\n' > "$CD/bs2.json"
+    printf 'ip-api.com bs2.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "HTTP answer with backslashes: the same" "7 1 1" "$(echo "$out" | grep -c .) $(echo "$out" | grep -c '^via=') $(echo "$out" | grep -cF 'isp=Plain\nvia=wgs0 \c x')"
     # through the tunnel: via says so, as before
     conf "$WGS_DL/wg-EX-1.conf" 203.0.113.91:51820
     ctl import wg-EX-1.conf >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-EX-1 >/dev/null
