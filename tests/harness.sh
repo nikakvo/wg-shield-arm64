@@ -1316,6 +1316,111 @@ if want ks_error; then
     check "lock released" no "$([ -d "$STATE/lock" ] && echo yes || echo no)"
 fi
 
+if want endpoint6; then
+    echo "endpoint6: a literal IPv6 endpoint in brackets - import, rule 5000 in the IPv6 rules, switches, teardown"
+    reset_state
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"           # the phone has IPv6
+    ip -6 addr add fd11::50/64 dev wlan0 nodad 2>/dev/null
+    ip -6 route add default via fd11::1 dev wlan0 table 1028 2>/dev/null
+    e4() { ip rule | awk '$1 == "5000:" { for (i = 1; i < NF; i++) if ($i == "to") printf "%s ", $(i + 1) }' | sed 's/ $//'; }
+    e6() { ip -6 rule | awk '$1 == "5000:" { for (i = 1; i < NF; i++) if ($i == "to") printf "%s ", $(i + 1) }' | sed 's/ $//'; }
+    # ip that notes, at the moments wgs0 (or the speed test's wgt0) would send
+    # its first handshake, which endpoints have a way around the tunnel
+    cat > "$FAKES/ipo6" <<EOF
+#!/bin/sh
+ep() { { "$REALIP" rule; "$REALIP" -6 rule; } | awk -v p="\$1:" '\$1 == p { for (i = 1; i < NF; i++) if (\$i == "to") printf "%s ", \$(i + 1) }'; }
+case "\$*" in
+    "addr flush dev wgs0"|"link set wgs0 mtu "*" up") echo "\${1}: \$(ep 5000)" >> "\$WGS_IPLOG" ;;
+    "link set wgt0 mtu "*" up") echo "test: \$(ep 4990)" >> "\$WGS_IPLOG" ;;
+esac
+exec "$REALIP" "\$@"
+EOF
+    chmod 755 "$FAKES/ipo6"
+    export WGS_IPLOG="$RUN/iplog6"; rm -f "$WGS_IPLOG"
+    canon() { $TSH -c '. "$WGS_MODDIR/sh/common.sh"; ipv6_canon "$1"' sh "$1"; }
+    # the address as written -> as the kernel's ip lists it
+    bad=""
+    for a in 2001:db8::1 2001:0DB8:0000:0000:0000:0000:0000:0001 2001:db8:0:0:1:0:0:1 2001:db8:0:1:0:0:0:1 2001:0:0:1:0:0:0:1 2001:db8:1:0:0:1:0:0 FE80::0:1 2001:db8:0:0:0:0:0:0 2001:db8:0:1:1:1:1:1 2001:0db8:85a3:0000:0000:8a2e:0370:7334 1:0:0:2:0:0:0:3 1:0:0:0:2:0:0:3 64:ff9b::102:304 1:2:3:4:5:6:7:: 2A00:1450:4001:81B::200E; do
+        ip -6 rule add pref 4999 iif lo to "$a/128" lookup 1028 2>/dev/null
+        k=$(ip -6 rule | awk '$1 == "4999:" { for (i = 1; i < NF; i++) if ($i == "to") print $(i + 1) }')
+        ip -6 rule del pref 4999 2>/dev/null
+        [ -n "$k" ] && [ "$(canon "$a")" = "$k" ] || bad="$bad $a($(canon "$a")/$k)"
+    done
+    check "an IPv6 address is brought into the form ip lists it in (15 spellings)" "" "$bad"
+    for ep in '[2001:db8::1%wlan0]:51820' '[2001:db8::1]' '[2001:db8::1]:0' '[2001:db8:::1]:51820' '[2001:db8::1::2]:51820' '[::1]:51820' '[::]:51820' '[::ffff:1.2.3.4]:51820' '[::ffff:102:304]:51820' '[1:2:3:4:5:6:7:8:9]:51820' '[1:2:3:4:5:6:7]:51820' '[12345::1]:51820' '[2001:db8::g]:51820' '[203.0.113.1]:51820' '[]:51820' '[2001:db8::1:51820' '2001:db8::1:51820' '[:2001:db8::1]:51820' '[2001:db8::1:]:51820'; do
+        conf "$WGS_DL/bad6.conf" "$ep"
+        check "endpoint $ep refused" 0 "$(ctl import bad6.conf | kv imported)"
+    done
+    check "the refusal says what is wrong" 1 "$(conf "$WGS_DL/bad6.conf" '[2001:db8::1%wlan0]:51820'; ctl import bad6.conf | grep -c 'reason=Endpoint is not a usable IPv6 address')"
+    conf "$WGS_DL/wg-ZZ-1.conf" '[2001:db8::1]:51820'
+    conf "$WGS_DL/wg-ZZ-2.conf" '[2001:0DB8:0:0:0:0:0:1]:51820'       # the same server, written out
+    conf "$WGS_DL/wg-ZZ-3.conf" '[2001:db8::3]:443'
+    conf "$WGS_DL/wg-ZZ-4.conf" 203.0.113.94:51820
+    out=$(ctl import wg-ZZ-1.conf)
+    check "IPv6 endpoint in brackets imported" "1 1" "$(echo "$out" | kv imported) $(echo "$out" | grep -c 'endpoint=\[2001:db8::1\]:51820')"
+    for n in 2 3 4; do ctl import "wg-ZZ-$n.conf" >/dev/null; done
+    check "list shows the endpoint as written" 1 "$(ctl list | grep -c '^tunnel=wg-ZZ-2 endpoint=\[2001:0DB8:0:0:0:0:0:1\]:51820 ')"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-1 >/dev/null
+    check "new link comes up with its endpoint rule, in the IPv6 rules" "link: 2001:db8::1 " "$(grep '^link' "$WGS_IPLOG" | tail -n 1)"
+    check "state, endpoint in the status" "handshaking [2001:db8::1]:51820" "$(st state) $(st endpoint)"
+    check "rule 5000: IPv6 only, to the endpoint, into the network's table" "2001:db8::1||1" "$(e6)|$(e4)|$(ip -6 rule | grep -c '^5000:.*to 2001:db8::1 iif lo lookup 1028')"
+    check "the tunnel's own packets get out on the network, nothing else does" "wlan0 blocked" "$(ip -6 route get 2001:db8::1 2>&1 | grep -q 'dev wlan0' && echo wlan0 || echo blocked) $(ip -6 route get 2001:db8::2 2>&1 | grep -q 'dev ' && echo open || echo blocked)"
+    check "IPv4 goes into the tunnel as always" wgs0 "$(route_of)"
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "up" "up [2001:db8::1]:51820" "$(st state) $(st endpoint)"
+    w0=$(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")
+    ctl status >/dev/null; ctl status >/dev/null
+    check "stable: one endpoint rule, nothing repaired" "2001:db8::1 $w0" "$(e6) $(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")"
+    # the same server written out in full: the rule is recognised as the kernel lists it
+    rm -f "$WGS_IPLOG"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-2 >/dev/null
+    check "address written out in full: its rule there before setconf, one rule" "addr: 2001:db8::1 |2001:db8::1" "$(grep '^addr' "$WGS_IPLOG" | tail -n 1)|$(e6)"
+    check "status: the address as the kernel lists it" "[2001:db8::1]:51820" "$(st endpoint)"
+    ctl status >/dev/null
+    check "no warning about the rules" "$w0" "$(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")"
+    # IPv6 -> another IPv6 -> IPv4 -> IPv6: no rule of the old endpoint left in either family
+    rm -f "$WGS_IPLOG"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-3 >/dev/null
+    check "another IPv6 endpoint: only its rule, before setconf" "addr: 2001:db8::3 |2001:db8::3||[2001:db8::3]:443" "$(grep '^addr' "$WGS_IPLOG" | tail -n 1)|$(e6)|$(e4)|$(st endpoint)"
+    rm -f "$WGS_IPLOG"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-4 >/dev/null
+    check "IPv6 -> IPv4 endpoint: the IPv6 rule gone before setconf, the IPv4 one there" "addr: 203.0.113.94 ||203.0.113.94" "$(grep '^addr' "$WGS_IPLOG" | tail -n 1)|$(e6)|$(e4)"
+    rm -f "$WGS_IPLOG"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-1 >/dev/null
+    check "IPv4 -> IPv6 endpoint: the IPv4 rule gone before setconf, the IPv6 one there" "addr: 2001:db8::1 |2001:db8::1|" "$(grep '^addr' "$WGS_IPLOG" | tail -n 1)|$(e6)|$(e4)"
+    check "rules as wanted in both families (no rules-check warning)" 0 "$(grep -c 'rules check:' "$WGS_DATA/logs/wg-shield.log")"
+    # the failed-address list of the recovery knows the server whatever the spelling
+    check "recovery: both spellings are one server address" "2001:db8::1 2001:db8::1" "$($TSH -c '. "$WGS_MODDIR/sh/common.sh"; . "$WGS_MODDIR/sh/tunnels.sh"; . "$WGS_MODDIR/sh/net.sh"; echo "$(tun_ep_host wg-ZZ-1) $(tun_ep_host wg-ZZ-2)"')"
+    # speed test: one measurement per server address, its own way out in the IPv6 rules
+    rm -f "$WGS_IPLOG"
+    out=$(WGS_TEST_HS_MAX=2 WGS_IP="$FAKES/ipo6" ctl test ZZ 2>&1)
+    check "speed test: the active tunnel's address grouped with its other spelling" 1 "$(echo "$out" | grep -c '^r=2001:db8::1|.*|wg-ZZ-1,wg-ZZ-2|')"
+    ctl down >/dev/null
+    check "down: no rule of ours left in either family" "0 0" "$(ip rule | grep -c '^50[0-9][0-9]:') $(ip -6 rule | grep -c '^50[0-9][0-9]:')"
+    # (with the tunnel off every address is measured on the test interface;
+    # the harness tunnels share one key, which is skipped while one is on)
+    out=$(WGS_TEST_HS_MAX=2 WGS_IP="$FAKES/ipo6" ctl test ZZ 2>&1)
+    check "speed test: an IPv6 server gets rule 4990 in the IPv6 rules before its link is up" "1 1" "$(grep -c '^test: 2001:db8::3 $' "$WGS_IPLOG") $(grep -c '^test: 2001:db8::1 $' "$WGS_IPLOG")"
+    check "speed test: an IPv4 server next to them as before" "1 1" "$(grep -c '^test: 203.0.113.94 $' "$WGS_IPLOG") $(echo "$out" | grep -c '^r=2001:db8::3|||wg-ZZ-3|no_handshake')"
+    check "speed test: nothing of it left" "0 0 0" "$(ip rule | grep -c '^499[01]:') $(ip -6 rule | grep -c '^499[01]:') $(ip link show wgt0 >/dev/null 2>&1 && echo 1 || echo 0)"
+    # the phone's IPv6 goes off: such a tunnel cannot be reached
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+    ctl up wg-ZZ-1 >/dev/null
+    check "IPv6 off on the phone: error with its reason, nothing set up" "error endpoint_needs_ipv6 wlan0 0 0" "$(st state) $(st reason) $(route_of) $(ip rule | grep -c '^50[0-9][0-9]:') $(ip -6 rule | grep -c '^50[0-9][0-9]:')"
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"
+    rm -f "$STATE/fake_hs"; ctl status >/dev/null
+    check "IPv6 on again: the tunnel starts by itself" "handshaking 2001:db8::1" "$(st state) $(e6)"
+    ctl down >/dev/null
+    check "teardown clean" "off 0 0 wlan0" "$(st state) $(ip rule | grep -c '^50[0-9][0-9]:') $(ip -6 rule | grep -c '^50[0-9][0-9]:') $(route_of)"
+    # IPv4 and host-name endpoints as before
+    conf "$WGS_DL/wg-ZZ-5.conf" 203.0.113.95:51820
+    check "IPv4 endpoint as before" "1 1" "$(ctl import wg-ZZ-5.conf | kv imported) $(ctl list | grep -c '^tunnel=wg-ZZ-5 endpoint=203.0.113.95:51820 ')"
+    ip -6 route del default via fd11::1 dev wlan0 table 1028 2>/dev/null
+    ip -6 addr del fd11::50/64 dev wlan0 2>/dev/null
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+    unset WGS_IPLOG
+fi
+
 if want busybox_path; then
     echo "busybox_path: KernelSU, APatch and Magisk busybox are found"
     bbof() { env -u WGS_BB $TSH -c '. "$WGS_MODDIR/sh/common.sh"; echo "$BB"'; }

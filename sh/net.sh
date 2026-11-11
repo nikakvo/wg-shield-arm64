@@ -2,6 +2,7 @@
 #
 # Our ip rules sit before netd's (prefs 5000-5021, netd starts at 10000):
 #   5000  iif lo to <endpoint>/32          lookup <default net table>   tunnel's own UDP
+#         (an IPv6 endpoint: the same rule in the IPv6 rules, to <endpoint>/128)
 #   5010  iif lo lookup local_network suppress_prefixlength 0            hotspot / local
 #   5011  iif lo lookup <default>_local suppress_prefixlength 0          LAN (only while an Android VPN exists)
 #   5012  iif lo lookup <default table> suppress_prefixlength 0          LAN, gateway
@@ -239,7 +240,12 @@ rules_want() {
             echo "$fam rule add pref 5012 iif lo lookup $DEFN suppress_prefixlength 0"
         fi
     done
-    [ -n "$DEF" ] && [ -n "$T_EPIP" ] && echo "-4 rule add pref 5000 iif lo to $T_EPIP/32 lookup $DEFN"
+    if [ -n "$DEF" ] && [ -n "$T_EPIP" ]; then
+        case "$T_EPIP" in
+            *:*) echo "-6 rule add pref 5000 iif lo to $T_EPIP/128 lookup $DEFN" ;;
+            *) echo "-4 rule add pref 5000 iif lo to $T_EPIP/32 lookup $DEFN" ;;
+        esac
+    fi
     [ "$1" = 1 ] || return 0
     if [ "$V6ON" = 1 ]; then v6act="lookup $TABLE"; else v6act=unreachable; fi
     _ex=$(exempt_uids)
@@ -831,6 +837,9 @@ tunnel_ensure() {
         if [ "$T_TYPE" = amneziawg ] && [ "$FAKE_LINK" = 0 ] && ! awg_kernel_ok; then
             ERR=no_kernel_amneziawg; return 1
         fi
+        # an IPv6 endpoint with IPv6 off for the phone (the kernel's switch, or
+        # DNSCrypt Proxy's ipv4 mode): the server cannot be reached at all
+        case "$T_EPIP" in *:*) v6_kernel_on || { ERR=endpoint_needs_ipv6; return 1; } ;; esac
         # a link's type cannot change: WireGuard <-> AmneziaWG = new wgs0
         # (the unreachable route in table 51820 keeps the kill switch meanwhile)
         if iface_exists && [ "$(iface_kind)" != "$T_TYPE" ]; then
@@ -893,13 +902,31 @@ tunnel_ensure() {
 # would be routed into wgs0 itself and dropped (retry after ~5 s). The rule
 # of a previous endpoint goes at the same moment, so that address does not
 # keep a way around the tunnel. rules_apply finds the result as it wants it.
+# An IPv6 endpoint (ADDRESS as ipv6_canon gives it = as `ip -6 rule` lists
+# it) has its rule in the IPv6 rules, before 5020-5022 there (unreachable,
+# or the tunnel): the tunnel's own packets get out, nothing else does. The
+# rules of the other family go too (the previous endpoint may have been of
+# the other kind). Should the listing ever show our address in another form,
+# the loop would remove the rule just added: it is added once more after it.
 ep_rule() {
     [ -n "$DEF" ] && [ -n "$1" ] || return 0
-    "$IP" rule add pref 5000 iif lo to "$1/32" lookup "$DEFN" 2>/dev/null
-    for _e in $("$IP" rule 2>/dev/null | awk '$1 == "5000:" { for (i = 1; i < NF; i++) if ($i == "to") print $(i + 1) }'); do
-        [ "${_e%/32}" = "$1" ] || "$IP" rule del pref 5000 to "${_e%/32}/32" 2>/dev/null
+    case "$1" in *:*) _ef=-6; _eo=-4; _eb=128 ;; *) _ef=-4; _eo=-6; _eb=32 ;; esac
+    "$IP" "$_ef" rule add pref 5000 iif lo to "$1/$_eb" lookup "$DEFN" 2>/dev/null
+    for _e in $("$IP" "$_ef" rule 2>/dev/null | awk '$1 == "5000:" { for (i = 1; i < NF; i++) if ($i == "to") print $(i + 1) }'); do
+        [ "${_e%/$_eb}" = "$1" ] || "$IP" "$_ef" rule del pref 5000 to "${_e%/$_eb}/$_eb" 2>/dev/null
     done
-    unset _e
+    while "$IP" "$_eo" rule del pref 5000 2>/dev/null; do :; done
+    [ "$_ef" = -6 ] && "$IP" -6 rule add pref 5000 iif lo to "$1/128" lookup "$DEFN" 2>/dev/null
+    unset _e _ef _eo _eb
+}
+
+# st_endpoint - the status key endpoint: address:port, an IPv6 address in brackets
+st_endpoint() {
+    case "$T_EPIP" in
+        "") ST_ENDPOINT="" ;;
+        *:*) ST_ENDPOINT="[$T_EPIP]:$T_PORT" ;;
+        *) ST_ENDPOINT="$T_EPIP:$T_PORT" ;;
+    esac
 }
 
 # tunnel.info: one value per line, read in this order by tunnel_ensure (and
@@ -989,7 +1016,7 @@ wgs_tick() {
             ST_STATE=error; ST_REASON=$ERR
             if error_blocks; then error_block || return 2; else teardown; fi
         else
-            ST_ENDPOINT=""; [ -n "$T_EPIP" ] && ST_ENDPOINT="$T_EPIP:$T_PORT"
+            st_endpoint
             [ -n "$T_EPHOST" ] && ST_EPHOST=$T_EP
             if [ "$rc" = 3 ]; then
                 ST_STATE=handshaking; ST_REASON=resolving
@@ -1015,7 +1042,7 @@ wgs_tick() {
             heal_tick
             heal_status
             ST_TYPE=$T_TYPE
-            ST_ENDPOINT=""; [ -n "$T_EPIP" ] && ST_ENDPOINT="$T_EPIP:$T_PORT"
+            st_endpoint
             ST_EPHOST=""; [ -n "$T_EPHOST" ] && ST_EPHOST=$T_EP
             capture=1
             [ "$S_KILLSWITCH" = 0 ] && [ "$ST_STATE" != up ] && capture=0

@@ -10,6 +10,7 @@
 #   wgt0      a second interface of that tunnel's type with that tunnel's
 #             keys (one tunnel of the address), its address on it
 #   4990      iif lo to <address>/32 lookup <default network table>
+#             (an IPv6 address: in the IPv6 rules, /128)
 #             - wgt0's own UDP goes out directly, not into wgs0 / the kill
 #             switch (and rp_filter's reverse lookup passes, like rule 5000)
 #   51821     table: default dev wgt0
@@ -45,6 +46,7 @@ TEST_PING_MAX=${WGS_TEST_PING_MAX:-10}     # s: answers may start late (see test
 test_cleanup() {
     "$IP" link del "$TEST_IF" 2>/dev/null
     while "$IP" rule del pref 4990 2>/dev/null; do :; done
+    while "$IP" -6 rule del pref 4990 2>/dev/null; do :; done
     while "$IP" rule del pref 4991 2>/dev/null; do :; done
     "$IP" route flush table "$TEST_TABLE" 2>/dev/null
     rm -f "$STATE"/testconf.*
@@ -100,7 +102,8 @@ test_tunnel() {
     _stool=$(wg_tool "$T_TYPE")
     if [ "$FAKE_LINK" = 0 ]; then
         _ssc="$STATE/testconf.$$"
-        tun_setconf "$(tun_file "$1")" "$_ssc" "$2:$T_PORT"
+        case "$2" in *:*) _sep="[$2]:$T_PORT" ;; *) _sep="$2:$T_PORT" ;; esac
+        tun_setconf "$(tun_file "$1")" "$_ssc" "$_sep"
         "$_stool" setconf "$TEST_IF" "$_ssc" 2>"$STATE/testconf.err.$$"; _src=$?
         if [ "$_src" != 0 ]; then
             _se=$(sed "s/\`[^']*'/\`…'/g" "$STATE/testconf.err.$$" 2>/dev/null | tr '\n' ' ')
@@ -112,7 +115,10 @@ test_tunnel() {
     "$IP" addr add "$T_ADDR" dev "$TEST_IF" 2>/dev/null
     # its UDP goes out directly BEFORE the interface comes up (the first
     # handshake leaves the moment it is up)
-    "$IP" rule add pref 4990 iif lo to "$2/32" lookup "$DEFN" 2>/dev/null
+    case "$2" in
+        *:*) "$IP" -6 rule add pref 4990 iif lo to "$2/128" lookup "$DEFN" 2>/dev/null ;;
+        *) "$IP" rule add pref 4990 iif lo to "$2/32" lookup "$DEFN" 2>/dev/null ;;
+    esac
     _st0=$(mono_cs)
     "$IP" link set "$TEST_IF" mtu "${T_MTU:-1420}" up 2>/dev/null
     "$IP" route replace default dev "$TEST_IF" table "$TEST_TABLE" 2>/dev/null
@@ -151,7 +157,7 @@ test_tunnel() {
         R_ST=no_handshake
     fi
     test_cleanup
-    unset _stool _ssc _src _se _st0 _sn _shs
+    unset _stool _ssc _src _se _st0 _sn _shs _sep
 }
 
 # the address of the tunnel that is on: through wgs0

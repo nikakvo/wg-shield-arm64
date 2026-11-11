@@ -248,8 +248,10 @@ tun_country() {
     echo "$1" | awk -F'[-_.]' '{ for (i = 1; i <= NF; i++) if ($i ~ /^[A-Z][A-Z]$/) { print $i; exit } }'
 }
 
-# endpoint (host or address, without the port) of a tunnel, empty if invalid
-tun_ep_host() { ( tun_parse "$(tun_file "$1")" >/dev/null 2>&1 && echo "${T_EP%:*}" ); }
+# endpoint (host or address, without the port) of a tunnel, empty if invalid.
+# A literal address as tun_parse keeps it (T_EPIP: an IPv6 one in the
+# kernel's form, so two spellings of one server are one address)
+tun_ep_host() { ( tun_parse "$(tun_file "$1")" >/dev/null 2>&1 && echo "${T_EPIP:-${T_EP%:*}}" ); }
 
 # next tunnel to try, empty = none left. Runs in a subshell (tun_parse and
 # tun_names use global variables).
@@ -270,7 +272,7 @@ heal_pick() {
             case " $H_TRIED " in *" $_hn "*) continue ;; esac
             tun_parse "$(tun_file "$_hn")" >/dev/null 2>&1 || continue
             if [ "$T_TYPE" = amneziawg ] && [ "$FAKE_LINK" = 0 ] && ! awg_kernel_ok; then continue; fi
-            case "$_bad" in *" ${T_EP%:*} "*) continue ;; esac
+            case "$_bad" in *" ${T_EPIP:-${T_EP%:*}} "*) continue ;; esac
             _g=1; [ -n "$_cc" ] && [ "$(tun_country "$_hn")" = "$_cc" ] && _g=0
             _i=$((_i + 1))
             echo "$_g $(test_rank "$_hn") $_i $_hn"

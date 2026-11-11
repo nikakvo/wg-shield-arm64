@@ -46,6 +46,7 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 - **Wi-Fi ↔ mobile data** - followed the moment Android switches: the watchdog watches Android's network rules and acts at once, not on its next check
 - **Every internet network, not only the current one** - mobile data kept up in the background while you are on Wi-Fi, a Wi-Fi Android is still checking: whatever an app or Android sends over them goes through the tunnel too. A new network is caught the moment Android creates it. Only Android's own network check and the login page of a hotel / airport Wi-Fi go out on the network itself, so a broken Wi-Fi is never taken for a working one and a login page can open
 - **Host-name endpoints** - a home server on dynamic DNS works; the name is looked up again if the tunnel stops answering
+- **IPv6 endpoints** - a server address written as `[2001:db8::1]:51820` works on a network that has IPv6
 - **LAN DNS through the tunnel** (opt-in) - while the tunnel is up, lookups sent to a resolver on your Wi-Fi (the router) go to the tunnel's DNS too, so the router does not see them
 - **Steps aside for VPN apps** - connect WireGuard, Proton VPN or v2rayNG and WG Shield pauses itself, until that VPN disconnects
 - **Local stays local** - your Wi-Fi LAN (router, printer, SSH from a laptop) and hotspot devices are reached directly
@@ -96,7 +97,7 @@ A watchdog follows Android's network rules as they change (`ip monitor`): a new 
 | Kernel, for AmneziaWG | AmneziaWG built in or loaded (`CONFIG_AMNEZIAWG`, `/sys/module/amneziawg`) - optional: without it only AmneziaWG tunnels cannot start (their switch is greyed out), WireGuard tunnels work as usual |
 | Root | SukiSU Ultra or KernelSU (WebUI built in) · APatch · Magisk (WebUI via MMRL or KSU WebUI Standalone) |
 | Android | 12+ (tested on 16) |
-| Tunnels | wg-quick format (WireGuard or AmneziaWG): one `[Peer]`, `AllowedIPs` with `0.0.0.0/0`, an `Endpoint` as an IPv4 address or a host name |
+| Tunnels | wg-quick format (WireGuard or AmneziaWG): one `[Peer]`, `AllowedIPs` with `0.0.0.0/0`, an `Endpoint` as an IPv4 address, an IPv6 address in brackets (`[2001:db8::1]:51820`) or a host name |
 
 ### Tested on
 
@@ -207,7 +208,7 @@ internet
 ```
 state=up|handshaking|down|paused|off|error
 reason=…            iface=wgs0            table=51820         type=wireguard|amneziawg
-tunnel=<name>       endpoint=<ip:port>    endpoint_host=<host:port, if a name>
+tunnel=<name>       endpoint=<ip:port, an IPv6 address as [addr]:port>    endpoint_host=<host:port, if a name>
 handshake_age=<s>   killswitch=1|0        ipv6=tunnel|blocked|off
 default_net=…       android_vpn=…         updated=<epoch>
 recover=restart N/2|switch <name>|failed|  recover_from=<tunnel>
@@ -277,6 +278,7 @@ Within about 40 seconds (10 with Check every 5 s) the banner shows *restart 1 of
 - **The ping** goes through the tunnel only (bound to `wgs0`, to 1.1.1.1 / 8.8.8.8), so it shows nothing new to your network. A server that never answers a ping is not called dead for that - for such a tunnel WireGuard's own 180 s rule decides
 - **The speed test** sends, per server address, one WireGuard handshake and a few pings to 1.1.1.1 through that server - nothing outside a tunnel. A server can take a few seconds before it answers a key it has not seen for a while; the test waits up to 10 seconds for the answers
 - **Notifications** are posted through Android's shell, so they appear as *Shell* / *Command line*; HyperOS shows them when the screen comes on
+- **IPv6 endpoints** - `Endpoint = [2001:db8::1]:51820` (brackets, no zone like `%wlan0`). The tunnel's own packets get their way out in the IPv6 rules (rule 5000 there), everything else in IPv6 stays blocked or in the tunnel as before. The network the phone is on needs IPv6: without an IPv6 route there is no handshake (the tunnel shows *Connecting*, then *Down*); with IPv6 off for the whole phone the state is *Error*. The status and the speed test show the address the way the system lists it (`2001:0DB8:0:0:0:0:0:1` as `2001:db8::1`). A host name is always looked up as an IPv4 address
 - **Host-name endpoints** are looked up with one plain DNS query outside the tunnel to Cloudflare (`1.1.1.1`, `1.0.0.1`), then Google (`8.8.8.8`) (the tunnel is not up yet); the same resolvers DNSCrypt Proxy lets root query directly
 - **Several DNS servers** - `DNS = 10.2.0.1, 10.2.0.2`: the first IPv4 server is used. Together with the tunnel check (so not with the screen off in the Battery profile, and not with the checks off), at most once a minute, the server in use is asked for `example.com` through the tunnel; any DNS answer counts. No reply twice in a row: the next server of the line is used (the log says so, `dns_server=` shows it), after the last one the first again. A tunnel that is loaded again starts with the first server. Needs the root manager's busybox (`nslookup`, `timeout`). Of the IPv6 servers only the first is used
 - **The exit address** (Dashboard **Check**, `ctl.sh exitip`) is asked over HTTPS with Android's `/system/bin/curl`, certificate checked: `ipinfo.io/json`, then `ipwho.is`. Only without `curl` or when both fail it is asked over plain HTTP as before (`ip-api.com`, then `ipinfo.io`); the output key `proto=https|http` says which it was (`via=` is the tunnel's interface when the request went through the tunnel, as before)

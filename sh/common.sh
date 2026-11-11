@@ -121,6 +121,48 @@ ipv4_ok() {
     unset _x
 }
 
+# ipv6_canon ADDRESS - prints the address the way the kernel's tools list it
+# (`ip -6 rule` shows 2001:0DB8:0:0:0:0:0:1 as 2001:db8::1): lower case, no
+# leading zeros, the longest run of two or more zero groups as "::" (the
+# first one when two are as long). Nothing, and 1, when it is not a usable
+# address: only hex groups and "::" - no zone ("%wlan0"), no dotted IPv4
+# part - and not one whose first five groups are zero (::, ::1, the
+# IPv4-mapped ones: no tunnel server, and the tools print them another way).
+ipv6_canon() {
+    case "$1" in ""|*[!0-9A-Fa-f:]*|*:::*|*::*::*) return 1 ;; esac
+    [ "${#1}" -le 39 ] || return 1
+    echo "$1" | awk '{
+        s = tolower($0); d = index(s, "::"); k = 0
+        if (d) {
+            l = substr(s, 1, d - 1); r = substr(s, d + 2)
+            nl = (l == "") ? 0 : split(l, L, ":"); nr = (r == "") ? 0 : split(r, R, ":")
+            if (nl + nr > 7) exit 1
+            for (i = 1; i <= nl; i++) g[++k] = L[i]
+            for (i = nl + nr; i < 8; i++) g[++k] = "0"
+            for (i = 1; i <= nr; i++) g[++k] = R[i]
+        } else if (split(s, g, ":") != 8) exit 1
+        for (i = 1; i <= 8; i++) {
+            if (g[i] == "" || length(g[i]) > 4) exit 1
+            sub(/^0+/, "", g[i]); if (g[i] == "") g[i] = "0"
+        }
+        if (g[1] g[2] g[3] g[4] g[5] == "00000") exit 1
+        bs = 0; bl = 0; cl = 0
+        for (i = 1; i <= 8; i++) {
+            if (g[i] != "0") { cl = 0; continue }
+            if (cl == 0) cs = i
+            cl++; if (cl > bl) { bl = cl; bs = cs }
+        }
+        o = ""
+        if (bl < 2) { for (i = 1; i <= 8; i++) o = o (i > 1 ? ":" : "") g[i] }
+        else {
+            for (i = 1; i < bs; i++) o = o (i > 1 ? ":" : "") g[i]
+            o = o "::"
+            for (i = bs + bl; i <= 8; i++) o = o (i > bs + bl ? ":" : "") g[i]
+        }
+        print o
+    }'
+}
+
 # ---- settings (KEY=value, whitelist, never sourced) ---------------------------
 settings_load() {
     S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30; S_LANDNS=0; S_KS_ERROR=0

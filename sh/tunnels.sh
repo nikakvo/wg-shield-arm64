@@ -80,7 +80,10 @@ tun_parse() {
     _pl=${T_ADDR#*/}
     ipv4_ok "${T_ADDR%%/*}" && case "$_pl" in ""|*[!0-9]*) false ;; *) [ "${#_pl}" -le 2 ] && [ "$_pl" -le 32 ] ;; esac ||
         { T_ERR="bad Address '$T_ADDR'"; return 1; }
-    # Endpoint: IPv4 literal, or a host name (resolved when the tunnel loads)
+    # Endpoint: IPv4 literal, an IPv6 literal in brackets, or a host name
+    # (resolved when the tunnel loads, to an IPv4 address). T_EPIP of an IPv6
+    # endpoint is the address as the kernel lists it (ipv6_canon): it is
+    # compared with `ip -6 rule` output; wg gets the file's own line
     T_EPIP=""; T_EPHOST=""; T_PORT=${T_EP##*:}; _h=${T_EP%:*}
     [ -n "$T_EP" ] && [ "$_h" != "$T_EP" ] || { T_ERR="Endpoint needs host:port (got '$T_EP')"; return 1; }
     case "$T_PORT" in
@@ -90,6 +93,10 @@ tun_parse() {
     esac
     case "$_h" in
         "") T_ERR="Endpoint has no host"; return 1 ;;
+        "["*"]")
+            _h=${_h#"["}; _h=${_h%"]"}
+            T_EPIP=$(ipv6_canon "$_h") && [ -n "$T_EPIP" ] ||
+                { T_EPIP=""; T_ERR="Endpoint is not a usable IPv6 address (got '$T_EP')"; return 1; } ;;
         *[!0-9.]*)
             case "$_h" in
                 *[!A-Za-z0-9.-]*|.*|*.|*..*|-*) T_ERR="Endpoint must be an IPv4 address or a host name (got '$T_EP')"; return 1 ;;
@@ -124,6 +131,7 @@ tun_parse() {
     done
     [ -n "$_dns" ] && [ -z "$T_DNS" ] && T_WARN="$T_WARN DNS-without-IPv4-ignored"
     [ -n "$T_EPHOST" ] && T_WARN="$T_WARN host-name-endpoint(resolved-at-connect)"
+    case "$T_EPIP" in *:*) T_WARN="$T_WARN IPv6-endpoint(the-network-needs-IPv6)" ;; esac
     [ -n "$_ign" ] && T_WARN="$T_WARN ignored:$(echo $_ign | tr ' ' ',')"
     [ -z "$T_KA" ] && T_WARN="$T_WARN no-PersistentKeepalive(25-is-used)"
     if [ "$T_TYPE" = amneziawg ]; then
