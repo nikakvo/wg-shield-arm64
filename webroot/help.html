@@ -163,7 +163,7 @@
   <h3>Route</h3>
   <p>Where the phone's traffic goes right now. Moving blue line: through the tunnel. Red cut: kill switch holds. Orange: straight to your connection.</p>
   <h3>Exit</h3>
-  <p><strong>Check</strong> asks an IP service once and shows the address websites see, with its place and provider.</p>
+  <p><strong>Check</strong> asks an IP service once and shows the address websites see, with its place and provider. The question goes over HTTPS (<code>ipinfo.io</code>, then <code>ipwho.is</code>, with Android's <code>curl</code>, certificate checked) - through the tunnel while it is up. Only when both fail, or the phone has no <code>curl</code>, it is asked over plain HTTP as before (<code>ip-api.com</code>, then <code>ipinfo.io</code>), and the line under the address says so: such an answer can be read and changed on the way.</p>
   <h3>Tunnel</h3>
   <p>The active tunnel, its type (WireGuard or AmneziaWG, with the kernel's AmneziaWG version), its server, the last handshake, data received and sent, and which network carries the tunnel. <strong>Other networks</strong>: the networks that are up besides that one - internet ones go through the tunnel (also while Android is still checking them), carrier service networks stay outside. <strong>Self-healing</strong>: ready, or the step it is on right now (see 7).</p>
   <h3>Networking set</h3>

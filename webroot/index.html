@@ -1121,7 +1121,7 @@ function fallbackCopy(t, done) {
 const EXIT = {};
 async function checkExit() {
   $('exit-sub').textContent = 'Asking…';
-  const r = parseKV(await ctl('exitip', 30000));
+  const r = parseKV(await ctl('exitip', 60000));
   if (r.ok !== '1') {
     $('exit-ip').textContent = 'no answer'; $('exit-ip').className = 'v r';
     $('exit-sub').textContent = (r.error || 'The IP service did not answer.') + (ST.state === 'down' && ks(ST) ? ' The tunnel is down (kill switch).' : '');
@@ -1130,7 +1130,7 @@ async function checkExit() {
   EXIT.ip = r.ip; EXIT.via = r.via ? ST.tunnel : '';
   $('exit-ip').textContent = r.ip; $('exit-ip').className = 'glitch';
   const place = [r.city, r.country].filter(Boolean).join(', ');
-  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' - ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection');
+  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' - ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection') + (r.proto === 'http' ? ' · asked over plain HTTP (HTTPS did not work)' : '');
   renderRoute(ST);
 }
 

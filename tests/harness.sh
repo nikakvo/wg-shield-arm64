@@ -1119,6 +1119,90 @@ EOF
     ctl down >/dev/null
 fi
 
+if want exitip; then
+    echo "exitip: the exit address is asked over HTTPS first (fake curl, no network)"
+    reset_state; mkdir -p "$STATE"
+    CD="$RUN/curl"; rm -rf "$CD"; mkdir -p "$CD/path"
+    export WGS_CURLLOG="$CD/log" WGS_CURLMODE="$CD/mode" WGS_CURLDIR="$CD"
+    # curl: notes its arguments; what a URL answers is in $WGS_CURLMODE
+    # ("<part of the URL> <file in $CD | fail>", no line = fail)
+    cat > "$CD/curl" <<'EOF'
+#!/bin/sh
+for a in "$@"; do u=$a; done
+echo "${WGS_CURLTAG:-sys} $*" >> "$WGS_CURLLOG"
+m=$(awk -v u="$u" 'index(u, $1) { print $2; exit }' "$WGS_CURLMODE" 2>/dev/null)
+case "$m" in ""|fail) exit 35 ;; esac
+cat "$WGS_CURLDIR/$m"
+EOF
+    printf '#!/bin/sh\nWGS_CURLTAG=path exec "%s" "$@"\n' "$CD/curl" > "$CD/path/curl"
+    chmod 755 "$CD/curl" "$CD/path/curl"
+    # the services' answers (pretty-printed, as they send them; documentation addresses)
+    cat > "$CD/ipinfo.json" <<'EOF'
+{
+  "ip": "203.0.113.7",
+  "hostname": "host.example.net",
+  "city": "Exampleton",
+  "region": "Example Region",
+  "country": "ZZ",
+  "loc": "0.0000,0.0000",
+  "org": "AS64500 Example Net",
+  "timezone": "Etc/UTC",
+  "readme": "https://ipinfo.io/missingauth"
+}
+EOF
+    cat > "$CD/ipwho.json" <<'EOF'
+{
+    "ip": "203.0.113.8",
+    "success": true,
+    "type": "IPv4",
+    "country": "Exampleland",
+    "country_code": "ZZ",
+    "city": "Sampleville",
+    "connection": {
+        "asn": 64500,
+        "org": "Example Org",
+        "isp": "Example ISP",
+        "domain": "example.net"
+    }
+}
+EOF
+    echo '{"status":"success","country":"Exampleland","countryCode":"ZZ","city":"Testburg","isp":"Plain ISP","query":"203.0.113.9"}' > "$CD/ipapi.json"
+    echo '{"ip": "203.0.113.66<script>", "country": "XX"}' > "$CD/bad.json"
+    ex() { WGS_CURL="$CD/curl" WGS_BB="$RUN/no-busybox" PATH="$CD/path:$PATH" ctl exitip 2>&1; }
+    keys() { sed 's/=.*//' | tr '\n' ' ' | sed 's/ $//'; }
+    printf 'ipinfo.io ipinfo.json\nipwho.is ipwho.json\nip-api.com ipapi.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "HTTPS, first service: its address, place and provider" "ip=203.0.113.7|country=ZZ|city=Exampleton|isp=AS64500 Example Net|proto=https|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
+    check "the output keys: the old ones in their order, proto added" "ip country city isp via proto ok" "$(echo "$out" | keys)"
+    check "one request: curl -s --max-time 8 to https://ipinfo.io/json, the certificate checked" "1|sys -s --max-time 8 https://ipinfo.io/json|0" "$(grep -c . "$WGS_CURLLOG")|$(cat "$WGS_CURLLOG")|$(grep -c -e ' -k' -e 'insecure' "$WGS_CURLLOG")"
+    check "tunnel off: via empty" "via=" "$(echo "$out" | grep '^via=')"
+    : > "$WGS_CURLLOG"; printf 'ipinfo.io fail\nipwho.is ipwho.json\nip-api.com ipapi.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "first service fails: the second one over HTTPS" "ip=203.0.113.8|country=Exampleland|city=Sampleville|isp=Example ISP|proto=https|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
+    check "both asked over HTTPS, nothing over HTTP" "2 0" "$(grep -c 'https://' "$WGS_CURLLOG") $(grep -c ' http://' "$WGS_CURLLOG")"
+    : > "$WGS_CURLLOG"; printf 'ipinfo.io bad.json\nipwho.is ipwho.json\n' > "$WGS_CURLMODE"
+    check "an answer whose address is not an address is not used" "ip=203.0.113.8" "$(ex | grep '^ip=')"
+    : > "$WGS_CURLLOG"; printf 'https://ipinfo.io fail\nhttps://ipwho.is fail\nip-api.com ipapi.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "both HTTPS requests fail: plain HTTP as before, and it says so" "ip=203.0.113.9|country=Exampleland|city=Testburg|isp=Plain ISP|proto=http|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
+    check "HTTP only after both HTTPS requests" "sys sys path" "$(cut -d' ' -f1 "$WGS_CURLLOG" | tr '\n' ' ' | sed 's/ $//')"
+    check "the HTTP request is the old one" 1 "$(grep -c '^path -s -m 8 http://ip-api.com/json/?fields=status,country,countryCode,city,isp,query$' "$WGS_CURLLOG")"
+    : > "$WGS_CURLLOG"
+    out=$(WGS_CURL="$RUN/no-curl" WGS_BB="$RUN/no-busybox" PATH="$CD/path:$PATH" ctl exitip 2>&1)
+    check "no curl for HTTPS: plain HTTP at once" "ip=203.0.113.9 proto=http 0" "$(echo "$out" | grep '^ip=') $(echo "$out" | grep '^proto=') $(grep -c 'https://' "$WGS_CURLLOG")"
+    : > "$WGS_CURLMODE"
+    out=$(ex)
+    check "nothing answers: an error, no address" "0 0 1" "$(echo "$out" | kv ok) $(echo "$out" | grep -c '^ip=') $(echo "$out" | grep -c '^error=no answer')"
+    # through the tunnel: via says so, as before
+    conf "$WGS_DL/wg-EX-1.conf" 203.0.113.91:51820
+    ctl import wg-EX-1.conf >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-EX-1 >/dev/null
+    printf 'ipinfo.io ipinfo.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "tunnel up: via=wgs0 as before, proto next to it" "via=wgs0 proto=https" "$(echo "$out" | grep '^via=') $(echo "$out" | grep '^proto=')"
+    ctl down >/dev/null
+    unset WGS_CURLLOG WGS_CURLMODE WGS_CURLDIR
+fi
+
 if want busybox_path; then
     echo "busybox_path: KernelSU, APatch and Magisk busybox are found"
     bbof() { env -u WGS_BB $TSH -c '. "$WGS_MODDIR/sh/common.sh"; echo "$BB"'; }

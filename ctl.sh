@@ -40,7 +40,7 @@ usage() {
         '  poll                everything the WebUI shows (key=value)' \
         '  files               tunnel exports found in Download' \
         '  delfile <name>      delete an export from Download (it holds private keys)' \
-        '  exitip              public exit address (one HTTP request)' \
+        '  exitip              public exit address (one request to an IP service, over HTTPS; plain HTTP only if that fails)' \
         '  diag                report for troubleshooting (no keys)' \
         '  version'
 }
@@ -132,6 +132,21 @@ _http_get() {  # <host> <path>
     return 1
 }
 _json_str() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" | head -n 1; }
+# exitip over HTTPS: Android's own curl (the root manager's busybox wget has
+# no TLS), the certificate is checked (no -k)
+CURL="${WGS_CURL:-/system/bin/curl}"
+_https_get() { "$CURL" -s --max-time 8 "$1" 2>/dev/null; }   # <https url>
+# _json_val JSON KEY - a string value, also from pretty-printed JSON ("key": "value")
+_json_val() { printf '%s\n' "$1" | sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1; }
+# _exit_https URL PROVIDER-KEY - asks one service; 0 with ip / e_country /
+# e_city / e_isp set when it gave an address (only an address is taken: the
+# answer is not ours)
+_exit_https() {
+    j=$(_https_get "$1") || return 1
+    ip=$(_json_val "$j" ip)
+    case "$ip" in ""|*[!0-9A-Fa-f:.]*) ip=""; return 1 ;; esac
+    e_country=$(_json_val "$j" country); e_city=$(_json_val "$j" city); e_isp=$(_json_val "$j" "$2")
+}
 
 # poll's tunnel rows, "t=name|endpoint|address|valid|ipv6|type|fav". Parsing
 # ~80 files on every poll (every 4 s while the WebUI is open) took seconds, so
@@ -471,16 +486,29 @@ case "$cmd" in
         ;;
     exitip)
         via=""; [ "$(sed -n 's/^state=//p' "$STATE/status" 2>/dev/null)" = up ] && via=$IFACE
-        j=$(_http_get ip-api.com '/json/?fields=status,country,countryCode,city,isp,query')
-        ip=$(_json_str "$j" query)
-        if [ -n "$ip" ]; then
-            echo "ip=$ip"; echo "country=$(_json_str "$j" country)"; echo "city=$(_json_str "$j" city)"; echo "isp=$(_json_str "$j" isp)"
-        else
-            j=$(_http_get ipinfo.io /json); ip=$(_json_str "$j" ip)
-            [ -n "$ip" ] || fail "no answer from ip-api.com or ipinfo.io"
-            echo "ip=$ip"; echo "country=$(_json_str "$j" country)"; echo "city=$(_json_str "$j" city)"; echo "isp=$(_json_str "$j" org)"
+        # HTTPS first: ipinfo.io (ip, country, city, org), then ipwho.is (ip,
+        # country, city, isp). Plain HTTP - where anyone on the way can read
+        # and change the answer - only without curl or when both fail.
+        # proto= says which it was (via= is taken: the tunnel's interface)
+        ip=""; proto=https
+        if [ -x "$CURL" ]; then
+            _exit_https https://ipinfo.io/json org || _exit_https https://ipwho.is/ isp
         fi
-        echo "via=$via"; echo "ok=1"
+        if [ -n "$ip" ]; then
+            echo "ip=$ip"; echo "country=$e_country"; echo "city=$e_city"; echo "isp=$e_isp"
+        else
+            proto=http
+            j=$(_http_get ip-api.com '/json/?fields=status,country,countryCode,city,isp,query')
+            ip=$(_json_str "$j" query)
+            if [ -n "$ip" ]; then
+                echo "ip=$ip"; echo "country=$(_json_str "$j" country)"; echo "city=$(_json_str "$j" city)"; echo "isp=$(_json_str "$j" isp)"
+            else
+                j=$(_http_get ipinfo.io /json); ip=$(_json_str "$j" ip)
+                [ -n "$ip" ] || fail "no answer from ipinfo.io, ipwho.is or ip-api.com"
+                echo "ip=$ip"; echo "country=$(_json_str "$j" country)"; echo "city=$(_json_str "$j" city)"; echo "isp=$(_json_str "$j" org)"
+            fi
+        fi
+        echo "via=$via"; echo "proto=$proto"; echo "ok=1"
         ;;
     diag)
         if lock_try; then wgs_tick; lock_release; fi
