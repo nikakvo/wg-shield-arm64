@@ -123,7 +123,7 @@ ipv4_ok() {
 
 # ---- settings (KEY=value, whitelist, never sourced) ---------------------------
 settings_load() {
-    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30; S_LANDNS=0
+    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30; S_LANDNS=0; S_KS_ERROR=0
     [ -f "$CONF" ] || return 0
     while IFS='=' read -r k v; do
         v=$(printf '%s' "$v" | tr -d '\r')
@@ -136,6 +136,7 @@ settings_load() {
             PROFILE) case "$v" in battery|always) S_PROFILE=$v ;; esac ;;
             CHECKS) case "$v" in 5|30|off) S_CHECKS=$v ;; esac ;;
             LANDNS) case "$v" in 0|1) S_LANDNS=$v ;; esac ;;
+            KS_ERROR) case "$v" in 0|1) S_KS_ERROR=$v ;; esac ;;
         esac
     done 2>/dev/null < "$CONF"
 }
@@ -152,6 +153,7 @@ settings_save() {
         echo "PROFILE=$S_PROFILE"
         echo "CHECKS=$S_CHECKS"
         echo "LANDNS=$S_LANDNS"
+        echo "KS_ERROR=$S_KS_ERROR"
     } > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$CONF"
 }
 
@@ -264,7 +266,8 @@ status_write() {
             "dns_server=$ST_DNS_SERVER" \
             "updated=$(epoch_now)" \
             "landns=$S_LANDNS" \
-            "dns_lan=$ST_DNS_LAN"
+            "dns_lan=$ST_DNS_LAN" \
+            "ks_error=$S_KS_ERROR"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
     status_compat
 }
@@ -306,7 +309,7 @@ module_desc() {  # keep the manager's description line in sync with the state
         handshaking) if [ "$ST_REASON" = recovering ]; then d="🟡 Recovering ($ST_RECOVER) · $ST_TUNNEL"; else d="🟡 Connecting · $ST_TUNNEL$( [ "$ST_TYPE" = amneziawg ] && echo ' (AmneziaWG)')"; fi ;;
         down) if [ "$S_KILLSWITCH" = 1 ]; then d="🔴 Tunnel down · internet blocked (kill switch)"; else d="🔴 Tunnel down · direct connection"; fi ;;
         paused) if [ "$ST_REASON" = user ]; then d="⏸️ Paused · direct connection"; else d="⏸️ Paused · another VPN is active"; fi ;;
-        error) d="⚠️ Error: $ST_REASON · direct connection" ;;
+        error) if [ "$ST_BLOCK" = 1 ]; then d="⚠️ Error: $ST_REASON · internet blocked (kill switch)"; else d="⚠️ Error: $ST_REASON · direct connection"; fi ;;
         *) d="⚪ Off · direct connection" ;;
     esac
     line="description=Always-on kernel WireGuard / AmneziaWG tunnel without an app, with kill switch. Status: $d"

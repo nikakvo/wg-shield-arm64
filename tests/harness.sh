@@ -1203,6 +1203,119 @@ EOF
     unset WGS_CURLLOG WGS_CURLMODE WGS_CURLDIR
 fi
 
+if want ks_error; then
+    echo "ks_error: with the setting on, a tunnel that cannot be built blocks traffic like a down one (kill switch)"
+    nat() { cat "$WGS_IPT_DIR/nat" 2>/dev/null; }
+    lan_of() { r=$(ip route get 192.168.1.1 2>&1 | head -n1); case "$r" in *"dev wlan0"*) echo wlan0 ;; *) echo other ;; esac; }
+    r4() { ip rule | grep -c "^$1:"; }
+    r6() { ip -6 rule | grep -c "^$1:"; }
+    desc() { sed -n 's/^description=.*Status: //p' "$MOD/module.prop"; }
+    logn() { grep -c -- "$1" "$WGS_DATA/logs/wg-shield.log"; }
+    reset_state; rm -rf "$WGS_IPT_DIR"
+    conf "$WGS_DL/wg-KE-1.conf" 203.0.113.92:51820
+    conf "$WGS_DL/wg-KE-2.conf" 203.0.113.93:51820
+    ctl import wg-KE-1.conf >/dev/null; ctl import wg-KE-2.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-KE-1 >/dev/null
+    check "up; the setting is off by default" "up 0 1" "$(st state) $(st ks_error) $(st killswitch)"
+    # the tunnel file disappears: error. Default: direct connection, as documented
+    mv "$WGS_DATA/tunnels/wg-KE-1.conf" "$RUN/ke1.conf"
+    ctl status >/dev/null
+    check "default: error = direct connection, everything removed" "error tunnel_missing wlan0 0 0 no" "$(st state) $(st reason) $(route_of) $(r4 5020) $(ip route show table 51820 2>/dev/null | grep -c .) $(ip link show wgs0 >/dev/null 2>&1 && echo yes || echo no)"
+    check "default: logged and described as direct" "1 0 1" "$(logn 'state: error (tunnel_missing) - direct connection') $(logn 'state: error (tunnel_missing) - kill switch blocks traffic') $(desc | grep -c 'Error: tunnel_missing · direct connection')"
+    # settings written by an older version: no KS_ERROR line
+    grep -v '^KS_ERROR=' "$WGS_DATA/settings.conf" > "$RUN/settings.old"; cp "$RUN/settings.old" "$WGS_DATA/settings.conf"
+    ctl status >/dev/null
+    check "settings without the key: off" "0 wlan0" "$(st ks_error) $(route_of)"
+    check "set ks_error: only 0 or 1" 0 "$(ctl set ks_error on 2>&1 | kv ok)"
+    check "set ks_error 1" "1 1" "$(ctl set ks_error 1 | kv ok) $(setting KS_ERROR)"
+    check "error + kill switch + the setting: traffic blocked in that tick" "error tunnel_missing 1 blocked" "$(st state) $(st reason) $(st ks_error) $(route_of)"
+    check "blocked like a down tunnel: capture rules, the unreachable route, no interface, no endpoint rule" "1 1 0 0 1 no" "$(r4 5020) $(r4 5021) $(r4 5000) $(ip -6 rule | grep -c '^5000:') $(ip route show table 51820 | grep -c '^unreachable default') $(ip link show wgs0 >/dev/null 2>&1 && echo yes || echo no)"
+    check "only the unreachable route in table 51820" 1 "$(ip route show table 51820 | grep -c .)"
+    check "IPv6 unreachable" "1 1" "$(ip -6 rule | grep -c '^5020:.*unreachable') $(ip -6 rule | grep -c '^5021:.*unreachable')"
+    check "the Wi-Fi LAN stays reachable (local rules kept)" "wlan0 1 1" "$(lan_of) $(r4 5010) $(r4 5012)"
+    if [ "${WGS_UIDS:-}" = 1 ]; then
+        check "Android's network check stays on its network" wlan0 "$(ip route get 1.1.1.1 mark 0x10064 uid 1073 2>&1 | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n1)"
+    else
+        echo "  skip uid case (no --map-auto)"
+    fi
+    check "a socket bound to the network is blocked too" blocked "$(ip route get 1.1.1.1 mark 0x10064 2>&1 | grep -q 'dev ' && echo open || echo blocked)"
+    check "logged, described" "1 1" "$(logn 'state: error (tunnel_missing) - kill switch blocks traffic') $(desc | grep -c 'Error: tunnel_missing · internet blocked (kill switch)')"
+    check "no DNS redirect left" 0 "$(nat | grep -c wgs_dns)"
+    w0=$(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")
+    ctl status >/dev/null; ctl status >/dev/null
+    check "stable over the next ticks: still blocked, nothing repaired, no warnings" "blocked $w0 1" "$(route_of) $(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log") $(logn 'kill switch blocks traffic')"
+    # a second network appears while blocked: captured as well
+    ip link add rmnet5 type veth peer name rmnet5p && ip link set rmnet5p up && ip link set rmnet5 up
+    ip addr add 10.66.0.2/24 dev rmnet5; ip route add default via 10.66.0.1 dev rmnet5 table 1035
+    echo "1035 rmnet5" >> "$WGS_RT_TABLES"; echo "105 INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED" >> "$RUN/networks"
+    ip rule add pref 16000 fwmark 0x10069/0x1ffff iif lo lookup 1035
+    ctl status >/dev/null
+    check "another internet network: blocked as well" blocked "$(ip route get 1.1.1.1 mark 0x10069 2>&1 | grep -q 'dev ' && echo open || echo blocked)"
+    ip rule del pref 16000 fwmark 0x10069/0x1ffff iif lo lookup 1035
+    ip link del rmnet5; sed -i '/^105 /d' "$RUN/networks"; sed -i '/^1035 /d' "$WGS_RT_TABLES"
+    ctl status >/dev/null
+    # leaving the block without leaving the error
+    ctl set killswitch 0 >/dev/null
+    check "kill switch off: direct in that tick, nothing left" "error wlan0 0 0" "$(st state) $(route_of) $(r4 5020) $(ip route show table 51820 2>/dev/null | grep -c .)"
+    check "kill switch off: logged as direct again" 2 "$(logn 'state: error (tunnel_missing) - direct connection')"
+    ctl set killswitch 1 >/dev/null
+    check "kill switch on again: blocked" blocked "$(route_of)"
+    ctl set ks_error 0 >/dev/null
+    check "setting off: direct in that tick" "error wlan0 0" "$(st state) $(route_of) $(r4 5020)"
+    ctl set ks_error 1 >/dev/null
+    check "setting on again: blocked" blocked "$(route_of)"
+    # pause and an Android VPN never block
+    ctl pause 5 >/dev/null
+    check "paused: direct" "paused wlan0 0" "$(st state) $(route_of) $(r4 5020)"
+    ctl resume >/dev/null
+    check "resumed: error and blocked again" "error blocked" "$(st state) $(route_of)"
+    if [ "${WGS_UIDS:-}" = 1 ]; then
+        ip rule add pref 13000 fwmark 0x0/0x20000 iif lo uidrange 10000-19999 lookup 1028
+        ctl status >/dev/null
+        check "an Android VPN: paused, direct" "paused android_vpn wlan0" "$(st state) $(st reason) $(route_of)"
+        ip rule del pref 13000
+        ctl status >/dev/null
+        check "the Android VPN is gone: blocked again" "error blocked" "$(st state) $(route_of)"
+    else
+        echo "  skip Android VPN case (no --map-auto)"
+    fi
+    # leaving the error: the tunnel file is back
+    cp "$RUN/ke1.conf" "$WGS_DATA/tunnels/wg-KE-1.conf"
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "tunnel file back: up, through the tunnel, its endpoint rule" "up wgs0 1" "$(st state) $(route_of) $(ip rule | grep -c '^5000:.*to 203.0.113.92 ')"
+    check "logged as up" 1 "$(tail -n 3 "$WGS_DATA/logs/wg-shield.log" | grep -c 'state: up - wg-KE-1')"
+    # the file becomes invalid while the tunnel is up (the error comes from tunnel_ensure)
+    sed -i 's#^Endpoint = .*#Endpoint = 999.1.1.1:51820#' "$WGS_DATA/tunnels/wg-KE-1.conf"
+    ctl status >/dev/null
+    check "invalid tunnel file: error, blocked, the old tunnel's interface and endpoint rule gone" "error blocked no 0 0" "$(st state) $(route_of) $(ip link show wgs0 >/dev/null 2>&1 && echo yes || echo no) $(r4 5000) $(nat | grep -c wgs_dns)"
+    check "its reason in the log line" 1 "$(logn 'state: error (invalid_tunnel: .*) - kill switch blocks traffic')"
+    ctl status >/dev/null
+    check "still blocked at the next tick" "error blocked 1" "$(st state) $(route_of) $(r4 5020)"
+    # another tunnel switched on
+    ctl up wg-KE-2 >/dev/null
+    check "another tunnel switched on: up, through it" "up wg-KE-2 wgs0 1" "$(st state) $(st tunnel) $(route_of) $(ip rule | grep -c '^5000:.*to 203.0.113.93 ')"
+    # back to the broken one from the command line is refused; root edits the settings: error, blocked
+    sed -i 's/^ACTIVE=.*/ACTIVE=wg-KE-1/' "$WGS_DATA/settings.conf"
+    ctl status >/dev/null
+    check "the broken tunnel active again: blocked, no endpoint rule of the other tunnel" "error blocked 0" "$(st state) $(route_of) $(r4 5000)"
+    ctl down >/dev/null
+    check "down: off, direct, nothing left" "off wlan0 0 0 0" "$(st state) $(route_of) $(r4 5020) $(r6 5020) $(ip route show table 51820 2>/dev/null | grep -c .)"
+    # boot with a tunnel that cannot be built: the boot guard is kept
+    sed -i 's/^ACTIVE=.*/ACTIVE=wg-KE-1/' "$WGS_DATA/settings.conf"
+    $TSH "$MOD/post-fs-data.sh" >/dev/null 2>&1
+    check "boot guard on" blocked "$(route_of)"
+    ctl status >/dev/null
+    check "first tick after boot: error, still blocked" "error blocked 1" "$(st state) $(route_of) $(st ks_error)"
+    ctl set ks_error 0 >/dev/null
+    $TSH "$MOD/post-fs-data.sh" >/dev/null 2>&1; ctl status >/dev/null
+    check "the same boot with the setting off: direct after the first tick" "error wlan0" "$(st state) $(route_of)"
+    ctl set ks_error 1 >/dev/null; ctl set killswitch 0 >/dev/null
+    check "the setting on, the kill switch off: direct" "error wlan0 0" "$(st state) $(route_of) $(r4 5020)"
+    ctl down >/dev/null
+    check "lock released" no "$([ -d "$STATE/lock" ] && echo yes || echo no)"
+fi
+
 if want busybox_path; then
     echo "busybox_path: KernelSU, APatch and Magisk busybox are found"
     bbof() { env -u WGS_BB $TSH -c '. "$WGS_MODDIR/sh/common.sh"; echo "$BB"'; }

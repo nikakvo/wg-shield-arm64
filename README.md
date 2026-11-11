@@ -122,7 +122,7 @@ Tunnels and settings are kept on update.
 |---|---|
 | Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network, the other networks · the networking set · watchdog |
 | Tunnels | Country boxes (+ Favorites, Others) · WireGuard / AmneziaWG filter · every tunnel with a switch (one at a time), ★, an **AWG** badge for AmneziaWG tunnels, and **✕**; the tunnel that is on at the top (green pulsing dot on its box) · **Clear all** deletes every tunnel at once · **Backup** / **Restore** / delete the backup · **Test** a box: results grouped by server address, fastest marked · import from Download, delete the export |
-| Settings | Kill switch · LAN DNS through the tunnel · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
+| Settings | Kill switch · Kill switch on error · LAN DNS through the tunnel · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
 | Log | Filterable by level |
 
 ---
@@ -137,7 +137,7 @@ Tunnels and settings are kept on update.
 | **Checking** | After a restart or a switch: handshake done, waiting for an answer through the tunnel (a few seconds) |
 | **Down** | Nothing answers through the tunnel (or no handshake for 180 s) and self-healing could not fix it - kill switch on: no internet; off: direct until it answers again |
 | **Paused** | You paused it, or a VPN app is connected - direct connection |
-| **Error** | The tunnel cannot be built (file gone, kernel refused it, an AmneziaWG tunnel on a kernel without AmneziaWG) - direct connection, the banner says why |
+| **Error** | The tunnel cannot be built (file gone, kernel refused it, an AmneziaWG tunnel on a kernel without AmneziaWG) - direct connection, the banner says why. With **Kill switch on error** on (Settings, `ctl.sh set ks_error 1`; off by default) and the kill switch on: no internet, like **Down** - until the tunnel can be built, another one is switched on, or the tunnel is turned off |
 | **Off** | No tunnel switched on - your normal connection |
 
 ---
@@ -190,7 +190,7 @@ internet
 | Path | |
 |---|---|
 | `/data/adb/wg-shield/` | Everything the module keeps, in one folder: |
-| `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification, LAN DNS through the tunnel |
+| `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification, LAN DNS through the tunnel, kill switch on error |
 | `  tunnels/` | Imported tunnels with their keys, root only (`0600`) |
 | `  favorites` | Favorite tunnel names, one per line |
 | `  speedtest` | Last speed test result per server address (the auto-switch order uses it) |
@@ -214,6 +214,7 @@ recover=restart N/2|switch <name>|failed|  recover_from=<tunnel>
 profile=battery|always  checks=5|30|off   autoswitch=0|1    notify=0|1
 dns=tunnel|dnscrypt|network  dns_server=<the tunnel's DNS in use, IPv4 [IPv6]>
 landns=0|1          dns_lan=<interfaces whose DNS goes to the tunnel's DNS too, empty when none>
+ks_error=0|1        (1 and killswitch=1: state=error blocks traffic like state=down)
 ```
 
 ---
@@ -232,6 +233,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh down'   # normal connec
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh pause <minutes>'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh resume'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set ks_error 0|1'   # kill switch also when the tunnel cannot be built (error)
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set profile battery|always'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set checks 5|30|off'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set autoswitch 0|1'

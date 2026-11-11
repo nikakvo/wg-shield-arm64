@@ -371,6 +371,10 @@
         <label class="sw" id="sw-ks"><input type="checkbox" id="cb-ks" onchange="setKs(this)"><i></i></label>
       </div>
       <div class="row">
+        <div class="rn"><b>Kill switch on error</b><span>Off (default): when the tunnel cannot be built at all (its file is gone or invalid, the kernel or the tool refuses it) the phone goes direct, and the banner says why. On: no internet then either, like a tunnel that is down - until the tunnel works, you switch another one on, or turn the tunnel off. Needs the kill switch on. Off, pause and a VPN app never block.</span></div>
+        <label class="sw" id="sw-ke"><input type="checkbox" id="cb-ke" onchange="setOpt(this, 'ks_error', 'Kill switch on error')"><i></i></label>
+      </div>
+      <div class="row">
         <div class="rn"><b>LAN DNS through the tunnel</b><span>On: while the tunnel is up, name lookups sent to a resolver on your Wi-Fi (the router) go to the tunnel's DNS too, so the router does not see them. Names only the router knows (printer.lan) stop resolving. While the tunnel is connecting or down the router is asked again and sees those lookups - a login page (hotel, airport) needs that. Off (default): the router's resolver is asked directly. Nothing changes while DNSCrypt Proxy answers DNS.</span></div>
         <label class="sw" id="sw-ld"><input type="checkbox" id="cb-ld" onchange="setOpt(this, 'landns', 'LAN DNS through the tunnel')"><i></i></label>
       </div>
@@ -588,6 +592,8 @@ function showTab(name) {
 let ST = {};
 function setBanner(cls, msg) { const b = $('banner'); b.className = cls; b.innerHTML = '<span class="live-dot"></span>' + msg; }
 const ks = st => st.killswitch === '1';
+// state error with "Kill switch on error" on: blocked, not direct
+const errBlock = st => st.state === 'error' && ks(st) && st.ks_error === '1';
 
 const REASON = {
   no_kernel_wireguard: 'this kernel has no WireGuard',
@@ -621,7 +627,7 @@ function renderBanner(st) {
       if (st.reason === 'user') setBanner('b-warn', `Paused · direct connection · back in ${fmtDur(st.pause_left)}`);
       else setBanner('b-warn', 'Paused · another VPN is connected (' + esc(st.android_vpn || 'app') + ') - back when it disconnects');
       break;
-    case 'error': setBanner('b-error', 'Error: ' + esc(REASON[st.reason] || st.reason) + ' - direct connection'); break;
+    case 'error': setBanner('b-error', 'Error: ' + esc(REASON[st.reason] || st.reason) + (errBlock(st) ? ' - kill switch holds: no internet' : ' - direct connection')); break;
     case 'off': setBanner('b-idle', 'Off · your normal connection' + (st.t.length ? ' - switch a tunnel on in Tunnels' : ' - import tunnels in Tunnels')); break;
     default: setBanner('b-idle', 'Waiting for the watchdog…');
   }
@@ -645,6 +651,7 @@ function renderRoute(st) {
       set('rn-ph', st.state === 'off' ? '' : 'warn'); set('rn-tun', 'off'); set('rn-net', st.state === 'off' ? '' : 'warn');
       setL('rl-1', 'plain'); setL('rl-2', 'plain');
       $('rn-tun2').textContent = st.state === 'off' ? 'off' : st.state === 'paused' ? 'paused' : 'error';
+      if (errBlock(st)) { set('rn-ph', 'on'); set('rn-net', 'off'); setL('rl-1', 'cut'); setL('rl-2', ''); }
       break;
     default: set('rn-ph', 'off'); set('rn-tun', 'off'); set('rn-net', 'off'); setL('rl-1', ''); setL('rl-2', '');
   }
@@ -896,6 +903,7 @@ function renderSettings(st) {
   if (!$('sw-as').classList.contains('busy')) $('cb-as').checked = st.autoswitch === '1';
   if (!$('sw-nt').classList.contains('busy')) $('cb-nt').checked = st.notify !== '0';
   if (!$('sw-ld').classList.contains('busy')) $('cb-ld').checked = st.landns === '1';
+  if (!$('sw-ke').classList.contains('busy')) $('cb-ke').checked = st.ks_error === '1';
   const prof = st.profile === 'always' ? 'always' : 'battery';
   document.querySelectorAll('#prof-seg button').forEach(b => b.classList.toggle('on', b.dataset.p === prof));
   const chk = st.checks === '5' || st.checks === 'off' ? st.checks : '30';

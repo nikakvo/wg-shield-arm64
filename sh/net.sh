@@ -757,6 +757,67 @@ teardown() {
     rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
 }
 
+# error_blocks - state error, and the user wants the kill switch to hold
+# then too (settings KILLSWITCH=1 and KS_ERROR=1; KS_ERROR is 0 by default:
+# a tunnel that cannot be built = direct connection)
+error_blocks() { [ "$ST_STATE" = error ] && [ "$S_KILLSWITCH" = 1 ] && [ "$S_KS_ERROR" = 1 ]; }
+
+# error_block - the tunnel cannot be built (file missing or invalid, setconf
+# failed, tool or kernel support missing) and error_blocks: traffic is
+# blocked the way a down tunnel blocks it with the kill switch on - the
+# unreachable route in table 51820, the capture rules 5020-5022 into it
+# (IPv6: unreachable), the local rules 5010-5014 (LAN, hotspot, Android's
+# network check and the login page stay as they are). There is no tunnel:
+# no wgs0 (one left by the previous tunnel has that tunnel's keys and peer),
+# no endpoint rule 5000 (also the one tunnel_ensure may just have added), no
+# DNS redirect. Returns 2 at shutdown. Left again the usual ways: the next
+# tick with a tunnel that can be built loads it; off, paused, an Android VPN
+# or one of the two settings off = teardown.
+error_block() {
+    if iface_exists || [ -f "$STATE/loaded" ] || [ -f "$STATE/tunnel.info" ]; then
+        "$IP" link del "$IFACE" 2>/dev/null
+        "$IP" -6 route flush table "$TABLE" 2>/dev/null
+        rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
+    fi
+    dns_present && dns_del
+    rm -f "$STATE/dns.bad" "$STATE/dns6.bad"
+    for _p in 5000 5001; do
+        while "$IP" rule del pref "$_p" 2>/dev/null; do :; done
+        while "$IP" -6 rule del pref "$_p" 2>/dev/null; do :; done
+    done
+    unset _p
+    "$IP" route replace unreachable default metric 4096 table "$TABLE" 2>/dev/null
+    T_EPIP=""; V6ON=0; ST_BLOCK=1
+    nets_classify; ST_NETS=$NETS_ST
+    rules_sync 1
+}
+
+# rules_sync CAPTURE - our rules are the ones rules_want gives for the
+# networks as they are now; applied only when something changed (the
+# networks, the endpoint, CAPTURE, or the rules themselves by someone else).
+# Returns 2 at shutdown.
+rules_sync() {
+    key="$DEFN|$NID|$LOCALTN|$T_EPIP|$1|$(local_table)|$V6ON|$EXTRA|$(exempt_uids | tr -s ' ' ',')"
+    oldkey=$(cat "$STATE/rules.key" 2>/dev/null)
+    sig=$(rules_sig | cksum)
+    if [ "$key" != "$oldkey" ] || [ "$sig" != "$(cat "$STATE/rules.sig" 2>/dev/null)" ] || [ -f "$STATE/rules.dirty" ]; then
+        _fast=0; [ -f "$STATE/rules.dirty" ] && _fast=1
+        shutting_down && return 2
+        rules_apply "$1"
+        echo "$key" > "$STATE/rules.key"
+        rules_sig | cksum > "$STATE/rules.sig"
+        _also=""; [ -n "$EXTRA" ] && _also=", also through the tunnel: $EXTRA_NAMES"
+        if [ -z "$oldkey" ]; then
+            wlog INFO "routing on: network ${DEF:-none} (netId ${NID:-none}), kill switch $S_KILLSWITCH, IPv6 $( [ "$V6ON" = 1 ] && echo 'through the tunnel' || echo blocked)$_also"
+        elif [ "$key" != "$oldkey" ]; then
+            wlog INFO "routing updated: network ${DEF:-none} (netId ${NID:-none}), capture $1, IPv6 $( [ "$V6ON" = 1 ] && echo tunnel || echo blocked)$_also"
+        elif [ "$_fast" = 0 ]; then
+            wlog WARN "routing rules were changed by someone else - repaired"
+        fi
+    fi
+    return 0
+}
+
 # tunnel_ensure NAME - iface exists with the tunnel's type, carries NAME's
 # keys/peer/address, is up. Sets T_ADDR T_EP T_EPIP T_EPHOST T_PORT T_MTU
 # T_TYPE. Returns 1 with ERR set on a hard failure, 3 when a host-name
@@ -892,7 +953,7 @@ wgs_tick() {
     prev=$(cat "$STATE/last_state" 2>/dev/null)
     ST_TUNNEL=$S_ACTIVE; ST_ENDPOINT=""; ST_HSAGE="-"; ST_DEF=$DEF; ST_ANDVPN=$ANDVPN
     ST_REASON=""; ST_RX=""; ST_TX=""; ST_EPHOST=""; ST_IPV6=""; V6ON=0; ST_PAUSELEFT=$(pause_left)
-    ST_TYPE=""; T_TYPE=""; T_DNS=""; T_DNS6=""; T_DNSALL=""; ST_DNS=""; ST_DNS_SERVER=""; ST_DNS_LAN=""; ST_NETS=""; EXTRA=""; EXTRA_NAMES=""; ST_RECOVER=""; ST_RECOVER_FROM=""
+    ST_TYPE=""; T_TYPE=""; T_DNS=""; T_DNS6=""; T_DNSALL=""; ST_DNS=""; ST_DNS_SERVER=""; ST_DNS_LAN=""; ST_BLOCK=0; ST_NETS=""; EXTRA=""; EXTRA_NAMES=""; ST_RECOVER=""; ST_RECOVER_FROM=""
 
     if [ -z "$S_ACTIVE" ]; then
         ST_STATE=off
@@ -907,7 +968,11 @@ wgs_tick() {
     fi
 
     if [ "$ST_STATE" != on ]; then
-        if anything_present; then
+        if error_blocks; then
+            # the tunnel's file is gone and the kill switch holds on errors too
+            shutting_down && return 2
+            error_block || return 2
+        elif anything_present; then
             shutting_down && return 2
             teardown
         fi
@@ -921,8 +986,8 @@ wgs_tick() {
         if [ "$rc" = 1 ]; then
             # at shutdown netd and the links go away - not a tunnel error
             shutting_down && return 2
-            teardown
             ST_STATE=error; ST_REASON=$ERR
+            if error_blocks; then error_block || return 2; else teardown; fi
         else
             ST_ENDPOINT=""; [ -n "$T_EPIP" ] && ST_ENDPOINT="$T_EPIP:$T_PORT"
             [ -n "$T_EPHOST" ] && ST_EPHOST=$T_EP
@@ -956,24 +1021,7 @@ wgs_tick() {
             [ "$S_KILLSWITCH" = 0 ] && [ "$ST_STATE" != up ] && capture=0
             nets_classify; ST_NETS=$NETS_ST
             [ "$capture" = 1 ] || EXTRA=""
-            key="$DEFN|$NID|$LOCALTN|$T_EPIP|$capture|$(local_table)|$V6ON|$EXTRA|$(exempt_uids | tr -s ' ' ',')"
-            oldkey=$(cat "$STATE/rules.key" 2>/dev/null)
-            sig=$(rules_sig | cksum)
-            if [ "$key" != "$oldkey" ] || [ "$sig" != "$(cat "$STATE/rules.sig" 2>/dev/null)" ] || [ -f "$STATE/rules.dirty" ]; then
-                _fast=0; [ -f "$STATE/rules.dirty" ] && _fast=1
-                shutting_down && return 2
-                rules_apply "$capture"
-                echo "$key" > "$STATE/rules.key"
-                rules_sig | cksum > "$STATE/rules.sig"
-                _also=""; [ -n "$EXTRA" ] && _also=", also through the tunnel: $EXTRA_NAMES"
-                if [ -z "$oldkey" ]; then
-                    wlog INFO "routing on: network ${DEF:-none} (netId ${NID:-none}), kill switch $S_KILLSWITCH, IPv6 $( [ "$V6ON" = 1 ] && echo 'through the tunnel' || echo blocked)$_also"
-                elif [ "$key" != "$oldkey" ]; then
-                    wlog INFO "routing updated: network ${DEF:-none} (netId ${NID:-none}), capture $capture, IPv6 $( [ "$V6ON" = 1 ] && echo tunnel || echo blocked)$_also"
-                elif [ "$_fast" = 0 ]; then
-                    wlog WARN "routing rules were changed by someone else - repaired"
-                fi
-            fi
+            rules_sync "$capture" || return 2
             shutting_down && return 2
             dns_ensure "$capture"
             wg_transfer
@@ -986,10 +1034,11 @@ wgs_tick() {
         wlog INFO "networks: $(echo "$ST_NETS" | sed 's#/default# (default)#g; s#/tunnel# (through the tunnel)#g; s#/checking# (Android is checking it - through the tunnel meanwhile)#g; s#/outside# (stays outside: carrier service or no internet)#g; s#,#, #g')"
     fi
     cur="$ST_STATE $ST_REASON $ST_TUNNEL"
+    [ "$ST_BLOCK" = 1 ] && cur="$cur (blocked)"
     if [ "$cur" != "$prev" ]; then
         echo "$cur" > "$STATE/last_state"
         case "$ST_STATE" in
-            error) wlog ERROR "state: error ($ST_REASON) - direct connection" ;;
+            error) if [ "$ST_BLOCK" = 1 ]; then wlog ERROR "state: error ($ST_REASON) - kill switch blocks traffic"; else wlog ERROR "state: error ($ST_REASON) - direct connection"; fi ;;
             down) wlog WARN "state: down ($ST_REASON)$( [ "$S_KILLSWITCH" = 1 ] && echo ' - kill switch blocks traffic')" ;;
             *) wlog INFO "state: $ST_STATE${ST_REASON:+ ($ST_REASON)}${ST_TUNNEL:+ - $ST_TUNNEL}" ;;
         esac

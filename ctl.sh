@@ -29,6 +29,7 @@ usage() {
         '  pause <minutes>     direct connection for a while (1-1440), then back on' \
         '  resume              end a pause now' \
         '  set killswitch 0|1  1 = no internet while the tunnel is down (default)' \
+        '  set ks_error 0|1    1 = with the kill switch on, no internet also while the tunnel cannot be built (error); 0 = direct then (default)' \
         '  set autoswitch 0|1  1 = when restarts do not help, try other tunnels of the same country' \
         '  set notify 0|1      1 = a notification when the tunnel could not be fixed (default)' \
         '  set profile battery|always  checks only with the screen on (default) / day and night' \
@@ -58,7 +59,7 @@ set_locked() {
     ctl_lock; settings_load
     case "$1" in
         KILLSWITCH) S_KILLSWITCH=$2 ;; AUTOSWITCH) S_AUTOSWITCH=$2 ;; NOTIFY) S_NOTIFY=$2 ;;
-        PROFILE) S_PROFILE=$2 ;; CHECKS) S_CHECKS=$2 ;; LANDNS) S_LANDNS=$2 ;;
+        PROFILE) S_PROFILE=$2 ;; CHECKS) S_CHECKS=$2 ;; LANDNS) S_LANDNS=$2 ;; KS_ERROR) S_KS_ERROR=$2 ;;
     esac
     settings_save || fail "cannot write $CONF"
 }
@@ -391,6 +392,11 @@ case "$cmd" in
                 case "$2" in 0|1) : ;; *) fail "usage: set notify 0|1" ;; esac
                 set_locked NOTIFY "$2"
                 wlog INFO "ctl: notifications $2"
+                tick_locked; print_status ;;
+            ks_error|KS_ERROR)
+                case "$2" in 0|1) : ;; *) fail "usage: set ks_error 0|1" ;; esac
+                set_locked KS_ERROR "$2"
+                wlog INFO "ctl: kill switch on error $2"
                 tick_locked; print_status ;;
             landns|LANDNS)
                 case "$2" in 0|1) : ;; *) fail "usage: set landns 0|1" ;; esac
