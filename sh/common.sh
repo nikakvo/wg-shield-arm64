@@ -107,12 +107,15 @@ tunnel_name_ok() {
     [ "${#1}" -le 40 ]
 }
 
-# ipv4_ok ADDRESS - four dot-separated numbers 0-255 (no prefix)
+# ipv4_ok ADDRESS - four dot-separated numbers 0-255 (no prefix). No leading
+# zeros: "010.1.1.1" is 10.1.1.1 for one tool, 8.1.1.1 (octal) for another,
+# and iptables refuses it
 ipv4_ok() {
     case "$1" in ""|*[!0-9.]*|.*|*.|*..*) return 1 ;; esac
     _o=$IFS; IFS=.; set -f; set -- $1; set +f; IFS=$_o; unset _o
     [ $# = 4 ] || return 1
     for _x in "$@"; do
+        case "$_x" in 0?*) unset _x; return 1 ;; esac
         [ "${#_x}" -le 3 ] && [ "$_x" -le 255 ] 2>/dev/null || { unset _x; return 1; }
     done
     unset _x

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+* **The host-name endpoint lookup opens the way around the tunnel only for itself** - while a name was looked up (up to 6 s per resolver, again at most once a minute while the tunnel does not answer), rule 5001 sent every packet of the phone to the resolver's address around the tunnel. Since 2.8 these are 1.1.1.1, 1.0.0.1 and 8.8.8.8, which apps and Android's Private DNS use as well (DoT / DoH): such a connection left the tunnel for that moment, with the kill switch on too. Now the rule takes only root's DNS query (`uidrange 0-0 dport 53`); with an `ip` that does not know `dport` in rules, root's packets only; without `uidrange` as before
+* **An IPv6 DNS server written in a long form is used** - `DNS = FD00:0:0:0::53` (capitals, zeros not shortened) was set up, then not recognised in the rule list (ip6tables prints `fd00::53`), removed again, and IPv6 DNS was left to the network with a warning. The rules are now compared as ip6tables prints them
+* **Addresses with leading zeros are refused** at import (`Endpoint = 010.1.1.1:51820`, `Address = 10.2.0.02/32`, the same in `DNS =`): one tool reads `010` as 10, another as 8 (octal), and iptables refuses it
+* **Test harness** - the host-name endpoint lookup (new case `resolve`); the IPv6 DNS case without ip6tables failed on a PC since 2.7 (the test left `ip6tables-save` working); `-k dns6` alone runs
+
+---
 ## 2.8
 
 No more Quad9.

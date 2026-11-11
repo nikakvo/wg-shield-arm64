@@ -403,7 +403,14 @@ resolvers_now() {
 resolve_host() {
     [ -n "$DEF" ] || return 1
     for srv in $(resolvers_now); do
-        "$IP" rule add pref 5001 iif lo to "$srv/32" lookup "$DEFN" 2>/dev/null
+        # only root's DNS query (uid 0, port 53) goes around the tunnel: an
+        # app talking to the same address (1.1.1.1 and 8.8.8.8 are DoT / DoH
+        # servers too) stays in it meanwhile. An ip that does not know
+        # "dport" in a rule: by uid only; none of both: every packet to the
+        # resolver, as up to 2.8
+        "$IP" rule add pref 5001 iif lo to "$srv/32" uidrange 0-0 dport 53 lookup "$DEFN" 2>/dev/null ||
+            "$IP" rule add pref 5001 iif lo to "$srv/32" uidrange 0-0 lookup "$DEFN" 2>/dev/null ||
+            "$IP" rule add pref 5001 iif lo to "$srv/32" lookup "$DEFN" 2>/dev/null
         out=$("$BB" timeout 6 "$BB" nslookup "$1" "$srv" 2>/dev/null)
         while "$IP" rule del pref 5001 2>/dev/null; do :; done
         a=$(echo "$out" | awk '
@@ -473,12 +480,25 @@ _dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP]
     rm -f "$STATE/$3.want"
     unset _dd _dj
 }
-# _dns_ok DUMP SERVER - our chain is exactly what it should be
+# _dns_to DUMP SERVER - the DNAT target of our rules as the kernel prints
+# it: SERVER:53 for IPv4; for IPv6 the address in ip6tables' own short form
+# ("FD00:0:0:0::53" in a config is listed as [fd00::53]:53 - compared with
+# the config's text the chain would never be found right). Nothing when the
+# rules do not all name one target, or an IPv4 one is not SERVER's.
+_dns_to() {
+    _ot=$(printf '%s\n' "$1" | sed -n "s/^-A $DNSCHAIN -o $IFACE .*--dport 53 .*--to-destination \\([^ ]*\\)\$/\\1/p" | sort -u)
+    case "$2" in
+        *:*) case "$_ot" in "["*"]:53") [ "$(printf '%s\n' "$_ot" | grep -c .)" = 1 ] || _ot="" ;; *) _ot="" ;; esac ;;
+        *) [ "$_ot" = "$2:53" ] || _ot="" ;;
+    esac
+    echo "$_ot"; unset _ot
+}
+# _dns_ok DUMP TARGET - our chain is exactly what it should be
 _dns_ok() {
-    _ot=$(dns_dnat_to "$2")
+    [ -n "$2" ] &&
     [ "$(_nat_cnt "$1" "-A OUTPUT -j $DNSCHAIN")" = 1 ] &&
     [ "$(_nat_cnt "$1" "-A $DNSCHAIN ")" = 2 ] &&
-    [ "$(printf '%s\n' "$1" | grep -F -e "-A $DNSCHAIN " | grep -F -e "-o $IFACE " | grep -F -e "--dport 53" | grep -cF -e "--to-destination $_ot")" = 2 ] &&
+    [ "$(printf '%s\n' "$1" | grep -F -e "-A $DNSCHAIN " | grep -F -e "-o $IFACE " | grep -F -e "--dport 53" | grep -cF -e "--to-destination $2")" = 2 ] &&
     [ "$(_nat_cnt "$1" "-A POSTROUTING -j $DNSSNAT")" = 0 ]
 }
 _dns_apply() {  # _dns_apply TOOL SERVER
@@ -517,14 +537,17 @@ _dns_sync() {
         fi
         unset _x _s _n _t _du _w; return 0
     fi
-    _old=$(cat "$STATE/$_n.want" 2>/dev/null)
-    if [ "$_old" = "$_t" ] && _dns_ok "$_du" "$_t"; then unset _x _s _n _t _du _w _old; return 0; fi
+    # $STATE/<name>.want: the server as the config has it, then the DNAT
+    # target as the kernel printed it when the chain was set up
+    _old=$(sed -n 1p "$STATE/$_n.want" 2>/dev/null)
+    if [ "$_old" = "$_t" ] && _dns_ok "$_du" "$(sed -n 2p "$STATE/$_n.want" 2>/dev/null)"; then unset _x _s _n _t _du _w _old; return 0; fi
     # something is off (new server, or rules changed by someone else): rebuild
     _dns_del "$_x" "$_s" "$_n" "$_du"
     _dns_apply "$_x" "$_t"
     "$_x" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
-    if _dns_ok "$(_nat_dump "$_s" "$_x")" "$_t"; then
-        echo "$_t" > "$STATE/$_n.want"; rm -f "$STATE/$_n.bad"
+    _du=$(_nat_dump "$_s" "$_x"); _to=$(_dns_to "$_du" "$_t")
+    if _dns_ok "$_du" "$_to"; then
+        printf '%s\n%s\n' "$_t" "$_to" > "$STATE/$_n.want"; rm -f "$STATE/$_n.bad"
         if [ "$_old" = "$_t" ]; then wlog WARN "DNS$_w: the redirect to the tunnel's DNS was changed by someone else - repaired"
         else wlog INFO "DNS: apps use the tunnel's DNS $_t$_w"; fi
         _r=0
@@ -536,7 +559,7 @@ _dns_sync() {
         fi
         _r=1
     fi
-    unset _x _s _n _t _du _w _old
+    unset _x _s _n _t _du _w _old _to
     return $_r
 }
 

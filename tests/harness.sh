@@ -253,7 +253,7 @@ fi
 if want validate; then
     echo "validate: endpoint and address checks"
     reset_state
-    for ep in 203.0.113.1:0 203.0.113.1:65536 203.0.113.1:99999 999.1.1.1:51820 1.2.3:51820 1.2.3.4.5:51820; do
+    for ep in 203.0.113.1:0 203.0.113.1:65536 203.0.113.1:99999 999.1.1.1:51820 1.2.3:51820 1.2.3.4.5:51820 010.1.1.1:51820 203.0.113.01:51820; do
         conf "$WGS_DL/bad.conf" "$ep"
         check "endpoint $ep refused" 0 "$(ctl import bad.conf | kv imported)"
     done
@@ -268,6 +268,11 @@ if want validate; then
     check "address prefix /33 refused" 0 "$(ctl import addr.conf | kv imported)"
     sed -i 's#^Address = .*#Address = 10.2.0.2/24, fd00::2/128#' "$WGS_DL/addr.conf"
     check "address /24 + IPv6 accepted" 1 "$(ctl import addr.conf | kv imported)"
+    sed -i 's#^Address = .*#Address = 10.2.0.02/32#' "$WGS_DL/addr.conf"
+    check "address 10.2.0.02 (leading zero) refused" 0 "$(ctl import addr.conf | kv imported)"
+    conf "$WGS_DL/zero.conf" 203.0.113.0:51820
+    sed -i 's#^Address = .*#Address = 10.0.0.2/32#' "$WGS_DL/zero.conf"
+    check "octets that are 0 accepted" 1 "$(ctl import zero.conf | kv imported)"
 fi
 
 if want zipslip; then
@@ -701,6 +706,8 @@ fi
 if want dns6; then
     echo "dns6: IPv6 app DNS goes to the tunnel's IPv6 DNS while the tunnel carries IPv6"
     export WGS_IP="$FAKES/ipn"
+    nat() { cat "$WGS_IPT_DIR/nat" 2>/dev/null; }
+    hasnat() { nat | grep -qxF -- "$1" && echo yes || echo no; }
     nat6() { cat "$WGS_IPT_DIR/v6/nat" 2>/dev/null; }
     hasnat6() { nat6 | grep -qxF -- "$1" && echo yes || echo no; }
     J6="-A OUTPUT -j wgs_dns"; JS6="-A POSTROUTING -j wgs_dnss"
@@ -735,15 +742,21 @@ if want dns6; then
     check "IPv6 on again: redirect back" yes "$(hasnat6 "$DN6")"
     ctl down >/dev/null
     check "down: IPv6 redirect and SNAT removed" "no no" "$(hasnat6 "$J6") $(hasnat6 "$JS6")"
-    ctl up wg-CH-6 >/dev/null
-    WGS_IPT6="$RUN/no-ip6tables" ctl status >/dev/null; WGS_IPT6="$RUN/no-ip6tables" ctl status >/dev/null
+    WGS_IPT6="$RUN/no-ip6tables" WGS_IPTS6="$RUN/no-ip6tables-save" ctl up wg-CH-6 >/dev/null
+    WGS_IPT6="$RUN/no-ip6tables" WGS_IPTS6="$RUN/no-ip6tables-save" ctl status >/dev/null
     check "no ip6tables nat: one warning, no state" "1 no" "$(grep -c "could not send DNS for IPv6 to fd00::53" "$WGS_DATA/logs/wg-shield.log") $([ -f "$STATE/dns6.want" ] && echo yes || echo no)"
     check "no ip6tables nat: IPv4 redirect kept" yes "$(hasnat "-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
     ctl down >/dev/null
     # real ip6tables: a carrier IPv6 resolver routed into the tunnel
     IP6R=$(command -v ip6tables 2>/dev/null)
     if [ -n "$IP6R" ] && command -v python3 >/dev/null && "$IP6R" -w -t nat -L -n >/dev/null 2>&1 && "$IP6R" -w -t mangle -L -n >/dev/null 2>&1; then
+        # the server in a long form with capitals: ip6tables prints it as fd00::53
+        sed -i 's#^DNS = .*#DNS = 10.2.0.1, FD00:0:0:0::53#' "$WGS_DL/wg-CH-6.conf"
+        ctl import wg-CH-6.conf >/dev/null
+        REP0=$(grep -c 'DNS for IPv6: the redirect .* repaired' "$WGS_DATA/logs/wg-shield.log")
         WGS_IPTS6=$(command -v ip6tables-save) WGS_IPT6=$IP6R ctl up wg-CH-6 >/dev/null
+        WGS_IPTS6=$(command -v ip6tables-save) WGS_IPT6=$IP6R ctl status >/dev/null
+        check "real ip6tables: IPv6 DNS in a long form: set up once, no warning" "1 0 $REP0" "$(grep -c "apps use the tunnel's DNS FD00:0:0:0::53 for IPv6" "$WGS_DATA/logs/wg-shield.log") $(grep -c 'could not send DNS for IPv6 to FD00' "$WGS_DATA/logs/wg-shield.log") $(grep -c 'DNS for IPv6: the redirect .* repaired' "$WGS_DATA/logs/wg-shield.log")"
         "$IP6R" -w -t mangle -F POSTROUTING
         "$IP6R" -w -t mangle -A POSTROUTING -o wgs0 -s fd00::2 -d fd00::53 -p udp --dport 53 -j ACCEPT
         python3 -I -c 'import socket
@@ -782,6 +795,57 @@ if want webui; then
     else
         echo "  skip (node missing)"
     fi
+fi
+
+if want resolve; then
+    echo "resolve: host-name endpoint - only root's DNS query goes around the tunnel"
+    reset_state
+    RL="$RUN/resolve.log"; rm -f "$RL"
+    # busybox as resolve_host uses it ("timeout N CMD...", "nslookup NAME
+    # SERVER"); nslookup notes rule 5001 and where root's DNS query and an
+    # app's connection to the same address would go at that moment
+    cat > "$FAKES/bb" <<EOF
+#!/bin/sh
+dev() { case "\$1" in *"dev wgs0"*) echo wgs0 ;; *"dev wlan0"*) echo wlan0 ;; *) echo blocked ;; esac; }
+case "\$1" in
+    timeout) shift 2; exec "\$@" ;;
+    nslookup)
+        r=\$("$REALIP" rule | sed -n 's/^5001:[[:space:]]*//p' | tr -s '\t ' ' ' | sed 's/ \$//')
+        q=\$("$REALIP" route get "\$3" uid 0 ipproto udp dport 53 2>&1 | head -n 1)
+        a=\$("$REALIP" route get "\$3" uid 10000 ipproto tcp dport 853 2>&1 | head -n 1)
+        echo "\$3|\$r|\$(dev "\$q")|\$(dev "\$a")" >> "$RL"
+        [ "\$3" = 1.0.0.1 ] || exit 1
+        printf 'Server:\t\t%s\nAddress:\t%s:53\n\nName:\t%s\nAddress: 203.0.113.80\n' "\$3" "\$3" "\$2" ;;
+    *) exit 127 ;;
+esac
+EOF
+    chmod 755 "$FAKES/bb"
+    conf "$WGS_DL/wg-HO-1.conf" vpn.example.com:51820
+    ctl import wg-HO-1.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    WGS_BB="$FAKES/bb" ctl up wg-HO-1 >/dev/null
+    check "Cloudflare first; the second resolver answers" "1.1.1.1 1.0.0.1" "$(cut -d'|' -f1 "$RL" | tr '\n' ' ' | sed 's/ $//')"
+    check "the tunnel is up on the address from the lookup" "up 203.0.113.80:51820" "$(st state) $(st endpoint)"
+    check "rule 5001: root's DNS query to the resolver only" "from all to 1.1.1.1 iif lo uidrange 0-0 dport 53 lookup 1028" "$(sed -n 1p "$RL" | cut -d'|' -f2)"
+    # the tunnel stops answering while it captures traffic: the name is looked up again
+    : > "$RL"
+    echo 0 > "$STATE/resolved_at"; echo $(( $(date +%s) - 600 )) > "$STATE/fake_hs"
+    WGS_BB="$FAKES/bb" ctl status >/dev/null
+    check "looked up again: root's query leaves on the network" wlan0 "$(sed -n 1p "$RL" | cut -d'|' -f3)"
+    if [ "${WGS_UIDS:-0}" = 1 ]; then
+        check "meanwhile an app's connection to the resolver's address stays in the tunnel" wgs0 "$(sed -n 1p "$RL" | cut -d'|' -f4)"
+    else
+        echo "  skip app uid case (no --map-auto)"
+    fi
+    check "no rule 5001 left" 0 "$(ip rule | grep -c '^5001:')"
+    # an ip without "dport" in rules, then one without uidrange: still looked up
+    for v in dport uidrange; do
+        printf '#!/bin/sh\ncase "$*" in *"pref 5001"*"%s"*) exit 2 ;; esac\nexec "%s" "$@"\n' "$v" "$REALIP" > "$FAKES/ip-no$v"; chmod 755 "$FAKES/ip-no$v"
+        ctl down >/dev/null; : > "$RL"; date +%s > "$STATE/fake_hs"
+        WGS_IP="$FAKES/ip-no$v" WGS_BB="$FAKES/bb" ctl up wg-HO-1 >/dev/null
+        check "ip without $v in rules: looked up, $( [ "$v" = dport ] && echo 'uid only' || echo 'as before')" "up $( [ "$v" = dport ] && echo 'from all to 1.1.1.1 iif lo uidrange 0-0 lookup 1028' || echo 'from all to 1.1.1.1 iif lo lookup 1028')" "$(st state) $(sed -n 1p "$RL" | cut -d'|' -f2)"
+    done
+    ctl down >/dev/null
 fi
 
 if want busybox_path; then
