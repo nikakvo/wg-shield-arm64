@@ -14,7 +14,7 @@
 # tun_parse FILE -> T_* variables, T_ERR empty when usable, T_WARN notes
 tun_parse() {
     T_ADDR=""; T_EP=""; T_EPIP=""; T_MTU=1420; T_KA=""; T_ERR=""; T_WARN=""; T_TYPE=wireguard; _awg=0; _hpk=0
-    _ni=0; _np=0; _pk=0; _pub=0; _psk=0; T_ADDR6=""; T_V6=0; _addr=""; _mtu=""; _dns=""; _ign=""; _aips=""; T_DNS=""; T_DNS6=""
+    _ni=0; _np=0; _pk=0; _pub=0; _psk=0; T_ADDR6=""; T_V6=0; _addr=""; _mtu=""; _dns=""; _ign=""; _aips=""; T_DNS=""; T_DNS6=""; T_DNSALL=""
     [ -f "$1" ] || { T_ERR="file not found"; return 1; }
     _out=$(tr -d '\r' 2>/dev/null < "$1" | awk '
     function trim(s) { gsub(/[ \t]/, "", s); return s }
@@ -111,9 +111,13 @@ tun_parse() {
     esac
     # DNS: the first IPv4 server is used while the tunnel is on, the first
     # IPv6 server while it carries IPv6 too (sh/net.sh dns_ensure); search
-    # domains are not used
+    # domains are not used. T_DNSALL: every IPv4 server in the line's order -
+    # the next one takes over when the active one stops answering (sh/recover.sh
+    # dns_fo_check)
     for _d in $(echo "$_dns" | tr ',' ' '); do
-        if ipv4_ok "$_d"; then [ -z "$T_DNS" ] && T_DNS=$_d
+        if ipv4_ok "$_d"; then
+            [ -z "$T_DNS" ] && T_DNS=$_d
+            case " $T_DNSALL " in *" $_d "*) : ;; *) T_DNSALL="$T_DNSALL${T_DNSALL:+ }$_d" ;; esac
         else
             case "$_d" in *:*:*) case "$_d" in *[!0-9A-Fa-f:]*|*:::*) : ;; *) [ -z "$T_DNS6" ] && [ "${#_d}" -le 39 ] && T_DNS6=$_d ;; esac ;; esac
         fi

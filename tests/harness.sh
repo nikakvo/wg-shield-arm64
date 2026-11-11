@@ -820,6 +820,7 @@ if want landns; then
     check "tunnel down: status" "1 tunnel -" "$(st landns) $(st dns) $(st dns_lan)-"
     check "tunnel down: no SNAT chain left" no "$(nat | grep -qx -- '-N wgs_dnss' && echo yes || echo no)"
     check "tunnel down: logged" 1 "$(grep -c 'DNS: LAN DNS left to the network again' "$WGS_DATA/logs/wg-shield.log")"
+    check "the server did not change: 'apps use the tunnel's DNS' logged once only" 1 "$(grep -c "DNS: apps use the tunnel's DNS 10.2.0.1" "$WGS_DATA/logs/wg-shield.log")"
     date +%s > "$STATE/fake_hs"; ctl status >/dev/null
     check "up again: Wi-Fi DNS redirected again" "up yes yes" "$(st state) $(hasnat "$DL") $(hasnat "$SN")"
     # connecting (no handshake yet) on a new tunnel: not redirected
@@ -854,6 +855,122 @@ if want landns; then
     check "no DNS line: nothing set up" "up network 0" "$(st state) $(st dns) $(nat | grep -c -- 'wgs_dns')"
     ctl down >/dev/null
     check "lock released" no "$([ -d "$STATE/lock" ] && echo yes || echo no)"
+    export WGS_IP="$REALIP"
+fi
+
+if want dns_failover; then
+    echo "dns_failover: several IPv4 servers in the DNS line - the next one takes over when the active one stops answering"
+    nat() { cat "$WGS_IPT_DIR/nat" 2>/dev/null; }
+    hasnat() { nat | grep -qxF -- "$1" && echo yes || echo no; }
+    natn() { nat | grep -nxF -- "$1" | head -n 1 | cut -d: -f1; }
+    dnat_to() { nat | sed -n 's/^-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination //p'; }
+    export WGS_IP="$FAKES/ipn"
+    reset_state; rm -rf "$WGS_IPT_DIR"
+    DQ="$RUN/dnsq.log"; DM="$RUN/dnsmode"; rm -f "$DQ" "$DM"
+    # busybox as the check uses it: "--list", "timeout N CMD...", "nslookup
+    # NAME SERVER". What a server says is in $DM ("<server> answer|nxdomain|
+    # timeout", default answer); the output is what busybox 1.35 prints
+    cat > "$FAKES/bbdns" <<EOF
+#!/bin/sh
+case "\$1" in
+    --list) printf 'nslookup\ntimeout\n' ;;
+    timeout) shift 2; exec "\$@" ;;
+    nslookup)
+        echo "\$3 \$2" >> "$DQ"
+        case "\$(sed -n "s/^\$3 //p" "$DM" 2>/dev/null | tail -n 1)" in
+            timeout) exit 143 ;;
+            nxdomain) printf 'Server:\t\t%s\nAddress:\t%s:53\n\n** server can'"'"'t find %s: NXDOMAIN\n\n' "\$3" "\$3" "\$2"; exit 1 ;;
+            *) printf 'Server:\t\t%s\nAddress:\t%s:53\n\nNon-authoritative answer:\nName:\t%s\nAddress: 203.0.113.99\n\n' "\$3" "\$3" "\$2" ;;
+        esac ;;
+    *) exit 127 ;;
+esac
+EOF
+    printf '#!/bin/sh\nexit 0\n' > "$FAKES/ping-ok"
+    printf '#!/bin/sh\ncase "$1" in --list) echo timeout ;; *) exit 127 ;; esac\n' > "$FAKES/bbnons"
+    chmod 755 "$FAKES/bbdns" "$FAKES/ping-ok" "$FAKES/bbnons"
+    mkdir -p "$WGS_SYSNET/wgs0"
+    # one liveness check as the watchdog runs it between ticks (the tunnel answers the ping)
+    lc() { rm -f "$STATE/live_probe_at"; WGS_PING="$FAKES/ping-ok" WGS_BB="${LCBB:-$FAKES/bbdns}" WGS_DNS_FO_EVERY="${LCEVERY:-0}" $TSH -c '. "$WGS_MODDIR/sh/common.sh"; . "$WGS_MODDIR/sh/tunnels.sh"; . "$WGS_MODDIR/sh/net.sh"; settings_load; live_check; echo "rc=$?"'; }
+    asked() { cut -d' ' -f1 "$DQ" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+    conf "$WGS_DL/wg-FO-1.conf" 203.0.113.67:51820
+    sed -i 's#^DNS = .*#DNS = 10.2.0.1, fd00::53, 10.2.0.9, example.lan, 10.2.0.1, 10.2.0.7#' "$WGS_DL/wg-FO-1.conf"
+    ctl import wg-FO-1.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-FO-1 >/dev/null
+    check "every IPv4 server kept in order (no doubles), after the existing lines of tunnel.info" "10.2.0.1|fd00::53|10.2.0.1 10.2.0.9 10.2.0.7|203.0.113.67" "$(sed -n 10p "$STATE/tunnel.info")|$(sed -n 11p "$STATE/tunnel.info")|$(sed -n 12p "$STATE/tunnel.info")|$(sed -n 3p "$STATE/tunnel.info")"
+    check "the first server is the active one" "tunnel 10.2.0.1 10.2.0.1:53" "$(st dns) $(st dns_server) $(dnat_to)"
+    check "a query to a listed server is not redirected (RETURN first)" "yes yes yes 5" \
+        "$([ "$(natn "-A wgs_dns -d 10.2.0.1 -j RETURN")" -lt "$(natn "-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")" ] 2>/dev/null && echo yes || echo no) $(hasnat "-A wgs_dns -d 10.2.0.9 -j RETURN") $(hasnat "-A wgs_dns -d 10.2.0.7 -j RETURN") $(nat | grep -c -- '^-A wgs_dns ')"
+    check "the active server answers: asked once, nothing changes" "rc=0 10.2.0.1 example.com 10.2.0.1" "$(lc) $(cat "$DQ") $(st dns_server)"
+    : > "$DQ"; echo "10.2.0.1 nxdomain" > "$DM"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "'no such name' is an answer too" "10.2.0.1 10.2.0.1|10.2.0.1" "$(asked)|$(st dns_server)"
+    : > "$DQ"; echo "10.2.0.1 timeout" > "$DM"
+    check "no reply once: no switch yet" "rc=0 no" "$(lc) $([ -f "$STATE/dns_srv" ] && echo yes || echo no)"
+    echo "10.2.0.1 answer" > "$DM"; lc >/dev/null; echo "10.2.0.1 timeout" > "$DM"
+    check "an answer in between: the count starts again" "rc=0 no" "$(lc) $([ -f "$STATE/dns_srv" ] && echo yes || echo no)"
+    check "no reply twice in a row: the next server, tick now" "rc=1 10.2.0.9" "$(lc) $(sed -n 1p "$STATE/dns_srv")"
+    check "warning in the log" 1 "$(grep -c 'WARN.*DNS: 10.2.0.1 does not answer through the tunnel.* - switching to 10.2.0.9' "$WGS_DATA/logs/wg-shield.log")"
+    ctl status >/dev/null
+    check "the tick redirects to the next server; status shows it" "10.2.0.9:53 tunnel 10.2.0.9 2" "$(dnat_to) $(st dns) $(st dns_server) $(nat | grep -c -- '--to-destination 10.2.0.9:53$')"
+    check "listed servers still RETURN, nothing left of the old target" "yes yes 0 5" "$(hasnat "-A wgs_dns -d 10.2.0.1 -j RETURN") $(hasnat "-A wgs_dns -d 10.2.0.9 -j RETURN") $(nat | grep -c -- '--to-destination 10.2.0.1:53$') $(nat | grep -c -- '^-A wgs_dns ')"
+    check "logged as a new DNS, not as a repair" "1 0" "$(grep -c "apps use the tunnel's DNS 10.2.0.9" "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log")"
+    : > "$DQ"; rm -f "$DM"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "it stays on the server that answers; that one is asked" "10.2.0.9 10.2.0.9|10.2.0.9" "$(asked)|$(st dns_server)"
+    printf '10.2.0.9 timeout\n10.2.0.7 timeout\n' > "$DM"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "the second one fails too: the third" 10.2.0.7 "$(st dns_server)"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "the last one fails: around to the first" "10.2.0.1 10.2.0.1:53" "$(st dns_server) $(dnat_to)"
+    rm -f "$DM"
+    # at most one question a minute
+    : > "$DQ"; rm -f "$STATE/dns_fo_at"
+    LCEVERY=60 lc >/dev/null; LCEVERY=60 lc >/dev/null; LCEVERY=60 lc >/dev/null
+    check "at most one question in 60 s" 1 "$(grep -c . "$DQ")"
+    # a result that belongs to another tunnel load is not used
+    printf '10.2.0.9\nsome-other-tunnel 123\n' > "$STATE/dns_srv"
+    ctl status >/dev/null
+    check "a switch noted for another tunnel load is ignored" 10.2.0.1 "$(st dns_server)"
+    # reset to the first server when the tunnel is loaded again / another one / off
+    echo "10.2.0.1 timeout" > "$DM"; lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "(on the second server again)" 10.2.0.9 "$(st dns_server)"
+    ctl restart >/dev/null 2>&1; wd=$(cat "$STATE/watchdog.pid" 2>/dev/null); [ -n "$wd" ] && kill "$wd" 2>/dev/null; sleep 0.3
+    p=$(cat "$STATE/monitor.pid" 2>/dev/null); [ -n "$p" ] && kill "$p" 2>/dev/null
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "tunnel loaded again: the first server" "up 10.2.0.1 no" "$(st state) $(st dns_server) $([ -f "$STATE/dns_srv" ] && echo yes || echo no)"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "(on the second server again)" 10.2.0.9 "$(st dns_server)"
+    ctl down >/dev/null
+    check "tunnel off: nothing kept" "no no" "$([ -f "$STATE/dns_srv" ] && echo yes || echo no) $([ -f "$STATE/dns_fo_fail" ] && echo yes || echo no)"
+    date +%s > "$STATE/fake_hs"; ctl up wg-FO-1 >/dev/null
+    check "on again: the first server" 10.2.0.1 "$(st dns_server)"
+    # LAN DNS through the tunnel follows the active server
+    ctl set landns 1 >/dev/null
+    check "landns: SNAT for the active server, every listed server RETURN" "yes yes yes" "$(hasnat "-A wgs_dnss -o wgs0 -d 10.2.0.1 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2") $(hasnat "-A wgs_dns -d 10.2.0.9 -j RETURN") $(hasnat "-A wgs_dns -o wlan0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "landns: after the switch both follow" "10.2.0.9 yes yes 0" "$(st dns_server) $(hasnat "-A wgs_dnss -o wgs0 -d 10.2.0.9 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2") $(hasnat "-A wgs_dns -o wlan0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.9:53") $(nat | grep -c -- '-d 10.2.0.1 -p')"
+    ctl set landns 0 >/dev/null
+    rm -f "$DM"
+    # not asked at all: DNSCrypt Proxy takes DNS, no busybox / no nslookup, one server only
+    ctl down >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-FO-1 >/dev/null
+    DC="-A OUTPUT -p udp -m udp --dport 53 -j DNAT --to-destination 127.0.0.1:5354"
+    echo "$DC" >> "$WGS_IPT_DIR/nat"; ctl status >/dev/null
+    : > "$DQ"; echo "10.2.0.1 timeout" > "$DM"
+    lc >/dev/null; lc >/dev/null
+    check "DNSCrypt Proxy takes DNS: nothing asked" "dnscrypt 0" "$(st dns) $(grep -c . "$DQ")"
+    grep -vxF -- "$DC" "$WGS_IPT_DIR/nat" > "$WGS_IPT_DIR/nat.n"; mv "$WGS_IPT_DIR/nat.n" "$WGS_IPT_DIR/nat"; ctl status >/dev/null
+    LCBB="$RUN/no-busybox" lc >/dev/null; LCBB="$RUN/no-busybox" lc >/dev/null
+    LCBB="$FAKES/bbnons" lc >/dev/null; LCBB="$FAKES/bbnons" lc >/dev/null
+    check "no busybox, or one without nslookup: nothing asked, no switch" "0 no" "$(grep -c . "$DQ") $([ -f "$STATE/dns_srv" ] && echo yes || echo no)"
+    ctl down >/dev/null
+    conf "$WGS_DL/wg-FO-2.conf" 203.0.113.68:51820
+    ctl import wg-FO-2.conf >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-FO-2 >/dev/null
+    echo "10.2.0.1 timeout" > "$DM"; : > "$DQ"
+    lc >/dev/null; lc >/dev/null
+    check "one server only: nothing asked, the chain as always" "0 2 10.2.0.1" "$(grep -c . "$DQ") $(nat | grep -c -- '^-A wgs_dns ') $(sed -n 12p "$STATE/tunnel.info")"
+    ctl down >/dev/null
+    rm -rf "$WGS_SYSNET/wgs0" "$DM" "$DQ"
     export WGS_IP="$REALIP"
 fi
 

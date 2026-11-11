@@ -429,6 +429,11 @@ resolve_host() {
 # So app DNS (port 53) that the routing already sends INTO the tunnel (-o
 # wgs0) goes to the tunnel's DNS instead: the first IPv4 server of the
 # config's DNS line (the first IPv6 one while the tunnel carries IPv6).
+# A DNS line with several IPv4 servers: the active one starts as the first;
+# when it stops answering the next one takes over (sh/recover.sh
+# dns_fo_check writes $STATE/dns_srv, dns_active reads it). The chain then
+# starts with a RETURN for every listed server, so the check's question to
+# one of them is not sent to the active one.
 # Only -o wgs0, on purpose:
 # - Android's network check and the captive portal login are routed on
 #   their own network (5014), never into wgs0, so they keep the network's
@@ -455,7 +460,7 @@ resolve_host() {
 # carries the LAN source address: after the redirect it is routed again,
 # into wgs0, and nat POSTROUTING (chain wgs_dnss) gives it the tunnel's own
 # address, the only source the tunnel's server accepts. The chain then is:
-#   -d 127.0.0.0/8, -d <tunnel DNS>          RETURN
+#   -d 127.0.0.0/8, -d <every listed tunnel DNS>   RETURN
 #   mark of every network that stays outside RETURN (carrier service
 #                                            networks, also when they share
 #                                            an interface)
@@ -526,14 +531,16 @@ _dns_to() {
 #   DNS_OUT   netId marks of the networks that stay outside
 #   DNS_CHK   netId marks of the networks Android is still checking
 #   DNS_RES   resolvers of the endpoint lookup
-#   DNS_ND DNS_NR  number of DNAT / RETURN rules the chain then has
+# and adds the rules this needs to DNS_ND / DNS_NR (number of DNAT / RETURN
+# rules of the chain, started by dns_ensure).
 # From $STATE/nets (nets_classify: "<netId> <table> <class> <number>"). A
 # table without its name yet (netd adds it to rt_tables a moment after the
 # network's rules, see tbl_num) is left out; the name is part of the key, so
 # the chain is rebuilt once it is there.
 dns_lan() {
-    DNS_LAN=""; DNS_OIFS=""; DNS_OUT=""; DNS_CHK=""; DNS_RES=""; DNS_ND=2; DNS_NR=0
+    DNS_LAN=""; DNS_OIFS=""; DNS_OUT=""; DNS_CHK=""; DNS_RES=""
     [ -n "$DEF" ] || return 0
+    _nd=0; _nr=1    # RETURN: loopback
     _oifs=$IFS; IFS='
 '
     for _l in $(tail -n +3 "$STATE/nets" 2>/dev/null); do
@@ -542,30 +549,46 @@ dns_lan() {
         case "$3" in
             default|tunnel)
                 case "$2" in ""|"$IFACE"|*[!A-Za-z0-9._-]*) continue ;; *[!0-9]*) : ;; *) continue ;; esac
-                case " $DNS_OIFS " in *" $2 "*) : ;; *) DNS_OIFS="$DNS_OIFS${DNS_OIFS:+ }$2"; DNS_ND=$((DNS_ND + 2)) ;; esac ;;
-            outside) case "$1" in 0x*[!0-9a-fx]*) : ;; 0x?*) DNS_OUT="$DNS_OUT${DNS_OUT:+ }$1"; DNS_NR=$((DNS_NR + 1)) ;; esac ;;
-            checking) case "$1" in 0x*[!0-9a-fx]*) : ;; 0x?*) DNS_CHK="$DNS_CHK${DNS_CHK:+ }$1"; DNS_NR=$((DNS_NR + 1)) ;; esac ;;
+                case " $DNS_OIFS " in *" $2 "*) : ;; *) DNS_OIFS="$DNS_OIFS${DNS_OIFS:+ }$2"; _nd=$((_nd + 2)) ;; esac ;;
+            outside) case "$1" in 0x*[!0-9a-fx]*) : ;; 0x?*) DNS_OUT="$DNS_OUT${DNS_OUT:+ }$1"; _nr=$((_nr + 1)) ;; esac ;;
+            checking) case "$1" in 0x*[!0-9a-fx]*) : ;; 0x?*) DNS_CHK="$DNS_CHK${DNS_CHK:+ }$1"; _nr=$((_nr + 1)) ;; esac ;;
         esac
     done
     IFS=$_oifs
-    unset _l _oifs
-    [ -n "$DNS_OIFS" ] || return 0
-    DNS_RES=$(resolvers_now)
-    for _l in $DNS_RES; do DNS_NR=$((DNS_NR + 1)); done
-    unset _l
-    DNS_NR=$((DNS_NR + 2))    # loopback, the tunnel's DNS
-    DNS_LAN="lan ${T_ADDR%/*}|$DNS_OIFS|$DNS_OUT|$DNS_CHK|$DNS_RES"
+    if [ -n "$DNS_OIFS" ]; then
+        DNS_RES=$(resolvers_now)
+        for _l in $DNS_RES; do _nr=$((_nr + 1)); done
+        DNS_ND=$((DNS_ND + _nd)); DNS_NR=$((DNS_NR + _nr))
+        DNS_LAN="lan ${T_ADDR%/*}|$DNS_OIFS|$DNS_OUT|$DNS_CHK|$DNS_RES"
+    fi
+    unset _l _oifs _nd _nr
 }
-# _dns_ok DUMP TARGET [LAN] - our chain is exactly what it should be: one
-# jump from OUTPUT, the two rules for wgs0 and nothing else - with LAN (the
-# key dns_lan made) the DNS_ND DNAT rules, all to TARGET, the DNS_NR RETURN
-# rules, and in POSTROUTING one jump to the two SNAT rules to the tunnel's
-# own address; without it no SNAT chain. Counted as the kernel prints the
-# rules (TARGET is read back from it), last words compared whole: a rule to
-# 10.2.0.20 is not one to 10.2.0.2.
+# dns_active "SERVERS" LOADED - the active one of the DNS line's IPv4
+# servers: the first, or the one dns_fo_check switched to for this tunnel
+# load ($STATE/dns_srv: the server, then $STATE/loaded as it was then - a
+# result that arrives after another tunnel was loaded is not used)
+dns_active() {
+    _da=$(sed -n 1p "$STATE/dns_srv" 2>/dev/null)
+    if [ -n "$_da" ] && [ "$(sed -n 2p "$STATE/dns_srv" 2>/dev/null)" = "$2" ]; then
+        case " $1 " in *" $_da "*) echo "$_da"; unset _da; return 0 ;; esac
+    fi
+    unset _da
+    echo "${1%% *}"
+}
+# _dns_ok DUMP TARGET [EXTRA] - our chain is exactly what it should be: one
+# jump from OUTPUT, the two rules for wgs0 and nothing else, no SNAT chain.
+# With EXTRA (dns_ensure's DNS_KEY: several servers and / or LAN DNS): the
+# DNS_ND DNAT rules, all to TARGET, the DNS_NR RETURN rules, and with LAN
+# DNS in POSTROUTING one jump to the two SNAT rules to the tunnel's own
+# address. Counted as the kernel prints the rules (TARGET is read back from
+# it), last words compared whole: a rule to 10.2.0.20 is not one to 10.2.0.2.
 _dns_ok() {
     [ -n "$2" ] || return 1
-    if [ -n "$3" ]; then _ow="1 $((DNS_ND + DNS_NR)) $DNS_ND 2 $DNS_NR 1 2 2"; else _ow="1 2 2 2 0 0 0 0"; fi
+    _ow="1 2 2 2 0 0 0 0"
+    if [ -n "$3" ]; then
+        _ow="1 $((DNS_ND + DNS_NR)) $DNS_ND 2 $DNS_NR"
+        if [ -n "$DNS_LAN" ]; then _ow="$_ow 1 2 2"; else _ow="$_ow 0 0 0"; fi
+    fi
     _oh=$(printf '%s\n' "$1" | awk -v c="$DNSCHAIN" -v s="$DNSSNAT" -v o=" -o $IFACE " -v t="$2" -v a="${T_ADDR%/*}" '
         $1 != "-A" { next }
         NF == 4 && $3 == "-j" && $2 == "OUTPUT" && $4 == c { j++ }
@@ -581,21 +604,28 @@ _dns_ok() {
     unset _ow _oh
     return $_or
 }
-# _dns_apply TOOL SERVER [LAN] - fills the chain; with LAN (dns_lan's key)
-# the layout described above, the SNAT chain first
+# _dns_apply TOOL SERVER [EXTRA] - fills the chain; with EXTRA (DNS_KEY) the
+# RETURN rules for DNS_TOP first, and with LAN DNS (DNS_LAN) the layout
+# described above, the SNAT chain before everything else
 _dns_apply() {
     "$1" -w -t nat -N "$DNSCHAIN" 2>/dev/null || "$1" -w -t nat -F "$DNSCHAIN" 2>/dev/null
-    _at=$(dns_dnat_to "$2")
-    if [ -n "$3" ]; then
+    _at=$(dns_dnat_to "$2"); _al=""
+    [ -n "$3" ] && _al=$DNS_LAN
+    if [ -n "$_al" ]; then
         _aa=${T_ADDR%/*}
         "$1" -w -t nat -N "$DNSSNAT" 2>/dev/null || "$1" -w -t nat -F "$DNSSNAT" 2>/dev/null
         for _p in udp tcp; do
             "$1" -w -t nat -A "$DNSSNAT" -o "$IFACE" -d "$2" -p "$_p" --dport 53 ! -s "$_aa" -j SNAT --to-source "$_aa" 2>/dev/null
         done
         "$1" -w -t nat -A POSTROUTING -j "$DNSSNAT" 2>/dev/null
-        for _d in 127.0.0.0/8 "$2"; do
+        "$1" -w -t nat -A "$DNSCHAIN" -d 127.0.0.0/8 -j RETURN 2>/dev/null
+    fi
+    if [ -n "$3" ]; then
+        for _d in $DNS_TOP; do
             "$1" -w -t nat -A "$DNSCHAIN" -d "$_d" -j RETURN 2>/dev/null
         done
+    fi
+    if [ -n "$_al" ]; then
         for _m in $DNS_OUT; do
             "$1" -w -t nat -A "$DNSCHAIN" -m mark --mark "$_m/0xffff" -j RETURN 2>/dev/null
         done
@@ -603,7 +633,7 @@ _dns_apply() {
     for _p in udp tcp; do
         "$1" -w -t nat -A "$DNSCHAIN" -o "$IFACE" -p "$_p" --dport 53 -j DNAT --to-destination "$_at" 2>/dev/null
     done
-    if [ -n "$3" ]; then
+    if [ -n "$_al" ]; then
         for _m in $DNS_CHK; do
             "$1" -w -t nat -A "$DNSCHAIN" -m mark --mark "$_m/0xffff" -j RETURN 2>/dev/null
         done
@@ -616,29 +646,36 @@ _dns_apply() {
             done
         done
     fi
-    unset _p _at _aa _d _m
+    unset _p _at _aa _al _d _m
 }
 
 # dns_ensure CAPTURE - sets ST_DNS (tunnel | dnscrypt | network), ST_DNS_SERVER
 # and ST_DNS_LAN (the interfaces whose DNS goes to the tunnel's DNS as well)
 dns_ensure() {
     _d4=$(_nat_dump "$IPTS" "$IPT")
-    _w4=""; _w6=""; DNS_LAN=""
+    _w4=""; _w6=""; DNS_LAN=""; DNS_TOP=""; DNS_KEY=""; DNS_ND=2; DNS_NR=0
     if dnsc_dnat "$_d4"; then ST_DNS=dnscrypt
     else
         ST_DNS=network
         [ "$1" = 1 ] && [ -n "$T_DNS" ] && _w4=$T_DNS
         [ -n "$_w4" ] && [ "$V6ON" = 1 ] && [ -n "$T_DNS6" ] && _w6=$T_DNS6
-        [ -n "$_w4" ] && [ "$S_LANDNS" = 1 ] && [ "$ST_STATE" = up ] && dns_lan
+        if [ -n "$_w4" ]; then
+            # several IPv4 servers: the active one, every listed one RETURN
+            case "$T_DNSALL" in *" "*) _w4=$(dns_active "$T_DNSALL" "$(cat "$STATE/loaded" 2>/dev/null)"); DNS_TOP=$T_DNSALL; DNS_KEY="srv $T_DNSALL" ;; esac
+            [ "$S_LANDNS" = 1 ] && [ "$ST_STATE" = up ] && dns_lan
+            if [ -n "$DNS_LAN" ]; then [ -n "$DNS_TOP" ] || DNS_TOP=$_w4; DNS_KEY="${DNS_KEY:+$DNS_KEY|}$DNS_LAN"; fi
+            for _s in $DNS_TOP; do DNS_NR=$((DNS_NR + 1)); done
+            unset _s
+        fi
     fi
-    _dns_sync "$IPT" "$IPTS" dns "$_w4" "$_d4" "" "$DNS_LAN" && [ -n "$_w4" ] && { ST_DNS=tunnel; ST_DNS_SERVER=$_w4; [ -n "$DNS_LAN" ] && ST_DNS_LAN=$DNS_OIFS; }
+    _dns_sync "$IPT" "$IPTS" dns "$_w4" "$_d4" "" "$DNS_KEY" && [ -n "$_w4" ] && { ST_DNS=tunnel; ST_DNS_SERVER=$_w4; [ -n "$DNS_LAN" ] && ST_DNS_LAN=$DNS_OIFS; }
     if [ -n "$_w6" ] || [ -f "$STATE/dns6.want" ]; then
         _dns_sync "$IPT6" "$IPTS6" dns6 "$_w6" "$(_nat_dump "$IPTS6" "$IPT6")" " for IPv6" &&
             [ -n "$_w6" ] && [ "$ST_DNS" = tunnel ] && ST_DNS_SERVER="$ST_DNS_SERVER $_w6"
     fi
     unset _d4 _w4 _w6
 }
-# _dns_sync TOOL SAVE STATENAME SERVER DUMP LABEL [LAN] - 0 when the state is as wanted
+# _dns_sync TOOL SAVE STATENAME SERVER DUMP LABEL [EXTRA] - 0 when the state is as wanted
 _dns_sync() {
     _x=$1; _s=$2; _n=$3; _t=$4; _du=$5; _w=$6; _lk=$7
     if [ -z "$_t" ]; then
@@ -649,9 +686,9 @@ _dns_sync() {
         fi
         unset _x _s _n _t _du _w _lk; return 0
     fi
-    # $STATE/<name>.want: the server as the config has it (with LAN DNS
-    # through the tunnel: and "|" + dns_lan's key), then the DNAT target as
-    # the kernel printed it when the chain was set up
+    # $STATE/<name>.want: the server as the config has it (with several
+    # servers and / or LAN DNS through the tunnel: and "|" + DNS_KEY), then
+    # the DNAT target as the kernel printed it when the chain was set up
     _k=$_t${_lk:+|$_lk}
     _old=$(sed -n 1p "$STATE/$_n.want" 2>/dev/null)
     if [ "$_old" = "$_k" ] && _dns_ok "$_du" "$(sed -n 2p "$STATE/$_n.want" 2>/dev/null)" "$_lk"; then unset _x _s _n _t _du _w _lk _k _old; return 0; fi
@@ -664,10 +701,15 @@ _dns_sync() {
     if _dns_ok "$_du" "$_to" "$_lk"; then
         printf '%s\n%s\n' "$_k" "$_to" > "$STATE/$_n.want"; rm -f "$STATE/$_n.bad"
         if [ "$_old" = "$_k" ]; then wlog WARN "DNS$_w: the redirect to the tunnel's DNS was changed by someone else - repaired"
-        elif [ "${_old%%|*}" != "$_t" ]; then wlog INFO "DNS: apps use the tunnel's DNS $_t$_w"; fi
-        if [ "$_old" != "$_k" ]; then
-            if [ -n "$_lk" ]; then wlog INFO "DNS: LAN DNS through the tunnel too - DNS leaving through $(echo "$DNS_OIFS" | sed 's/ /, /g') goes to $_t"
-            else case "$_old" in "$_t|"*) wlog INFO "DNS: LAN DNS left to the network again - only DNS routed into the tunnel goes to $_t" ;; esac; fi
+        elif [ "${_old%%"|"*}" != "$_t" ]; then wlog INFO "DNS: apps use the tunnel's DNS $_t$_w"; fi
+        # the LAN part of the old and the new layout ("|lan ..." of the key;
+        # the "|" quoted: mksh reads a bare one in a pattern as "or")
+        _ol=""; case "$_old" in *"|lan "*) _ol=${_old#*"|lan "} ;; esac
+        _nl=""; case "$_k" in *"|lan "*) _nl=${_k#*"|lan "} ;; esac
+        if [ -n "$_nl" ]; then
+            [ "$_old" = "$_k" ] || wlog INFO "DNS: LAN DNS through the tunnel too - DNS leaving through $(echo "$DNS_OIFS" | sed 's/ /, /g') goes to $_t"
+        elif [ -n "$_ol" ] && [ "${_old%%"|"*}" = "$_t" ]; then
+            wlog INFO "DNS: LAN DNS left to the network again - only DNS routed into the tunnel goes to $_t"
         fi
         _r=0
     else
@@ -678,7 +720,7 @@ _dns_sync() {
         fi
         _r=1
     fi
-    unset _x _s _n _t _du _w _lk _k _old _to
+    unset _x _s _n _t _du _w _lk _k _old _to _ol _nl
     return $_r
 }
 
@@ -712,7 +754,7 @@ teardown() {
     "$IP" -6 route flush table "$TABLE" 2>/dev/null
     "$IP" link del "$IFACE" 2>/dev/null
     rm -f "$STATE/dns.bad" "$STATE/dns6.bad"
-    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused"
+    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
 }
 
 # tunnel_ensure NAME - iface exists with the tunnel's type, carries NAME's
@@ -766,12 +808,13 @@ tunnel_ensure() {
         "$IP" addr flush dev "$IFACE" 2>/dev/null
         "$IP" addr add "$T_ADDR" dev "$IFACE" 2>/dev/null
         info_save
+        rm -f "$STATE/dns_srv" "$STATE/dns_fo_fail"   # DNS: the first server again
         echo "$ck" > "$STATE/loaded"
         mono_now > "$STATE/up_since"
         live_reset   # liveness of the previous tunnel / interface does not count
         [ "$fresh" = 1 ] && wlog INFO "tunnel $name up (endpoint $T_EP, $T_TYPE)" || wlog INFO "tunnel $name loaded (endpoint $T_EP, $T_TYPE)"
     else
-        { read -r T_ADDR; read -r T_EP; read -r T_EPIP; read -r T_MTU; read -r T_EPHOST; read -r T_PORT; read -r T_ADDR6; read -r T_V6; read -r T_TYPE; read -r T_DNS; read -r T_DNS6; } 2>/dev/null < "$STATE/tunnel.info"
+        { read -r T_ADDR; read -r T_EP; read -r T_EPIP; read -r T_MTU; read -r T_EPHOST; read -r T_PORT; read -r T_ADDR6; read -r T_V6; read -r T_TYPE; read -r T_DNS; read -r T_DNS6; read -r T_DNSALL; } 2>/dev/null < "$STATE/tunnel.info"
         [ -n "$T_TYPE" ] || T_TYPE=wireguard
     fi
     case "$("$IP" link show "$IFACE" 2>/dev/null | head -n1)" in
@@ -798,7 +841,9 @@ ep_rule() {
     unset _e
 }
 
-info_save() { printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$T_ADDR" "$T_EP" "$T_EPIP" "$T_MTU" "$T_EPHOST" "$T_PORT" "$T_ADDR6" "$T_V6" "$T_TYPE" "$T_DNS" "$T_DNS6" > "$STATE/tunnel.info"; }
+# tunnel.info: one value per line, read in this order by tunnel_ensure (and
+# line 3 by the speed test, line 12 by dns_fo_check) - new values go at the end
+info_save() { printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$T_ADDR" "$T_EP" "$T_EPIP" "$T_MTU" "$T_EPHOST" "$T_PORT" "$T_ADDR6" "$T_V6" "$T_TYPE" "$T_DNS" "$T_DNS6" "$T_DNSALL" > "$STATE/tunnel.info"; }
 
 # a host-name endpoint whose tunnel stopped answering: its address may have
 # changed (dynamic DNS) - look it up again, at most once a minute
@@ -847,7 +892,7 @@ wgs_tick() {
     prev=$(cat "$STATE/last_state" 2>/dev/null)
     ST_TUNNEL=$S_ACTIVE; ST_ENDPOINT=""; ST_HSAGE="-"; ST_DEF=$DEF; ST_ANDVPN=$ANDVPN
     ST_REASON=""; ST_RX=""; ST_TX=""; ST_EPHOST=""; ST_IPV6=""; V6ON=0; ST_PAUSELEFT=$(pause_left)
-    ST_TYPE=""; T_TYPE=""; T_DNS=""; T_DNS6=""; ST_DNS=""; ST_DNS_SERVER=""; ST_DNS_LAN=""; ST_NETS=""; EXTRA=""; EXTRA_NAMES=""; ST_RECOVER=""; ST_RECOVER_FROM=""
+    ST_TYPE=""; T_TYPE=""; T_DNS=""; T_DNS6=""; T_DNSALL=""; ST_DNS=""; ST_DNS_SERVER=""; ST_DNS_LAN=""; ST_NETS=""; EXTRA=""; EXTRA_NAMES=""; ST_RECOVER=""; ST_RECOVER_FROM=""
 
     if [ -z "$S_ACTIVE" ]; then
         ST_STATE=off
