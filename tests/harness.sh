@@ -253,7 +253,7 @@ fi
 if want validate; then
     echo "validate: endpoint and address checks"
     reset_state
-    for ep in 203.0.113.1:0 203.0.113.1:65536 203.0.113.1:99999 999.1.1.1:51820 1.2.3:51820 1.2.3.4.5:51820; do
+    for ep in 203.0.113.1:0 203.0.113.1:65536 203.0.113.1:99999 999.1.1.1:51820 1.2.3:51820 1.2.3.4.5:51820 010.1.1.1:51820 203.0.113.01:51820; do
         conf "$WGS_DL/bad.conf" "$ep"
         check "endpoint $ep refused" 0 "$(ctl import bad.conf | kv imported)"
     done
@@ -268,6 +268,11 @@ if want validate; then
     check "address prefix /33 refused" 0 "$(ctl import addr.conf | kv imported)"
     sed -i 's#^Address = .*#Address = 10.2.0.2/24, fd00::2/128#' "$WGS_DL/addr.conf"
     check "address /24 + IPv6 accepted" 1 "$(ctl import addr.conf | kv imported)"
+    sed -i 's#^Address = .*#Address = 10.2.0.02/32#' "$WGS_DL/addr.conf"
+    check "address 10.2.0.02 (leading zero) refused" 0 "$(ctl import addr.conf | kv imported)"
+    conf "$WGS_DL/zero.conf" 203.0.113.0:51820
+    sed -i 's#^Address = .*#Address = 10.0.0.2/32#' "$WGS_DL/zero.conf"
+    check "octets that are 0 accepted" 1 "$(ctl import zero.conf | kv imported)"
 fi
 
 if want zipslip; then
@@ -667,12 +672,12 @@ except OSError:
         ip link set "$peer" up
         # wgs0 is a veth here: no ARP for the tunnel DNS (a real wgs0 has none)
         ip neigh replace 10.2.0.1 lladdr "$(ip -o link show "$peer" | sed -n 's/.*link\/ether \([0-9a-f:]*\).*/\1/p')" dev wgs0 nud permanent
-        dns_src_out() {  # dns_src_out MARK SERVER
+        dns_src_out() {  # dns_src_out MARK SERVER [UID]
             "$IPTR" -w -t mangle -F PREROUTING
             for s in 192.168.1.50 10.2.0.2; do
                 "$IPTR" -w -t mangle -A PREROUTING -i "$peer" -s "$s" -d 10.2.0.1 -p udp --dport 53 -j ACCEPT
             done
-            dns_leaves "$1" "$2" >/dev/null
+            dns_leaves "$1" "$2" ${3:+"$3"} >/dev/null
             "$IPTR" -w -t mangle -L PREROUTING -v -n -x | awk '$1 ~ /^[0-9]+$/ && $1 > 0 { print $8; f = 1; exit } END { if (!f) print "none" }'
             "$IPTR" -w -t mangle -F PREROUTING
         }
@@ -688,6 +693,41 @@ except OSError:
         fi
         check "carrier service network: its own resolver" "rmnet1 10.65.0.2 10.65.0.53" "$(dns_leaves 0xd0066 10.65.0.53)"
         check "carrier service network on the Wi-Fi interface: its own resolver" "wlan0 192.168.1.50 192.168.1.1" "$(dns_leaves 0xd0067 192.168.1.1)"
+        # LAN DNS through the tunnel (landns=1): DNS leaving through the Wi-Fi
+        # goes to the tunnel's DNS too, with the tunnel's own source address
+        rctl() { WGS_IPTS=$(command -v iptables-save) WGS_IPT=$IPTR ctl "$@"; }
+        rctl set landns 1 >/dev/null
+        check "landns: set up once, nothing repaired, no warning" "1 0 0" "$(grep -c 'LAN DNS through the tunnel too' "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log") $(grep -c 'could not send DNS' "$WGS_DATA/logs/wg-shield.log")"
+        rctl status >/dev/null
+        check "landns: the next tick finds the chains as wanted" "1 0" "$(grep -c 'LAN DNS through the tunnel too' "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log")"
+        check "landns: Wi-Fi LAN resolver -> tunnel DNS" "wgs0 192.168.1.50 10.2.0.1" "$(dns_leaves 0x10064 192.168.1.1)"
+        check "landns: it leaves wgs0 with the tunnel's own address" 10.2.0.2 "$(dns_src_out 0x10064 192.168.1.1)"
+        check "landns: resolver reached through the tunnel: as before" "wgs0 10.2.0.2 10.2.0.1" "$(dns_leaves 0x10064 198.51.100.53)"
+        check "landns: a query to the tunnel's DNS itself: untouched" "wgs0 10.2.0.2 10.2.0.1" "$(dns_leaves 0x10064 10.2.0.1)"
+        if [ "${WGS_UIDS:-0}" = 1 ]; then
+            # no exemption by uid is possible; the redirected query must then
+            # reach the tunnel's DNS (the IPv4 re-route after DNAT has no uid)
+            check "landns: Android's network check (uid 1073), LAN resolver -> tunnel DNS" "wgs0 192.168.1.50 10.2.0.1" "$(dns_leaves 0x10064 192.168.1.1 1073)"
+            check "landns: Android's network check: the tunnel's own address" 10.2.0.2 "$(dns_src_out 0x10064 192.168.1.1 1073)"
+            check "landns: Android's network check, resolver outside the LAN -> tunnel DNS" "wgs0 192.168.1.50 10.2.0.1" "$(dns_leaves 0x10064 198.51.100.53 1073)"
+        else
+            echo "  skip landns uid cases (no --map-auto)"
+        fi
+        check "landns: carrier service network: its own resolver" "rmnet1 10.65.0.2 10.65.0.53" "$(dns_leaves 0xd0066 10.65.0.53)"
+        check "landns: carrier service network on the Wi-Fi interface: its own resolver" "wlan0 192.168.1.50 192.168.1.1" "$(dns_leaves 0xd0067 192.168.1.1)"
+        # root's lookup of a host-name endpoint (rule 5001) is not redirected
+        ip rule add pref 5001 iif lo to 1.1.1.1/32 lookup 1028
+        check "landns: the endpoint lookup's resolver around the tunnel: not redirected" "wlan0 192.168.1.50 1.1.1.1" "$(dns_leaves 0x0 1.1.1.1)"
+        ip rule del pref 5001
+        # the tunnel stops answering (kill switch on): the network's resolver again
+        echo $(( $(date +%s) - 600 )) > "$STATE/fake_hs"
+        rctl status >/dev/null
+        check "landns, tunnel not up: Wi-Fi LAN resolver stays local" "no wlan0 192.168.1.50 192.168.1.1" "$([ "$(st state)" = up ] && echo yes || echo no) $(dns_leaves 0x10064 192.168.1.1)"
+        check "landns, tunnel down: no SNAT chain" 0 "$("$IPTR" -w -t nat -S 2>/dev/null | grep -c wgs_dnss)"
+        check "landns, tunnel down: DNS into the tunnel still to its DNS" "wgs0 10.2.0.2 10.2.0.1" "$(dns_leaves 0x10064 198.51.100.53)"
+        date +%s > "$STATE/fake_hs"
+        rctl status >/dev/null
+        check "landns, up again: Wi-Fi LAN resolver -> tunnel DNS" "up wgs0 192.168.1.50 10.2.0.1" "$(st state) $(dns_leaves 0x10064 192.168.1.1)"
         WGS_IPTS=$(command -v iptables-save) WGS_IPT=$IPTR ctl down >/dev/null
         check "down: real nat table clean" 0 "$("$IPTR" -w -t nat -S 2>/dev/null | grep -c wgs_dns)"
         ip rule del pref 16000 fwmark 0xd0067/0xdffff iif lo lookup 1028
@@ -698,9 +738,247 @@ except OSError:
     fi
 fi
 
+if want landns; then
+    echo "landns: LAN DNS through the tunnel (opt-in): chain layout, rebuilt with the networks, removed"
+    nat() { cat "$WGS_IPT_DIR/nat" 2>/dev/null; }
+    hasnat() { nat | grep -qxF -- "$1" && echo yes || echo no; }
+    natn() { nat | grep -nxF -- "$1" | head -n 1 | cut -d: -f1; }      # line number of a rule
+    J="-A OUTPUT -j wgs_dns"; JS="-A POSTROUTING -j wgs_dnss"
+    DW="-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53"
+    DL="-A wgs_dns -o wlan0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53"
+    DLT="-A wgs_dns -o wlan0 -p tcp --dport 53 -j DNAT --to-destination 10.2.0.1:53"
+    SN="-A wgs_dnss -o wgs0 -d 10.2.0.1 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2"
+    SNT="-A wgs_dnss -o wgs0 -d 10.2.0.1 -p tcp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2"
+    export WGS_IP="$FAKES/ipn"
+    reset_state; rm -rf "$WGS_IPT_DIR"
+    conf "$WGS_DL/wg-LD-1.conf" 203.0.113.64:51820
+    ctl import wg-LD-1.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-LD-1 >/dev/null
+    check "default: setting off, only DNS routed into wgs0" "0 2 no no" "$(st landns) $(nat | grep -c -- '^-A wgs_dns ') $(hasnat "$DL") $(hasnat "$JS")"
+    # settings written by an older version: no LANDNS line
+    grep -v '^LANDNS=' "$WGS_DATA/settings.conf" > "$RUN/settings.old"; cp "$RUN/settings.old" "$WGS_DATA/settings.conf"
+    ctl status >/dev/null
+    check "settings without the key: off" "0 2" "$(st landns) $(nat | grep -c -- '^-A wgs_dns ')"
+    check "set landns: only 0 or 1" 0 "$(ctl set landns 2 2>&1 | kv ok)"
+    check "set landns 1" "1 1" "$(ctl set landns 1 | kv ok) $(setting LANDNS)"
+    check "status: setting, DNS still the tunnel's, the redirected interface" "1 tunnel 10.2.0.1 wlan0" "$(st landns) $(st dns) $(st dns_server) $(st dns_lan)"
+    check "DNS leaving through the Wi-Fi -> tunnel DNS (udp, tcp)" "yes yes" "$(hasnat "$DL") $(hasnat "$DLT")"
+    check "DNS routed into the tunnel as before" "yes 1" "$(hasnat "$DW") $(nat | grep -cxF -- "$J")"
+    check "SNAT to the tunnel's own address (udp, tcp), one jump" "yes yes 1 2" "$(hasnat "$SN") $(hasnat "$SNT") $(nat | grep -cxF -- "$JS") $(nat | grep -c -- '^-A wgs_dnss ')"
+    check "loopback and the tunnel's DNS itself: RETURN, before every redirect" "yes yes" \
+        "$([ "$(natn "-A wgs_dns -d 127.0.0.0/8 -j RETURN")" -lt "$(natn "$DW")" ] && echo yes || echo no) $([ "$(natn "-A wgs_dns -d 10.2.0.1 -j RETURN")" -lt "$(natn "$DW")" ] && echo yes || echo no)"
+    check "the endpoint lookup's resolvers: RETURN after the wgs0 rules, before the Wi-Fi ones" "yes yes" \
+        "$([ "$(natn "-A wgs_dns -d 1.1.1.1 -j RETURN")" -gt "$(natn "$DW")" ] && echo yes || echo no) $([ "$(natn "-A wgs_dns -d 8.8.8.8 -j RETURN")" -lt "$(natn "$DL")" ] && echo yes || echo no)"
+    check "nothing by uid" 0 "$(nat | grep -c -- 'owner')"
+    check "logged" 1 "$(grep -c 'DNS: LAN DNS through the tunnel too - DNS leaving through wlan0 goes to 10.2.0.1' "$WGS_DATA/logs/wg-shield.log")"
+    n0=$(nat | grep -c -- '^-A wgs_dns ')
+    ctl status >/dev/null; ctl status >/dev/null
+    check "stable: nothing rebuilt by the next ticks" "1 0 $n0" "$(grep -c 'LAN DNS through the tunnel too' "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log") $(nat | grep -c -- '^-A wgs_dns ')"
+    # a second internet network that goes through the tunnel: its interface too
+    echo "1031 rmnetx" >> "$WGS_RT_TABLES"
+    echo "103 INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED" >> "$RUN/networks"
+    ip rule add pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
+    ctl status >/dev/null
+    check "second captured network: its interface redirected too" "yes wlan0,rmnetx" "$(hasnat "-A wgs_dns -o rmnetx -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53") $(st dns_lan | tr ' ' ',')"
+    check "second captured network: logged, not as a repair" "2 0" "$(grep -c 'LAN DNS through the tunnel too' "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log")"
+    # the same network while Android is still checking it: not redirected (a
+    # login page may be waiting there), marked RETURN before the interface rules
+    echo "100 INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED" > "$RUN/networks"; echo "103 INTERNET&NOT_RESTRICTED&TRUSTED" >> "$RUN/networks"
+    ip rule del pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
+    ctl status >/dev/null
+    ip rule add pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
+    ctl status >/dev/null
+    check "network Android is still checking: not redirected" "1 no yes" "$(st nets | grep -c '1031/checking\|rmnetx/checking') $(nat | grep -q -- '-o rmnetx' && echo yes || echo no) $([ "$(natn "-A wgs_dns -m mark --mark 0x67/0xffff -j RETURN")" -gt "$(natn "$DW")" ] 2>/dev/null && echo yes || echo no)"
+    ip rule del pref 16000 fwmark 0x10067/0x1ffff iif lo lookup 1031
+    sed -i '/^103 /d' "$RUN/networks"; sed -i '/^1031 /d' "$WGS_RT_TABLES"
+    # a carrier service network that shares the Wi-Fi's interface: RETURN by its mark, first
+    ip rule add pref 16000 fwmark 0xd0068/0xdffff iif lo lookup 1028
+    ctl status >/dev/null
+    check "network that stays outside: RETURN by its netId mark before any redirect" yes "$([ "$(natn "-A wgs_dns -m mark --mark 0x68/0xffff -j RETURN")" -lt "$(natn "$DW")" ] 2>/dev/null && echo yes || echo no)"
+    check "network gone / outside one added: no rmnetx rule left" no "$(nat | grep -q rmnetx && echo yes || echo no)"
+    ip rule del pref 16000 fwmark 0xd0068/0xdffff iif lo lookup 1028
+    ctl status >/dev/null
+    check "outside network gone: its RETURN gone" no "$(nat | grep -q -- '--mark 0x68/0xffff' && echo yes || echo no)"
+    # changed by someone else: repaired
+    w0=$(grep -c "redirect to the tunnel's DNS was changed by someone else - repaired" "$WGS_DATA/logs/wg-shield.log")
+    "$WGS_IPT" -w -t nat -D wgs_dns -o wlan0 -p tcp --dport 53 -j DNAT --to-destination 10.2.0.1:53
+    ctl status >/dev/null
+    check "Wi-Fi rule removed by someone else: repaired" "yes $((w0 + 1))" "$(hasnat "$DLT") $(grep -c "redirect to the tunnel's DNS was changed by someone else - repaired" "$WGS_DATA/logs/wg-shield.log")"
+    "$WGS_IPT" -w -t nat -D POSTROUTING -j wgs_dnss
+    ctl status >/dev/null
+    check "SNAT jump removed by someone else: repaired" "1 $((w0 + 2))" "$(nat | grep -cxF -- "$JS") $(grep -c "redirect to the tunnel's DNS was changed by someone else - repaired" "$WGS_DATA/logs/wg-shield.log")"
+    "$WGS_IPT" -w -t nat -D wgs_dnss -o wgs0 -d 10.2.0.1 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2
+    "$WGS_IPT" -w -t nat -A wgs_dnss -o wgs0 -d 10.2.0.1 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.20
+    ctl status >/dev/null
+    check "SNAT to another address (10.2.0.20) is not taken for ours: repaired" "yes no" "$(hasnat "$SN") $(nat | grep -q -- '--to-source 10.2.0.20' && echo yes || echo no)"
+    # the tunnel does not answer (kill switch on): the network's resolver must be reachable
+    echo $(( $(date +%s) - 600 )) > "$STATE/fake_hs"
+    ctl status >/dev/null
+    # (the state is down, or handshaking while the self-healing restarts it)
+    check "tunnel not up, kill switch on: Wi-Fi DNS left alone, no SNAT, wgs0 rules kept" "no no no 2 yes wgs0" "$([ "$(st state)" = up ] && echo yes || echo no) $(hasnat "$DL") $(hasnat "$JS") $(nat | grep -c -- '^-A wgs_dns ') $(hasnat "$DW") $(route_of)"
+    check "tunnel down: status" "1 tunnel -" "$(st landns) $(st dns) $(st dns_lan)-"
+    check "tunnel down: no SNAT chain left" no "$(nat | grep -qx -- '-N wgs_dnss' && echo yes || echo no)"
+    check "tunnel down: logged" 1 "$(grep -c 'DNS: LAN DNS left to the network again' "$WGS_DATA/logs/wg-shield.log")"
+    check "the server did not change: 'apps use the tunnel's DNS' logged once only" 1 "$(grep -c "DNS: apps use the tunnel's DNS 10.2.0.1" "$WGS_DATA/logs/wg-shield.log")"
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "up again: Wi-Fi DNS redirected again" "up yes yes" "$(st state) $(hasnat "$DL") $(hasnat "$SN")"
+    # connecting (no handshake yet) on a new tunnel: not redirected
+    conf "$WGS_DL/wg-LD-2.conf" 203.0.113.65:51820
+    ctl import wg-LD-2.conf >/dev/null
+    rm -f "$STATE/fake_hs"
+    ctl up wg-LD-2 >/dev/null
+    check "handshaking: Wi-Fi DNS left alone" "handshaking no no yes" "$(st state) $(hasnat "$DL") $(hasnat "$JS") $(hasnat "$DW")"
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "up: redirected" yes "$(hasnat "$DL")"
+    # DNSCrypt Proxy takes DNS: nothing of ours
+    DC="-A OUTPUT -p udp -m udp --dport 53 -j DNAT --to-destination 127.0.0.1:5354"
+    echo "$DC" >> "$WGS_IPT_DIR/nat"
+    ctl status >/dev/null
+    check "DNSCrypt Proxy on: no redirect, no SNAT, no chains" "dnscrypt no no 0" "$(st dns) $(hasnat "$J") $(hasnat "$JS") $(nat | grep -c -- 'wgs_dns')"
+    grep -vxF -- "$DC" "$WGS_IPT_DIR/nat" > "$WGS_IPT_DIR/nat.n"; mv "$WGS_IPT_DIR/nat.n" "$WGS_IPT_DIR/nat"
+    ctl status >/dev/null
+    check "DNSCrypt Proxy paused: both back" "yes yes" "$(hasnat "$DL") $(hasnat "$SN")"
+    ctl set landns 0 >/dev/null
+    check "set landns 0: as before the setting" "0 2 no no no" "$(st landns) $(nat | grep -c -- '^-A wgs_dns ') $(hasnat "$DL") $(hasnat "$JS") $(nat | grep -qx -- '-N wgs_dnss' && echo yes || echo no)"
+    ctl set landns 1 >/dev/null
+    ctl pause 5 >/dev/null
+    check "paused: everything removed" "paused 0" "$(st state) $(nat | grep -c -- 'wgs_dns')"
+    ctl resume >/dev/null
+    check "resumed: redirected again" "up yes" "$(st state) $(hasnat "$DL")"
+    ctl down >/dev/null
+    check "down: both chains and both jumps removed" 0 "$(nat | grep -c -- 'wgs_dns')"
+    check "down: status" "1 -" "$(st landns) $(st dns_lan)-"
+    # a tunnel without a DNS line: nothing to redirect to
+    sed -i '/^DNS = /d' "$WGS_DL/wg-LD-1.conf"
+    ctl import wg-LD-1.conf >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-LD-1 >/dev/null
+    check "no DNS line: nothing set up" "up network 0" "$(st state) $(st dns) $(nat | grep -c -- 'wgs_dns')"
+    ctl down >/dev/null
+    check "lock released" no "$([ -d "$STATE/lock" ] && echo yes || echo no)"
+    export WGS_IP="$REALIP"
+fi
+
+if want dns_failover; then
+    echo "dns_failover: several IPv4 servers in the DNS line - the next one takes over when the active one stops answering"
+    nat() { cat "$WGS_IPT_DIR/nat" 2>/dev/null; }
+    hasnat() { nat | grep -qxF -- "$1" && echo yes || echo no; }
+    natn() { nat | grep -nxF -- "$1" | head -n 1 | cut -d: -f1; }
+    dnat_to() { nat | sed -n 's/^-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination //p'; }
+    export WGS_IP="$FAKES/ipn"
+    reset_state; rm -rf "$WGS_IPT_DIR"
+    DQ="$RUN/dnsq.log"; DM="$RUN/dnsmode"; rm -f "$DQ" "$DM"
+    # busybox as the check uses it: "--list", "timeout N CMD...", "nslookup
+    # NAME SERVER". What a server says is in $DM ("<server> answer|nxdomain|
+    # timeout", default answer); the output is what busybox 1.35 prints
+    cat > "$FAKES/bbdns" <<EOF
+#!/bin/sh
+case "\$1" in
+    --list) printf 'nslookup\ntimeout\n' ;;
+    timeout) shift 2; exec "\$@" ;;
+    nslookup)
+        echo "\$3 \$2" >> "$DQ"
+        case "\$(sed -n "s/^\$3 //p" "$DM" 2>/dev/null | tail -n 1)" in
+            timeout) exit 143 ;;
+            nxdomain) printf 'Server:\t\t%s\nAddress:\t%s:53\n\n** server can'"'"'t find %s: NXDOMAIN\n\n' "\$3" "\$3" "\$2"; exit 1 ;;
+            *) printf 'Server:\t\t%s\nAddress:\t%s:53\n\nNon-authoritative answer:\nName:\t%s\nAddress: 203.0.113.99\n\n' "\$3" "\$3" "\$2" ;;
+        esac ;;
+    *) exit 127 ;;
+esac
+EOF
+    printf '#!/bin/sh\nexit 0\n' > "$FAKES/ping-ok"
+    printf '#!/bin/sh\ncase "$1" in --list) echo timeout ;; *) exit 127 ;; esac\n' > "$FAKES/bbnons"
+    chmod 755 "$FAKES/bbdns" "$FAKES/ping-ok" "$FAKES/bbnons"
+    mkdir -p "$WGS_SYSNET/wgs0"
+    # one liveness check as the watchdog runs it between ticks (the tunnel answers the ping)
+    lc() { rm -f "$STATE/live_probe_at"; WGS_PING="$FAKES/ping-ok" WGS_BB="${LCBB:-$FAKES/bbdns}" WGS_DNS_FO_EVERY="${LCEVERY:-0}" $TSH -c '. "$WGS_MODDIR/sh/common.sh"; . "$WGS_MODDIR/sh/tunnels.sh"; . "$WGS_MODDIR/sh/net.sh"; settings_load; live_check; echo "rc=$?"'; }
+    asked() { cut -d' ' -f1 "$DQ" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+    conf "$WGS_DL/wg-FO-1.conf" 203.0.113.67:51820
+    sed -i 's#^DNS = .*#DNS = 10.2.0.1, fd00::53, 10.2.0.9, example.lan, 10.2.0.1, 10.2.0.7#' "$WGS_DL/wg-FO-1.conf"
+    ctl import wg-FO-1.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-FO-1 >/dev/null
+    check "every IPv4 server kept in order (no doubles), after the existing lines of tunnel.info" "10.2.0.1|fd00::53|10.2.0.1 10.2.0.9 10.2.0.7|203.0.113.67" "$(sed -n 10p "$STATE/tunnel.info")|$(sed -n 11p "$STATE/tunnel.info")|$(sed -n 12p "$STATE/tunnel.info")|$(sed -n 3p "$STATE/tunnel.info")"
+    check "the first server is the active one" "tunnel 10.2.0.1 10.2.0.1:53" "$(st dns) $(st dns_server) $(dnat_to)"
+    check "a query to a listed server is not redirected (RETURN first)" "yes yes yes 5" \
+        "$([ "$(natn "-A wgs_dns -d 10.2.0.1 -j RETURN")" -lt "$(natn "-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")" ] 2>/dev/null && echo yes || echo no) $(hasnat "-A wgs_dns -d 10.2.0.9 -j RETURN") $(hasnat "-A wgs_dns -d 10.2.0.7 -j RETURN") $(nat | grep -c -- '^-A wgs_dns ')"
+    check "the active server answers: asked once, nothing changes" "rc=0 10.2.0.1 example.com 10.2.0.1" "$(lc) $(cat "$DQ") $(st dns_server)"
+    : > "$DQ"; echo "10.2.0.1 nxdomain" > "$DM"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "'no such name' is an answer too" "10.2.0.1 10.2.0.1|10.2.0.1" "$(asked)|$(st dns_server)"
+    : > "$DQ"; echo "10.2.0.1 timeout" > "$DM"
+    check "no reply once: no switch yet" "rc=0 no" "$(lc) $([ -f "$STATE/dns_srv" ] && echo yes || echo no)"
+    echo "10.2.0.1 answer" > "$DM"; lc >/dev/null; echo "10.2.0.1 timeout" > "$DM"
+    check "an answer in between: the count starts again" "rc=0 no" "$(lc) $([ -f "$STATE/dns_srv" ] && echo yes || echo no)"
+    check "no reply twice in a row: the next server, tick now" "rc=1 10.2.0.9" "$(lc) $(sed -n 1p "$STATE/dns_srv")"
+    check "warning in the log" 1 "$(grep -c 'WARN.*DNS: 10.2.0.1 does not answer through the tunnel.* - switching to 10.2.0.9' "$WGS_DATA/logs/wg-shield.log")"
+    ctl status >/dev/null
+    check "the tick redirects to the next server; status shows it" "10.2.0.9:53 tunnel 10.2.0.9 2" "$(dnat_to) $(st dns) $(st dns_server) $(nat | grep -c -- '--to-destination 10.2.0.9:53$')"
+    check "listed servers still RETURN, nothing left of the old target" "yes yes 0 5" "$(hasnat "-A wgs_dns -d 10.2.0.1 -j RETURN") $(hasnat "-A wgs_dns -d 10.2.0.9 -j RETURN") $(nat | grep -c -- '--to-destination 10.2.0.1:53$') $(nat | grep -c -- '^-A wgs_dns ')"
+    check "logged as a new DNS, not as a repair" "1 0" "$(grep -c "apps use the tunnel's DNS 10.2.0.9" "$WGS_DATA/logs/wg-shield.log") $(grep -c "redirect to the tunnel's DNS was changed by someone else" "$WGS_DATA/logs/wg-shield.log")"
+    : > "$DQ"; rm -f "$DM"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "it stays on the server that answers; that one is asked" "10.2.0.9 10.2.0.9|10.2.0.9" "$(asked)|$(st dns_server)"
+    printf '10.2.0.9 timeout\n10.2.0.7 timeout\n' > "$DM"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "the second one fails too: the third" 10.2.0.7 "$(st dns_server)"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "the last one fails: around to the first" "10.2.0.1 10.2.0.1:53" "$(st dns_server) $(dnat_to)"
+    rm -f "$DM"
+    # at most one question a minute
+    : > "$DQ"; rm -f "$STATE/dns_fo_at"
+    LCEVERY=60 lc >/dev/null; LCEVERY=60 lc >/dev/null; LCEVERY=60 lc >/dev/null
+    check "at most one question in 60 s" 1 "$(grep -c . "$DQ")"
+    # a result that belongs to another tunnel load is not used
+    printf '10.2.0.9\nsome-other-tunnel 123\n' > "$STATE/dns_srv"
+    ctl status >/dev/null
+    check "a switch noted for another tunnel load is ignored" 10.2.0.1 "$(st dns_server)"
+    # reset to the first server when the tunnel is loaded again / another one / off
+    echo "10.2.0.1 timeout" > "$DM"; lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "(on the second server again)" 10.2.0.9 "$(st dns_server)"
+    ctl restart >/dev/null 2>&1; wd=$(cat "$STATE/watchdog.pid" 2>/dev/null); [ -n "$wd" ] && kill "$wd" 2>/dev/null; sleep 0.3
+    p=$(cat "$STATE/monitor.pid" 2>/dev/null); [ -n "$p" ] && kill "$p" 2>/dev/null
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "tunnel loaded again: the first server" "up 10.2.0.1 no" "$(st state) $(st dns_server) $([ -f "$STATE/dns_srv" ] && echo yes || echo no)"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "(on the second server again)" 10.2.0.9 "$(st dns_server)"
+    ctl down >/dev/null
+    check "tunnel off: nothing kept" "no no" "$([ -f "$STATE/dns_srv" ] && echo yes || echo no) $([ -f "$STATE/dns_fo_fail" ] && echo yes || echo no)"
+    date +%s > "$STATE/fake_hs"; ctl up wg-FO-1 >/dev/null
+    check "on again: the first server" 10.2.0.1 "$(st dns_server)"
+    # LAN DNS through the tunnel follows the active server
+    ctl set landns 1 >/dev/null
+    check "landns: SNAT for the active server, every listed server RETURN" "yes yes yes" "$(hasnat "-A wgs_dnss -o wgs0 -d 10.2.0.1 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2") $(hasnat "-A wgs_dns -d 10.2.0.9 -j RETURN") $(hasnat "-A wgs_dns -o wlan0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
+    lc >/dev/null; lc >/dev/null; ctl status >/dev/null
+    check "landns: after the switch both follow" "10.2.0.9 yes yes 0" "$(st dns_server) $(hasnat "-A wgs_dnss -o wgs0 -d 10.2.0.9 -p udp --dport 53 ! -s 10.2.0.2 -j SNAT --to-source 10.2.0.2") $(hasnat "-A wgs_dns -o wlan0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.9:53") $(nat | grep -c -- '-d 10.2.0.1 -p')"
+    ctl set landns 0 >/dev/null
+    rm -f "$DM"
+    # not asked at all: DNSCrypt Proxy takes DNS, no busybox / no nslookup, one server only
+    ctl down >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-FO-1 >/dev/null
+    DC="-A OUTPUT -p udp -m udp --dport 53 -j DNAT --to-destination 127.0.0.1:5354"
+    echo "$DC" >> "$WGS_IPT_DIR/nat"; ctl status >/dev/null
+    : > "$DQ"; echo "10.2.0.1 timeout" > "$DM"
+    lc >/dev/null; lc >/dev/null
+    check "DNSCrypt Proxy takes DNS: nothing asked" "dnscrypt 0" "$(st dns) $(grep -c . "$DQ")"
+    grep -vxF -- "$DC" "$WGS_IPT_DIR/nat" > "$WGS_IPT_DIR/nat.n"; mv "$WGS_IPT_DIR/nat.n" "$WGS_IPT_DIR/nat"; ctl status >/dev/null
+    LCBB="$RUN/no-busybox" lc >/dev/null; LCBB="$RUN/no-busybox" lc >/dev/null
+    LCBB="$FAKES/bbnons" lc >/dev/null; LCBB="$FAKES/bbnons" lc >/dev/null
+    check "no busybox, or one without nslookup: nothing asked, no switch" "0 no" "$(grep -c . "$DQ") $([ -f "$STATE/dns_srv" ] && echo yes || echo no)"
+    ctl down >/dev/null
+    conf "$WGS_DL/wg-FO-2.conf" 203.0.113.68:51820
+    ctl import wg-FO-2.conf >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-FO-2 >/dev/null
+    echo "10.2.0.1 timeout" > "$DM"; : > "$DQ"
+    lc >/dev/null; lc >/dev/null
+    check "one server only: nothing asked, the chain as always" "0 2 10.2.0.1" "$(grep -c . "$DQ") $(nat | grep -c -- '^-A wgs_dns ') $(sed -n 12p "$STATE/tunnel.info")"
+    ctl down >/dev/null
+    rm -rf "$WGS_SYSNET/wgs0" "$DM" "$DQ"
+    export WGS_IP="$REALIP"
+fi
+
 if want dns6; then
     echo "dns6: IPv6 app DNS goes to the tunnel's IPv6 DNS while the tunnel carries IPv6"
     export WGS_IP="$FAKES/ipn"
+    nat() { cat "$WGS_IPT_DIR/nat" 2>/dev/null; }
+    hasnat() { nat | grep -qxF -- "$1" && echo yes || echo no; }
     nat6() { cat "$WGS_IPT_DIR/v6/nat" 2>/dev/null; }
     hasnat6() { nat6 | grep -qxF -- "$1" && echo yes || echo no; }
     J6="-A OUTPUT -j wgs_dns"; JS6="-A POSTROUTING -j wgs_dnss"
@@ -735,15 +1013,21 @@ if want dns6; then
     check "IPv6 on again: redirect back" yes "$(hasnat6 "$DN6")"
     ctl down >/dev/null
     check "down: IPv6 redirect and SNAT removed" "no no" "$(hasnat6 "$J6") $(hasnat6 "$JS6")"
-    ctl up wg-CH-6 >/dev/null
-    WGS_IPT6="$RUN/no-ip6tables" ctl status >/dev/null; WGS_IPT6="$RUN/no-ip6tables" ctl status >/dev/null
+    WGS_IPT6="$RUN/no-ip6tables" WGS_IPTS6="$RUN/no-ip6tables-save" ctl up wg-CH-6 >/dev/null
+    WGS_IPT6="$RUN/no-ip6tables" WGS_IPTS6="$RUN/no-ip6tables-save" ctl status >/dev/null
     check "no ip6tables nat: one warning, no state" "1 no" "$(grep -c "could not send DNS for IPv6 to fd00::53" "$WGS_DATA/logs/wg-shield.log") $([ -f "$STATE/dns6.want" ] && echo yes || echo no)"
     check "no ip6tables nat: IPv4 redirect kept" yes "$(hasnat "-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53")"
     ctl down >/dev/null
     # real ip6tables: a carrier IPv6 resolver routed into the tunnel
     IP6R=$(command -v ip6tables 2>/dev/null)
     if [ -n "$IP6R" ] && command -v python3 >/dev/null && "$IP6R" -w -t nat -L -n >/dev/null 2>&1 && "$IP6R" -w -t mangle -L -n >/dev/null 2>&1; then
+        # the server in a long form with capitals: ip6tables prints it as fd00::53
+        sed -i 's#^DNS = .*#DNS = 10.2.0.1, FD00:0:0:0::53#' "$WGS_DL/wg-CH-6.conf"
+        ctl import wg-CH-6.conf >/dev/null
+        REP0=$(grep -c 'DNS for IPv6: the redirect .* repaired' "$WGS_DATA/logs/wg-shield.log")
         WGS_IPTS6=$(command -v ip6tables-save) WGS_IPT6=$IP6R ctl up wg-CH-6 >/dev/null
+        WGS_IPTS6=$(command -v ip6tables-save) WGS_IPT6=$IP6R ctl status >/dev/null
+        check "real ip6tables: IPv6 DNS in a long form: set up once, no warning" "1 0 $REP0" "$(grep -c "apps use the tunnel's DNS FD00:0:0:0::53 for IPv6" "$WGS_DATA/logs/wg-shield.log") $(grep -c 'could not send DNS for IPv6 to FD00' "$WGS_DATA/logs/wg-shield.log") $(grep -c 'DNS for IPv6: the redirect .* repaired' "$WGS_DATA/logs/wg-shield.log")"
         "$IP6R" -w -t mangle -F POSTROUTING
         "$IP6R" -w -t mangle -A POSTROUTING -o wgs0 -s fd00::2 -d fd00::53 -p udp --dport 53 -j ACCEPT
         python3 -I -c 'import socket
@@ -782,6 +1066,394 @@ if want webui; then
     else
         echo "  skip (node missing)"
     fi
+fi
+
+if want resolve; then
+    echo "resolve: host-name endpoint - only root's DNS query goes around the tunnel"
+    reset_state
+    RL="$RUN/resolve.log"; rm -f "$RL"
+    # busybox as resolve_host uses it ("timeout N CMD...", "nslookup NAME
+    # SERVER"); nslookup notes rule 5001 and where root's DNS query and an
+    # app's connection to the same address would go at that moment
+    cat > "$FAKES/bb" <<EOF
+#!/bin/sh
+dev() { case "\$1" in *"dev wgs0"*) echo wgs0 ;; *"dev wlan0"*) echo wlan0 ;; *) echo blocked ;; esac; }
+case "\$1" in
+    timeout) shift 2; exec "\$@" ;;
+    nslookup)
+        r=\$("$REALIP" rule | sed -n 's/^5001:[[:space:]]*//p' | tr -s '\t ' ' ' | sed 's/ \$//')
+        q=\$("$REALIP" route get "\$3" uid 0 ipproto udp dport 53 2>&1 | head -n 1)
+        a=\$("$REALIP" route get "\$3" uid 10000 ipproto tcp dport 853 2>&1 | head -n 1)
+        echo "\$3|\$r|\$(dev "\$q")|\$(dev "\$a")" >> "$RL"
+        [ "\$3" = 1.0.0.1 ] || exit 1
+        printf 'Server:\t\t%s\nAddress:\t%s:53\n\nName:\t%s\nAddress: 203.0.113.80\n' "\$3" "\$3" "\$2" ;;
+    *) exit 127 ;;
+esac
+EOF
+    chmod 755 "$FAKES/bb"
+    conf "$WGS_DL/wg-HO-1.conf" vpn.example.com:51820
+    ctl import wg-HO-1.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    WGS_BB="$FAKES/bb" ctl up wg-HO-1 >/dev/null
+    check "Cloudflare first; the second resolver answers" "1.1.1.1 1.0.0.1" "$(cut -d'|' -f1 "$RL" | tr '\n' ' ' | sed 's/ $//')"
+    check "the tunnel is up on the address from the lookup" "up 203.0.113.80:51820" "$(st state) $(st endpoint)"
+    check "rule 5001: root's DNS query to the resolver only" "from all to 1.1.1.1 iif lo uidrange 0-0 dport 53 lookup 1028" "$(sed -n 1p "$RL" | cut -d'|' -f2)"
+    # the tunnel stops answering while it captures traffic: the name is looked up again
+    : > "$RL"
+    echo 0 > "$STATE/resolved_at"; echo $(( $(date +%s) - 600 )) > "$STATE/fake_hs"
+    WGS_BB="$FAKES/bb" ctl status >/dev/null
+    check "looked up again: root's query leaves on the network" wlan0 "$(sed -n 1p "$RL" | cut -d'|' -f3)"
+    if [ "${WGS_UIDS:-0}" = 1 ]; then
+        check "meanwhile an app's connection to the resolver's address stays in the tunnel" wgs0 "$(sed -n 1p "$RL" | cut -d'|' -f4)"
+    else
+        echo "  skip app uid case (no --map-auto)"
+    fi
+    check "no rule 5001 left" 0 "$(ip rule | grep -c '^5001:')"
+    # an ip without "dport" in rules, then one without uidrange: still looked up
+    for v in dport uidrange; do
+        printf '#!/bin/sh\ncase "$*" in *"pref 5001"*"%s"*) exit 2 ;; esac\nexec "%s" "$@"\n' "$v" "$REALIP" > "$FAKES/ip-no$v"; chmod 755 "$FAKES/ip-no$v"
+        ctl down >/dev/null; : > "$RL"; date +%s > "$STATE/fake_hs"
+        WGS_IP="$FAKES/ip-no$v" WGS_BB="$FAKES/bb" ctl up wg-HO-1 >/dev/null
+        check "ip without $v in rules: looked up, $( [ "$v" = dport ] && echo 'uid only' || echo 'as before')" "up $( [ "$v" = dport ] && echo 'from all to 1.1.1.1 iif lo uidrange 0-0 lookup 1028' || echo 'from all to 1.1.1.1 iif lo lookup 1028')" "$(st state) $(sed -n 1p "$RL" | cut -d'|' -f2)"
+    done
+    ctl down >/dev/null
+fi
+
+if want exitip; then
+    echo "exitip: the exit address is asked over HTTPS first (fake curl, no network)"
+    reset_state; mkdir -p "$STATE"
+    CD="$RUN/curl"; rm -rf "$CD"; mkdir -p "$CD/path"
+    export WGS_CURLLOG="$CD/log" WGS_CURLMODE="$CD/mode" WGS_CURLDIR="$CD"
+    # curl: notes its arguments; what a URL answers is in $WGS_CURLMODE
+    # ("<part of the URL> <file in $CD | fail>", no line = fail)
+    cat > "$CD/curl" <<'EOF'
+#!/bin/sh
+for a in "$@"; do u=$a; done
+echo "${WGS_CURLTAG:-sys} $*" >> "$WGS_CURLLOG"
+m=$(awk -v u="$u" 'index(u, $1) { print $2; exit }' "$WGS_CURLMODE" 2>/dev/null)
+case "$m" in ""|fail) exit 35 ;; esac
+cat "$WGS_CURLDIR/$m"
+EOF
+    printf '#!/bin/sh\nWGS_CURLTAG=path exec "%s" "$@"\n' "$CD/curl" > "$CD/path/curl"
+    chmod 755 "$CD/curl" "$CD/path/curl"
+    # the services' answers (pretty-printed, as they send them; documentation addresses)
+    cat > "$CD/ipinfo.json" <<'EOF'
+{
+  "ip": "203.0.113.7",
+  "hostname": "host.example.net",
+  "city": "Exampleton",
+  "region": "Example Region",
+  "country": "ZZ",
+  "loc": "0.0000,0.0000",
+  "org": "AS64500 Example Net",
+  "timezone": "Etc/UTC",
+  "readme": "https://ipinfo.io/missingauth"
+}
+EOF
+    cat > "$CD/ipwho.json" <<'EOF'
+{
+    "ip": "203.0.113.8",
+    "success": true,
+    "type": "IPv4",
+    "country": "Exampleland",
+    "country_code": "ZZ",
+    "city": "Sampleville",
+    "connection": {
+        "asn": 64500,
+        "org": "Example Org",
+        "isp": "Example ISP",
+        "domain": "example.net"
+    }
+}
+EOF
+    echo '{"status":"success","country":"Exampleland","countryCode":"ZZ","city":"Testburg","isp":"Plain ISP","query":"203.0.113.9"}' > "$CD/ipapi.json"
+    echo '{"ip": "203.0.113.66<script>", "country": "XX"}' > "$CD/bad.json"
+    ex() { WGS_CURL="$CD/curl" WGS_BB="$RUN/no-busybox" PATH="$CD/path:$PATH" ctl exitip 2>&1; }
+    keys() { sed 's/=.*//' | tr '\n' ' ' | sed 's/ $//'; }
+    printf 'ipinfo.io ipinfo.json\nipwho.is ipwho.json\nip-api.com ipapi.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "HTTPS, first service: its address, place and provider" "ip=203.0.113.7|country=ZZ|city=Exampleton|isp=AS64500 Example Net|proto=https|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
+    check "the output keys: the old ones in their order, proto added" "ip country city isp via proto ok" "$(echo "$out" | keys)"
+    check "one request: curl -s --max-time 8 to https://ipinfo.io/json, the certificate checked" "1|sys -s --max-time 8 https://ipinfo.io/json|0" "$(grep -c . "$WGS_CURLLOG")|$(cat "$WGS_CURLLOG")|$(grep -c -e ' -k' -e 'insecure' "$WGS_CURLLOG")"
+    check "tunnel off: via empty" "via=" "$(echo "$out" | grep '^via=')"
+    : > "$WGS_CURLLOG"; printf 'ipinfo.io fail\nipwho.is ipwho.json\nip-api.com ipapi.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "first service fails: the second one over HTTPS" "ip=203.0.113.8|country=Exampleland|city=Sampleville|isp=Example ISP|proto=https|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
+    check "both asked over HTTPS, nothing over HTTP" "2 0" "$(grep -c 'https://' "$WGS_CURLLOG") $(grep -c ' http://' "$WGS_CURLLOG")"
+    : > "$WGS_CURLLOG"; printf 'ipinfo.io bad.json\nipwho.is ipwho.json\n' > "$WGS_CURLMODE"
+    check "an answer whose address is not an address is not used" "ip=203.0.113.8" "$(ex | grep '^ip=')"
+    : > "$WGS_CURLLOG"; printf 'https://ipinfo.io fail\nhttps://ipwho.is fail\nip-api.com ipapi.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "both HTTPS requests fail: plain HTTP as before, and it says so" "ip=203.0.113.9|country=Exampleland|city=Testburg|isp=Plain ISP|proto=http|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
+    check "HTTP only after both HTTPS requests" "sys sys path" "$(cut -d' ' -f1 "$WGS_CURLLOG" | tr '\n' ' ' | sed 's/ $//')"
+    check "the HTTP request is the old one" 1 "$(grep -c '^path -s -m 8 http://ip-api.com/json/?fields=status,country,countryCode,city,isp,query$' "$WGS_CURLLOG")"
+    : > "$WGS_CURLLOG"
+    out=$(WGS_CURL="$RUN/no-curl" WGS_BB="$RUN/no-busybox" PATH="$CD/path:$PATH" ctl exitip 2>&1)
+    check "no curl for HTTPS: plain HTTP at once" "ip=203.0.113.9 proto=http 0" "$(echo "$out" | grep '^ip=') $(echo "$out" | grep '^proto=') $(grep -c 'https://' "$WGS_CURLLOG")"
+    : > "$WGS_CURLMODE"
+    out=$(ex)
+    check "nothing answers: an error, no address" "0 0 1" "$(echo "$out" | kv ok) $(echo "$out" | grep -c '^ip=') $(echo "$out" | grep -c '^error=no answer')"
+    # a value with backslashes (the WebUI's shell, mksh, reads them in echo):
+    # printed as it came, never a line of its own
+    printf '{\n  "ip": "203.0.113.7",\n  "city": "Exampleton",\n  "country": "ZZ",\n  "org": "AS64500 Back\\nvia=wgs0 \\c slash"\n}\n' > "$CD/bs.json"
+    printf 'ipinfo.io bs.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "HTTPS answer with backslashes: printed as it is, no extra line" "7 1 1" "$(echo "$out" | grep -c .) $(echo "$out" | grep -c '^via=') $(echo "$out" | grep -cF 'isp=AS64500 Back\nvia=wgs0 \c slash')"
+    printf '{"status":"success","country":"Exampleland","city":"Testburg","isp":"Plain\\nvia=wgs0 \\c x","query":"203.0.113.9"}\n' > "$CD/bs2.json"
+    printf 'ip-api.com bs2.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "HTTP answer with backslashes: the same" "7 1 1" "$(echo "$out" | grep -c .) $(echo "$out" | grep -c '^via=') $(echo "$out" | grep -cF 'isp=Plain\nvia=wgs0 \c x')"
+    # through the tunnel: via says so, as before
+    conf "$WGS_DL/wg-EX-1.conf" 203.0.113.91:51820
+    ctl import wg-EX-1.conf >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-EX-1 >/dev/null
+    printf 'ipinfo.io ipinfo.json\n' > "$WGS_CURLMODE"
+    out=$(ex)
+    check "tunnel up: via=wgs0 as before, proto next to it" "via=wgs0 proto=https" "$(echo "$out" | grep '^via=') $(echo "$out" | grep '^proto=')"
+    ctl down >/dev/null
+    unset WGS_CURLLOG WGS_CURLMODE WGS_CURLDIR
+fi
+
+if want ks_error; then
+    echo "ks_error: with the setting on, a tunnel that cannot be built blocks traffic like a down one (kill switch)"
+    nat() { cat "$WGS_IPT_DIR/nat" 2>/dev/null; }
+    lan_of() { r=$(ip route get 192.168.1.1 2>&1 | head -n1); case "$r" in *"dev wlan0"*) echo wlan0 ;; *) echo other ;; esac; }
+    r4() { ip rule | grep -c "^$1:"; }
+    r6() { ip -6 rule | grep -c "^$1:"; }
+    desc() { sed -n 's/^description=.*Status: //p' "$MOD/module.prop"; }
+    logn() { grep -c -- "$1" "$WGS_DATA/logs/wg-shield.log"; }
+    reset_state; rm -rf "$WGS_IPT_DIR"
+    conf "$WGS_DL/wg-KE-1.conf" 203.0.113.92:51820
+    conf "$WGS_DL/wg-KE-2.conf" 203.0.113.93:51820
+    ctl import wg-KE-1.conf >/dev/null; ctl import wg-KE-2.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-KE-1 >/dev/null
+    check "up; the setting is off by default" "up 0 1" "$(st state) $(st ks_error) $(st killswitch)"
+    # the tunnel file disappears: error. Default: direct connection, as documented
+    mv "$WGS_DATA/tunnels/wg-KE-1.conf" "$RUN/ke1.conf"
+    ctl status >/dev/null
+    check "default: error = direct connection, everything removed" "error tunnel_missing wlan0 0 0 no" "$(st state) $(st reason) $(route_of) $(r4 5020) $(ip route show table 51820 2>/dev/null | grep -c .) $(ip link show wgs0 >/dev/null 2>&1 && echo yes || echo no)"
+    check "default: logged and described as direct" "1 0 1" "$(logn 'state: error (tunnel_missing) - direct connection') $(logn 'state: error (tunnel_missing) - kill switch blocks traffic') $(desc | grep -c 'Error: tunnel_missing · direct connection')"
+    # settings written by an older version: no KS_ERROR line
+    grep -v '^KS_ERROR=' "$WGS_DATA/settings.conf" > "$RUN/settings.old"; cp "$RUN/settings.old" "$WGS_DATA/settings.conf"
+    ctl status >/dev/null
+    check "settings without the key: off" "0 wlan0" "$(st ks_error) $(route_of)"
+    check "set ks_error: only 0 or 1" 0 "$(ctl set ks_error on 2>&1 | kv ok)"
+    check "set ks_error 1" "1 1" "$(ctl set ks_error 1 | kv ok) $(setting KS_ERROR)"
+    check "error + kill switch + the setting: traffic blocked in that tick" "error tunnel_missing 1 blocked" "$(st state) $(st reason) $(st ks_error) $(route_of)"
+    check "blocked like a down tunnel: capture rules, the unreachable route, no interface, no endpoint rule" "1 1 0 0 1 no" "$(r4 5020) $(r4 5021) $(r4 5000) $(ip -6 rule | grep -c '^5000:') $(ip route show table 51820 | grep -c '^unreachable default') $(ip link show wgs0 >/dev/null 2>&1 && echo yes || echo no)"
+    check "only the unreachable route in table 51820" 1 "$(ip route show table 51820 | grep -c .)"
+    check "IPv6 unreachable" "1 1" "$(ip -6 rule | grep -c '^5020:.*unreachable') $(ip -6 rule | grep -c '^5021:.*unreachable')"
+    check "the Wi-Fi LAN stays reachable (local rules kept)" "wlan0 1 1" "$(lan_of) $(r4 5010) $(r4 5012)"
+    if [ "${WGS_UIDS:-}" = 1 ]; then
+        check "Android's network check stays on its network" wlan0 "$(ip route get 1.1.1.1 mark 0x10064 uid 1073 2>&1 | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n1)"
+    else
+        echo "  skip uid case (no --map-auto)"
+    fi
+    check "a socket bound to the network is blocked too" blocked "$(ip route get 1.1.1.1 mark 0x10064 2>&1 | grep -q 'dev ' && echo open || echo blocked)"
+    check "logged, described" "1 1" "$(logn 'state: error (tunnel_missing) - kill switch blocks traffic') $(desc | grep -c 'Error: tunnel_missing · internet blocked (kill switch)')"
+    check "no DNS redirect left" 0 "$(nat | grep -c wgs_dns)"
+    w0=$(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")
+    ctl status >/dev/null; ctl status >/dev/null
+    check "stable over the next ticks: still blocked, nothing repaired, no warnings" "blocked $w0 1" "$(route_of) $(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log") $(logn 'kill switch blocks traffic')"
+    # a second network appears while blocked: captured as well
+    ip link add rmnet5 type veth peer name rmnet5p && ip link set rmnet5p up && ip link set rmnet5 up
+    ip addr add 10.66.0.2/24 dev rmnet5; ip route add default via 10.66.0.1 dev rmnet5 table 1035
+    echo "1035 rmnet5" >> "$WGS_RT_TABLES"; echo "105 INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED" >> "$RUN/networks"
+    ip rule add pref 16000 fwmark 0x10069/0x1ffff iif lo lookup 1035
+    ctl status >/dev/null
+    check "another internet network: blocked as well" blocked "$(ip route get 1.1.1.1 mark 0x10069 2>&1 | grep -q 'dev ' && echo open || echo blocked)"
+    ip rule del pref 16000 fwmark 0x10069/0x1ffff iif lo lookup 1035
+    ip link del rmnet5; sed -i '/^105 /d' "$RUN/networks"; sed -i '/^1035 /d' "$WGS_RT_TABLES"
+    ctl status >/dev/null
+    # leaving the block without leaving the error
+    ctl set killswitch 0 >/dev/null
+    check "kill switch off: direct in that tick, nothing left" "error wlan0 0 0" "$(st state) $(route_of) $(r4 5020) $(ip route show table 51820 2>/dev/null | grep -c .)"
+    check "kill switch off: logged as direct again" 2 "$(logn 'state: error (tunnel_missing) - direct connection')"
+    ctl set killswitch 1 >/dev/null
+    check "kill switch on again: blocked" blocked "$(route_of)"
+    ctl set ks_error 0 >/dev/null
+    check "setting off: direct in that tick" "error wlan0 0" "$(st state) $(route_of) $(r4 5020)"
+    ctl set ks_error 1 >/dev/null
+    check "setting on again: blocked" blocked "$(route_of)"
+    # pause and an Android VPN never block
+    ctl pause 5 >/dev/null
+    check "paused: direct" "paused wlan0 0" "$(st state) $(route_of) $(r4 5020)"
+    ctl resume >/dev/null
+    check "resumed: error and blocked again" "error blocked" "$(st state) $(route_of)"
+    if [ "${WGS_UIDS:-}" = 1 ]; then
+        ip rule add pref 13000 fwmark 0x0/0x20000 iif lo uidrange 10000-19999 lookup 1028
+        ctl status >/dev/null
+        check "an Android VPN: paused, direct" "paused android_vpn wlan0" "$(st state) $(st reason) $(route_of)"
+        ip rule del pref 13000
+        ctl status >/dev/null
+        check "the Android VPN is gone: blocked again" "error blocked" "$(st state) $(route_of)"
+    else
+        echo "  skip Android VPN case (no --map-auto)"
+    fi
+    # leaving the error: the tunnel file is back
+    cp "$RUN/ke1.conf" "$WGS_DATA/tunnels/wg-KE-1.conf"
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "tunnel file back: up, through the tunnel, its endpoint rule" "up wgs0 1" "$(st state) $(route_of) $(ip rule | grep -c '^5000:.*to 203.0.113.92 ')"
+    check "logged as up" 1 "$(tail -n 3 "$WGS_DATA/logs/wg-shield.log" | grep -c 'state: up - wg-KE-1')"
+    # the file becomes invalid while the tunnel is up (the error comes from tunnel_ensure)
+    sed -i 's#^Endpoint = .*#Endpoint = 999.1.1.1:51820#' "$WGS_DATA/tunnels/wg-KE-1.conf"
+    ctl status >/dev/null
+    check "invalid tunnel file: error, blocked, the old tunnel's interface and endpoint rule gone" "error blocked no 0 0" "$(st state) $(route_of) $(ip link show wgs0 >/dev/null 2>&1 && echo yes || echo no) $(r4 5000) $(nat | grep -c wgs_dns)"
+    check "its reason in the log line" 1 "$(logn 'state: error (invalid_tunnel: .*) - kill switch blocks traffic')"
+    ctl status >/dev/null
+    check "still blocked at the next tick" "error blocked 1" "$(st state) $(route_of) $(r4 5020)"
+    # another tunnel switched on
+    ctl up wg-KE-2 >/dev/null
+    check "another tunnel switched on: up, through it" "up wg-KE-2 wgs0 1" "$(st state) $(st tunnel) $(route_of) $(ip rule | grep -c '^5000:.*to 203.0.113.93 ')"
+    # back to the broken one from the command line is refused; root edits the settings: error, blocked
+    sed -i 's/^ACTIVE=.*/ACTIVE=wg-KE-1/' "$WGS_DATA/settings.conf"
+    ctl status >/dev/null
+    check "the broken tunnel active again: blocked, no endpoint rule of the other tunnel" "error blocked 0" "$(st state) $(route_of) $(r4 5000)"
+    ctl down >/dev/null
+    check "down: off, direct, nothing left" "off wlan0 0 0 0" "$(st state) $(route_of) $(r4 5020) $(r6 5020) $(ip route show table 51820 2>/dev/null | grep -c .)"
+    # boot with a tunnel that cannot be built: the boot guard is kept
+    sed -i 's/^ACTIVE=.*/ACTIVE=wg-KE-1/' "$WGS_DATA/settings.conf"
+    $TSH "$MOD/post-fs-data.sh" >/dev/null 2>&1
+    check "boot guard on" blocked "$(route_of)"
+    ctl status >/dev/null
+    check "first tick after boot: error, still blocked" "error blocked 1" "$(st state) $(route_of) $(st ks_error)"
+    ctl set ks_error 0 >/dev/null
+    $TSH "$MOD/post-fs-data.sh" >/dev/null 2>&1; ctl status >/dev/null
+    check "the same boot with the setting off: direct after the first tick" "error wlan0" "$(st state) $(route_of)"
+    ctl set ks_error 1 >/dev/null; ctl set killswitch 0 >/dev/null
+    check "the setting on, the kill switch off: direct" "error wlan0 0" "$(st state) $(route_of) $(r4 5020)"
+    ctl down >/dev/null
+    check "lock released" no "$([ -d "$STATE/lock" ] && echo yes || echo no)"
+fi
+
+if want endpoint6; then
+    echo "endpoint6: a literal IPv6 endpoint in brackets - import, rule 5000 in the IPv6 rules, switches, teardown"
+    reset_state
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"           # the phone has IPv6
+    ip -6 addr add fd11::50/64 dev wlan0 nodad 2>/dev/null
+    ip -6 route add default via fd11::1 dev wlan0 table 1028 2>/dev/null
+    e4() { ip rule | awk '$1 == "5000:" { for (i = 1; i < NF; i++) if ($i == "to") printf "%s ", $(i + 1) }' | sed 's/ $//'; }
+    e6() { ip -6 rule | awk '$1 == "5000:" { for (i = 1; i < NF; i++) if ($i == "to") printf "%s ", $(i + 1) }' | sed 's/ $//'; }
+    # ip that notes, at the moments wgs0 (or the speed test's wgt0) would send
+    # its first handshake, which endpoints have a way around the tunnel
+    cat > "$FAKES/ipo6" <<EOF
+#!/bin/sh
+ep() { { "$REALIP" rule; "$REALIP" -6 rule; } | awk -v p="\$1:" '\$1 == p { for (i = 1; i < NF; i++) if (\$i == "to") printf "%s ", \$(i + 1) }'; }
+case "\$*" in
+    "addr flush dev wgs0"|"link set wgs0 mtu "*" up") echo "\${1}: \$(ep 5000)" >> "\$WGS_IPLOG" ;;
+    "link set wgt0 mtu "*" up") echo "test: \$(ep 4990)" >> "\$WGS_IPLOG" ;;
+esac
+exec "$REALIP" "\$@"
+EOF
+    chmod 755 "$FAKES/ipo6"
+    export WGS_IPLOG="$RUN/iplog6"; rm -f "$WGS_IPLOG"
+    canon() { $TSH -c '. "$WGS_MODDIR/sh/common.sh"; ipv6_canon "$1"' sh "$1"; }
+    # the address as written -> as the kernel's ip lists it
+    bad=""
+    for a in 2001:db8::1 2001:0DB8:0000:0000:0000:0000:0000:0001 2001:db8:0:0:1:0:0:1 2001:db8:0:1:0:0:0:1 2001:0:0:1:0:0:0:1 2001:db8:1:0:0:1:0:0 FE80::0:1 2001:db8:0:0:0:0:0:0 2001:db8:0:1:1:1:1:1 2001:0db8:85a3:0000:0000:8a2e:0370:7334 1:0:0:2:0:0:0:3 1:0:0:0:2:0:0:3 64:ff9b::102:304 1:2:3:4:5:6:7:: 2A00:1450:4001:81B::200E; do
+        ip -6 rule add pref 4999 iif lo to "$a/128" lookup 1028 2>/dev/null
+        k=$(ip -6 rule | awk '$1 == "4999:" { for (i = 1; i < NF; i++) if ($i == "to") print $(i + 1) }')
+        ip -6 rule del pref 4999 2>/dev/null
+        [ -n "$k" ] && [ "$(canon "$a")" = "$k" ] || bad="$bad $a($(canon "$a")/$k)"
+    done
+    check "an IPv6 address is brought into the form ip lists it in (15 spellings)" "" "$bad"
+    for ep in '[2001:db8::1%wlan0]:51820' '[2001:db8::1]' '[2001:db8::1]:0' '[2001:db8:::1]:51820' '[2001:db8::1::2]:51820' '[::1]:51820' '[::]:51820' '[::ffff:1.2.3.4]:51820' '[::ffff:102:304]:51820' '[1:2:3:4:5:6:7:8:9]:51820' '[1:2:3:4:5:6:7]:51820' '[12345::1]:51820' '[2001:db8::g]:51820' '[203.0.113.1]:51820' '[]:51820' '[2001:db8::1:51820' '2001:db8::1:51820' '[:2001:db8::1]:51820' '[2001:db8::1:]:51820'; do
+        conf "$WGS_DL/bad6.conf" "$ep"
+        check "endpoint $ep refused" 0 "$(ctl import bad6.conf | kv imported)"
+    done
+    check "the refusal says what is wrong" 1 "$(conf "$WGS_DL/bad6.conf" '[2001:db8::1%wlan0]:51820'; ctl import bad6.conf | grep -c 'reason=Endpoint is not a usable IPv6 address')"
+    conf "$WGS_DL/wg-ZZ-1.conf" '[2001:db8::1]:51820'
+    conf "$WGS_DL/wg-ZZ-2.conf" '[2001:0DB8:0:0:0:0:0:1]:51820'       # the same server, written out
+    conf "$WGS_DL/wg-ZZ-3.conf" '[2001:db8::3]:443'
+    conf "$WGS_DL/wg-ZZ-4.conf" 203.0.113.94:51820
+    out=$(ctl import wg-ZZ-1.conf)
+    check "IPv6 endpoint in brackets imported" "1 1" "$(echo "$out" | kv imported) $(echo "$out" | grep -c 'endpoint=\[2001:db8::1\]:51820')"
+    for n in 2 3 4; do ctl import "wg-ZZ-$n.conf" >/dev/null; done
+    check "list shows the endpoint as written" 1 "$(ctl list | grep -c '^tunnel=wg-ZZ-2 endpoint=\[2001:0DB8:0:0:0:0:0:1\]:51820 ')"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-1 >/dev/null
+    check "new link comes up with its endpoint rule, in the IPv6 rules" "link: 2001:db8::1 " "$(grep '^link' "$WGS_IPLOG" | tail -n 1)"
+    check "state, endpoint in the status" "handshaking [2001:db8::1]:51820" "$(st state) $(st endpoint)"
+    check "rule 5000: IPv6 only, to the endpoint, into the network's table" "2001:db8::1||1" "$(e6)|$(e4)|$(ip -6 rule | grep -c '^5000:.*to 2001:db8::1 iif lo lookup 1028')"
+    check "the tunnel's own packets get out on the network, nothing else does" "wlan0 blocked" "$(ip -6 route get 2001:db8::1 2>&1 | grep -q 'dev wlan0' && echo wlan0 || echo blocked) $(ip -6 route get 2001:db8::2 2>&1 | grep -q 'dev ' && echo open || echo blocked)"
+    check "IPv4 goes into the tunnel as always" wgs0 "$(route_of)"
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "up" "up [2001:db8::1]:51820" "$(st state) $(st endpoint)"
+    w0=$(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")
+    ctl status >/dev/null; ctl status >/dev/null
+    check "stable: one endpoint rule, nothing repaired" "2001:db8::1 $w0" "$(e6) $(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")"
+    # the same server written out in full: the rule is recognised as the kernel lists it
+    rm -f "$WGS_IPLOG"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-2 >/dev/null
+    check "address written out in full: its rule there before setconf, one rule" "addr: 2001:db8::1 |2001:db8::1" "$(grep '^addr' "$WGS_IPLOG" | tail -n 1)|$(e6)"
+    check "status: the address as the kernel lists it" "[2001:db8::1]:51820" "$(st endpoint)"
+    ctl status >/dev/null
+    check "no warning about the rules" "$w0" "$(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")"
+    # IPv6 -> another IPv6 -> IPv4 -> IPv6: no rule of the old endpoint left in either family
+    rm -f "$WGS_IPLOG"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-3 >/dev/null
+    check "another IPv6 endpoint: only its rule, before setconf" "addr: 2001:db8::3 |2001:db8::3||[2001:db8::3]:443" "$(grep '^addr' "$WGS_IPLOG" | tail -n 1)|$(e6)|$(e4)|$(st endpoint)"
+    rm -f "$WGS_IPLOG"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-4 >/dev/null
+    check "IPv6 -> IPv4 endpoint: the IPv6 rule gone before setconf, the IPv4 one there" "addr: 203.0.113.94 ||203.0.113.94" "$(grep '^addr' "$WGS_IPLOG" | tail -n 1)|$(e6)|$(e4)"
+    rm -f "$WGS_IPLOG"
+    WGS_IP="$FAKES/ipo6" ctl up wg-ZZ-1 >/dev/null
+    check "IPv4 -> IPv6 endpoint: the IPv4 rule gone before setconf, the IPv6 one there" "addr: 2001:db8::1 |2001:db8::1|" "$(grep '^addr' "$WGS_IPLOG" | tail -n 1)|$(e6)|$(e4)"
+    check "rules as wanted in both families (no rules-check warning)" 0 "$(grep -c 'rules check:' "$WGS_DATA/logs/wg-shield.log")"
+    # the failed-address list of the recovery knows the server whatever the spelling
+    check "recovery: both spellings are one server address" "2001:db8::1 2001:db8::1" "$($TSH -c '. "$WGS_MODDIR/sh/common.sh"; . "$WGS_MODDIR/sh/tunnels.sh"; . "$WGS_MODDIR/sh/net.sh"; echo "$(tun_ep_host wg-ZZ-1) $(tun_ep_host wg-ZZ-2)"')"
+    # speed test: one measurement per server address, its own way out in the IPv6 rules
+    rm -f "$WGS_IPLOG"
+    out=$(WGS_TEST_HS_MAX=2 WGS_IP="$FAKES/ipo6" ctl test ZZ 2>&1)
+    check "speed test: the active tunnel's address grouped with its other spelling" 1 "$(echo "$out" | grep -c '^r=2001:db8::1|.*|wg-ZZ-1,wg-ZZ-2|')"
+    ctl down >/dev/null
+    check "down: no rule of ours left in either family" "0 0" "$(ip rule | grep -c '^50[0-9][0-9]:') $(ip -6 rule | grep -c '^50[0-9][0-9]:')"
+    # (with the tunnel off every address is measured on the test interface;
+    # the harness tunnels share one key, which is skipped while one is on)
+    out=$(WGS_TEST_HS_MAX=2 WGS_IP="$FAKES/ipo6" ctl test ZZ 2>&1)
+    check "speed test: an IPv6 server gets rule 4990 in the IPv6 rules before its link is up" "1 1" "$(grep -c '^test: 2001:db8::3 $' "$WGS_IPLOG") $(grep -c '^test: 2001:db8::1 $' "$WGS_IPLOG")"
+    check "speed test: an IPv4 server next to them as before" "1 1" "$(grep -c '^test: 203.0.113.94 $' "$WGS_IPLOG") $(echo "$out" | grep -c '^r=2001:db8::3|||wg-ZZ-3|no_handshake')"
+    check "speed test: nothing of it left" "0 0 0" "$(ip rule | grep -c '^499[01]:') $(ip -6 rule | grep -c '^499[01]:') $(ip link show wgt0 >/dev/null 2>&1 && echo 1 || echo 0)"
+    # the phone's IPv6 goes off: such a tunnel cannot be reached
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+    ctl up wg-ZZ-1 >/dev/null
+    check "IPv6 off on the phone: error with its reason, nothing set up" "error endpoint_needs_ipv6 wlan0 0 0" "$(st state) $(st reason) $(route_of) $(ip rule | grep -c '^50[0-9][0-9]:') $(ip -6 rule | grep -c '^50[0-9][0-9]:')"
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"
+    rm -f "$STATE/fake_hs"; ctl status >/dev/null
+    check "IPv6 on again: the tunnel starts by itself" "handshaking 2001:db8::1" "$(st state) $(e6)"
+    ctl down >/dev/null
+    check "teardown clean" "off 0 0 wlan0" "$(st state) $(ip rule | grep -c '^50[0-9][0-9]:') $(ip -6 rule | grep -c '^50[0-9][0-9]:') $(route_of)"
+    # IPv4 and host-name endpoints as before
+    conf "$WGS_DL/wg-ZZ-5.conf" 203.0.113.95:51820
+    check "IPv4 endpoint as before" "1 1" "$(ctl import wg-ZZ-5.conf | kv imported) $(ctl list | grep -c '^tunnel=wg-ZZ-5 endpoint=203.0.113.95:51820 ')"
+    ip -6 route del default via fd11::1 dev wlan0 table 1028 2>/dev/null
+    ip -6 addr del fd11::50/64 dev wlan0 2>/dev/null
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+    unset WGS_IPLOG
+fi
+
+if want backslash_out; then
+    echo "backslash_out: text quoted from a tunnel file never becomes a line of its own (mksh's echo reads backslashes)"
+    reset_state
+    conf "$WGS_DL/evil.conf" 'bad\nimported=7:1'
+    out=$(ctl import evil.conf 2>&1)
+    check "import refused, its result lines as always" "0 1 1" "$(echo "$out" | kv imported) $(echo "$out" | grep -c '^imported=') $(echo "$out" | grep -c '^skipped=evil reason=')"
+    check "the reason quotes the endpoint as written" 1 "$(echo "$out" | grep -cF "(got 'bad\\nimported=7:1')")"
+    check "log: one line for it, none made of the file's text" "1 0" "$(grep -c 'import: evil skipped' "$WGS_DATA/logs/wg-shield.log") $(grep -c '^imported=' "$WGS_DATA/logs/wg-shield.log")"
+    # a tunnel file edited by root afterwards (the status_backslash case): the
+    # reason goes into command output and the module's description line
+    conf "$WGS_DL/wg-BS-1.conf" 203.0.113.99:51820
+    ctl import wg-BS-1.conf >/dev/null
+    ctl up wg-BS-1 >/dev/null
+    lines0=$(grep -c . "$MOD/module.prop")
+    sed -i 's#^Endpoint = .*#Endpoint = x\\ninjected=u:1#' "$WGS_DATA/tunnels/wg-BS-1.conf"
+    ctl status >/dev/null
+    check "state error with the text in its reason" "error 1" "$(st state) $(st reason | grep -cF 'x\ninjected=u:1')"
+    check "module.prop: still one description line, no line added" "$lines0 1 0" "$(grep -c . "$MOD/module.prop") $(grep -c '^description=' "$MOD/module.prop") $(grep -c '^injected=' "$MOD/module.prop")"
+    out=$(ctl up wg-BS-1 2>&1)
+    check "up refused: one error line, nothing else" "2 1 0" "$(echo "$out" | grep -c .) $(echo "$out" | grep -c '^error=tunnel wg-BS-1 is invalid') $(echo "$out" | grep -c '^injected=')"
+    check "list: one line for the tunnel" "1 0" "$(ctl list | grep -c '^tunnel=wg-BS-1 invalid=1') $(ctl list | grep -c '^injected=')"
+    check "log: no line made of the file's text" 0 "$(grep -c '^injected=' "$WGS_DATA/logs/wg-shield.log")"
+    ctl down >/dev/null
 fi
 
 if want busybox_path; then

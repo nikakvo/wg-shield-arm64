@@ -14,7 +14,7 @@
 # tun_parse FILE -> T_* variables, T_ERR empty when usable, T_WARN notes
 tun_parse() {
     T_ADDR=""; T_EP=""; T_EPIP=""; T_MTU=1420; T_KA=""; T_ERR=""; T_WARN=""; T_TYPE=wireguard; _awg=0; _hpk=0
-    _ni=0; _np=0; _pk=0; _pub=0; _psk=0; T_ADDR6=""; T_V6=0; _addr=""; _mtu=""; _dns=""; _ign=""; _aips=""; T_DNS=""; T_DNS6=""
+    _ni=0; _np=0; _pk=0; _pub=0; _psk=0; T_ADDR6=""; T_V6=0; _addr=""; _mtu=""; _dns=""; _ign=""; _aips=""; T_DNS=""; T_DNS6=""; T_DNSALL=""
     [ -f "$1" ] || { T_ERR="file not found"; return 1; }
     _out=$(tr -d '\r' 2>/dev/null < "$1" | awk '
     function trim(s) { gsub(/[ \t]/, "", s); return s }
@@ -80,7 +80,10 @@ tun_parse() {
     _pl=${T_ADDR#*/}
     ipv4_ok "${T_ADDR%%/*}" && case "$_pl" in ""|*[!0-9]*) false ;; *) [ "${#_pl}" -le 2 ] && [ "$_pl" -le 32 ] ;; esac ||
         { T_ERR="bad Address '$T_ADDR'"; return 1; }
-    # Endpoint: IPv4 literal, or a host name (resolved when the tunnel loads)
+    # Endpoint: IPv4 literal, an IPv6 literal in brackets, or a host name
+    # (resolved when the tunnel loads, to an IPv4 address). T_EPIP of an IPv6
+    # endpoint is the address as the kernel lists it (ipv6_canon): it is
+    # compared with `ip -6 rule` output; wg gets the file's own line
     T_EPIP=""; T_EPHOST=""; T_PORT=${T_EP##*:}; _h=${T_EP%:*}
     [ -n "$T_EP" ] && [ "$_h" != "$T_EP" ] || { T_ERR="Endpoint needs host:port (got '$T_EP')"; return 1; }
     case "$T_PORT" in
@@ -90,6 +93,10 @@ tun_parse() {
     esac
     case "$_h" in
         "") T_ERR="Endpoint has no host"; return 1 ;;
+        "["*"]")
+            _h=${_h#"["}; _h=${_h%"]"}
+            T_EPIP=$(ipv6_canon "$_h") && [ -n "$T_EPIP" ] ||
+                { T_EPIP=""; T_ERR="Endpoint is not a usable IPv6 address (got '$T_EP')"; return 1; } ;;
         *[!0-9.]*)
             case "$_h" in
                 *[!A-Za-z0-9.-]*|.*|*.|*..*|-*) T_ERR="Endpoint must be an IPv4 address or a host name (got '$T_EP')"; return 1 ;;
@@ -111,15 +118,20 @@ tun_parse() {
     esac
     # DNS: the first IPv4 server is used while the tunnel is on, the first
     # IPv6 server while it carries IPv6 too (sh/net.sh dns_ensure); search
-    # domains are not used
+    # domains are not used. T_DNSALL: every IPv4 server in the line's order -
+    # the next one takes over when the active one stops answering (sh/recover.sh
+    # dns_fo_check)
     for _d in $(echo "$_dns" | tr ',' ' '); do
-        if ipv4_ok "$_d"; then [ -z "$T_DNS" ] && T_DNS=$_d
+        if ipv4_ok "$_d"; then
+            [ -z "$T_DNS" ] && T_DNS=$_d
+            case " $T_DNSALL " in *" $_d "*) : ;; *) T_DNSALL="$T_DNSALL${T_DNSALL:+ }$_d" ;; esac
         else
             case "$_d" in *:*:*) case "$_d" in *[!0-9A-Fa-f:]*|*:::*) : ;; *) [ -z "$T_DNS6" ] && [ "${#_d}" -le 39 ] && T_DNS6=$_d ;; esac ;; esac
         fi
     done
     [ -n "$_dns" ] && [ -z "$T_DNS" ] && T_WARN="$T_WARN DNS-without-IPv4-ignored"
     [ -n "$T_EPHOST" ] && T_WARN="$T_WARN host-name-endpoint(resolved-at-connect)"
+    case "$T_EPIP" in *:*) T_WARN="$T_WARN IPv6-endpoint(the-network-needs-IPv6)" ;; esac
     [ -n "$_ign" ] && T_WARN="$T_WARN ignored:$(echo $_ign | tr ' ' ',')"
     [ -z "$T_KA" ] && T_WARN="$T_WARN no-PersistentKeepalive(25-is-used)"
     if [ "$T_TYPE" = amneziawg ]; then
@@ -317,7 +329,7 @@ tun_import_one() {
     name=$(printf '%s' "$base" | sed 's/[^A-Za-z0-9._-]/_/g' | cut -c1-40)
     case "$name" in .*|"") name="tunnel_$name" ;; esac
     if ! tun_parse "$src"; then
-        echo "skipped=$base reason=$T_ERR"
+        printf '%s\n' "skipped=$base reason=$T_ERR"    # not echo: mksh's echo reads the backslashes
         wlog WARN "import: $base skipped - $T_ERR"
         return 1
     fi

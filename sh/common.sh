@@ -6,7 +6,7 @@ MODDIR="${WGS_MODDIR:-/data/adb/modules/wg-shield}"
 # 1.0-r4: everything in ONE folder (up to r3: /data/adb/wg-shield.conf and
 # /data/adb/wg-shield-state/ next to it - see LEGACY_* and layout_migrate):
 #   /data/adb/wg-shield/
-#     settings.conf   active / last tunnel, kill switch
+#     settings.conf   active / last tunnel, kill switch, the other settings
 #     tunnels/        imported tunnels with their keys (root only)
 #     favorites       favorite tunnel names (2.4+)
 #     logs/           wg-shield.log (+ .1)
@@ -95,7 +95,9 @@ wlog() {  # wlog LEVEL message...
     if [ -f "$LOG" ] && [ "$(wc -c 2>/dev/null < "$LOG")" -gt "$LOG_MAX" ] 2>/dev/null; then
         mv -f "$LOG" "$LOG.1" 2>/dev/null
     fi
-    echo "$(log_ts) [$lvl] $*" >> "$LOG"
+    # printf, not echo: mksh's echo would read a backslash in the message
+    # (text quoted from a tunnel file) - "\n" would start a log line of its own
+    printf '%s\n' "$(log_ts) [$lvl] $*" >> "$LOG"
 }
 
 # before the clock is set (early boot) the date is 1970: show time since boot instead
@@ -107,20 +109,65 @@ tunnel_name_ok() {
     [ "${#1}" -le 40 ]
 }
 
-# ipv4_ok ADDRESS - four dot-separated numbers 0-255 (no prefix)
+# ipv4_ok ADDRESS - four dot-separated numbers 0-255 (no prefix). No leading
+# zeros: "010.1.1.1" is 10.1.1.1 for one tool, 8.1.1.1 (octal) for another,
+# and iptables refuses it
 ipv4_ok() {
     case "$1" in ""|*[!0-9.]*|.*|*.|*..*) return 1 ;; esac
     _o=$IFS; IFS=.; set -f; set -- $1; set +f; IFS=$_o; unset _o
     [ $# = 4 ] || return 1
     for _x in "$@"; do
+        case "$_x" in 0?*) unset _x; return 1 ;; esac
         [ "${#_x}" -le 3 ] && [ "$_x" -le 255 ] 2>/dev/null || { unset _x; return 1; }
     done
     unset _x
 }
 
+# ipv6_canon ADDRESS - prints the address the way the kernel's tools list it
+# (`ip -6 rule` shows 2001:0DB8:0:0:0:0:0:1 as 2001:db8::1): lower case, no
+# leading zeros, the longest run of two or more zero groups as "::" (the
+# first one when two are as long). Nothing, and 1, when it is not a usable
+# address: only hex groups and "::" - no zone ("%wlan0"), no dotted IPv4
+# part - and not one whose first five groups are zero (::, ::1, the
+# IPv4-mapped ones: no tunnel server, and the tools print them another way).
+ipv6_canon() {
+    case "$1" in ""|*[!0-9A-Fa-f:]*|*:::*|*::*::*) return 1 ;; esac
+    [ "${#1}" -le 39 ] || return 1
+    echo "$1" | awk '{
+        s = tolower($0); d = index(s, "::"); k = 0
+        if (d) {
+            l = substr(s, 1, d - 1); r = substr(s, d + 2)
+            nl = (l == "") ? 0 : split(l, L, ":"); nr = (r == "") ? 0 : split(r, R, ":")
+            if (nl + nr > 7) exit 1
+            for (i = 1; i <= nl; i++) g[++k] = L[i]
+            for (i = nl + nr; i < 8; i++) g[++k] = "0"
+            for (i = 1; i <= nr; i++) g[++k] = R[i]
+        } else if (split(s, g, ":") != 8) exit 1
+        for (i = 1; i <= 8; i++) {
+            if (g[i] == "" || length(g[i]) > 4) exit 1
+            sub(/^0+/, "", g[i]); if (g[i] == "") g[i] = "0"
+        }
+        if (g[1] g[2] g[3] g[4] g[5] == "00000") exit 1
+        bs = 0; bl = 0; cl = 0
+        for (i = 1; i <= 8; i++) {
+            if (g[i] != "0") { cl = 0; continue }
+            if (cl == 0) cs = i
+            cl++; if (cl > bl) { bl = cl; bs = cs }
+        }
+        o = ""
+        if (bl < 2) { for (i = 1; i <= 8; i++) o = o (i > 1 ? ":" : "") g[i] }
+        else {
+            for (i = 1; i < bs; i++) o = o (i > 1 ? ":" : "") g[i]
+            o = o "::"
+            for (i = bs + bl; i <= 8; i++) o = o (i > bs + bl ? ":" : "") g[i]
+        }
+        print o
+    }'
+}
+
 # ---- settings (KEY=value, whitelist, never sourced) ---------------------------
 settings_load() {
-    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30
+    S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30; S_LANDNS=0; S_KS_ERROR=0
     [ -f "$CONF" ] || return 0
     while IFS='=' read -r k v; do
         v=$(printf '%s' "$v" | tr -d '\r')
@@ -132,6 +179,8 @@ settings_load() {
             NOTIFY) case "$v" in 0|1) S_NOTIFY=$v ;; esac ;;
             PROFILE) case "$v" in battery|always) S_PROFILE=$v ;; esac ;;
             CHECKS) case "$v" in 5|30|off) S_CHECKS=$v ;; esac ;;
+            LANDNS) case "$v" in 0|1) S_LANDNS=$v ;; esac ;;
+            KS_ERROR) case "$v" in 0|1) S_KS_ERROR=$v ;; esac ;;
         esac
     done 2>/dev/null < "$CONF"
 }
@@ -147,6 +196,8 @@ settings_save() {
         echo "NOTIFY=$S_NOTIFY"
         echo "PROFILE=$S_PROFILE"
         echo "CHECKS=$S_CHECKS"
+        echo "LANDNS=$S_LANDNS"
+        echo "KS_ERROR=$S_KS_ERROR"
     } > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$CONF"
 }
 
@@ -257,7 +308,10 @@ status_write() {
             "checks=$S_CHECKS" \
             "dns=$ST_DNS" \
             "dns_server=$ST_DNS_SERVER" \
-            "updated=$(epoch_now)"
+            "updated=$(epoch_now)" \
+            "landns=$S_LANDNS" \
+            "dns_lan=$ST_DNS_LAN" \
+            "ks_error=$S_KS_ERROR"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
     status_compat
 }
@@ -299,11 +353,11 @@ module_desc() {  # keep the manager's description line in sync with the state
         handshaking) if [ "$ST_REASON" = recovering ]; then d="🟡 Recovering ($ST_RECOVER) · $ST_TUNNEL"; else d="🟡 Connecting · $ST_TUNNEL$( [ "$ST_TYPE" = amneziawg ] && echo ' (AmneziaWG)')"; fi ;;
         down) if [ "$S_KILLSWITCH" = 1 ]; then d="🔴 Tunnel down · internet blocked (kill switch)"; else d="🔴 Tunnel down · direct connection"; fi ;;
         paused) if [ "$ST_REASON" = user ]; then d="⏸️ Paused · direct connection"; else d="⏸️ Paused · another VPN is active"; fi ;;
-        error) d="⚠️ Error: $ST_REASON · direct connection" ;;
+        error) if [ "$ST_BLOCK" = 1 ]; then d="⚠️ Error: $ST_REASON · internet blocked (kill switch)"; else d="⚠️ Error: $ST_REASON · direct connection"; fi ;;
         *) d="⚪ Off · direct connection" ;;
     esac
     line="description=Always-on kernel WireGuard / AmneziaWG tunnel without an app, with kill switch. Status: $d"
     grep -qxF "$line" "$prop" 2>/dev/null && return 0
     tmp="$prop.tmp.$$"
-    { grep -v '^description=' "$prop"; echo "$line"; } > "$tmp" 2>/dev/null && mv -f "$tmp" "$prop"
+    { grep -v '^description=' "$prop"; printf '%s\n' "$line"; } > "$tmp" 2>/dev/null && mv -f "$tmp" "$prop"
 }

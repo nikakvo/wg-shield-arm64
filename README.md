@@ -46,6 +46,8 @@ Android sees no VPN - no key icon, no `VpnService`, nothing an app can detect or
 - **Wi-Fi ↔ mobile data** - followed the moment Android switches: the watchdog watches Android's network rules and acts at once, not on its next check
 - **Every internet network, not only the current one** - mobile data kept up in the background while you are on Wi-Fi, a Wi-Fi Android is still checking: whatever an app or Android sends over them goes through the tunnel too. A new network is caught the moment Android creates it. Only Android's own network check and the login page of a hotel / airport Wi-Fi go out on the network itself, so a broken Wi-Fi is never taken for a working one and a login page can open
 - **Host-name endpoints** - a home server on dynamic DNS works; the name is looked up again if the tunnel stops answering
+- **IPv6 endpoints** - a server address written as `[2001:db8::1]:51820` works on a network that has IPv6
+- **LAN DNS through the tunnel** (opt-in) - while the tunnel is up, lookups sent to a resolver on your Wi-Fi (the router) go to the tunnel's DNS too, so the router does not see them
 - **Steps aside for VPN apps** - connect WireGuard, Proton VPN or v2rayNG and WG Shield pauses itself, until that VPN disconnects
 - **Local stays local** - your Wi-Fi LAN (router, printer, SSH from a laptop) and hotspot devices are reached directly
 - **Private keys stay private** - stored root-only, never shown in the WebUI, the log, the status or the report (the same for AmneziaWG's `HeaderProtectionKey`)
@@ -95,7 +97,7 @@ A watchdog follows Android's network rules as they change (`ip monitor`): a new 
 | Kernel, for AmneziaWG | AmneziaWG built in or loaded (`CONFIG_AMNEZIAWG`, `/sys/module/amneziawg`) - optional: without it only AmneziaWG tunnels cannot start (their switch is greyed out), WireGuard tunnels work as usual |
 | Root | SukiSU Ultra or KernelSU (WebUI built in) · APatch · Magisk (WebUI via MMRL or KSU WebUI Standalone) |
 | Android | 12+ (tested on 16) |
-| Tunnels | wg-quick format (WireGuard or AmneziaWG): one `[Peer]`, `AllowedIPs` with `0.0.0.0/0`, an `Endpoint` as an IPv4 address or a host name |
+| Tunnels | wg-quick format (WireGuard or AmneziaWG): one `[Peer]`, `AllowedIPs` with `0.0.0.0/0`, an `Endpoint` as an IPv4 address, an IPv6 address in brackets (`[2001:db8::1]:51820`) or a host name |
 
 ### Tested on
 
@@ -121,7 +123,7 @@ Tunnels and settings are kept on update.
 |---|---|
 | Dashboard | Route strip · exit address (tap **Check**) · tunnel: type, server, handshake, traffic, IPv6, network, the other networks · the networking set · watchdog |
 | Tunnels | Country boxes (+ Favorites, Others) · WireGuard / AmneziaWG filter · every tunnel with a switch (one at a time), ★, an **AWG** badge for AmneziaWG tunnels, and **✕**; the tunnel that is on at the top (green pulsing dot on its box) · **Clear all** deletes every tunnel at once · **Backup** / **Restore** / delete the backup · **Test** a box: results grouped by server address, fastest marked · import from Download, delete the export |
-| Settings | Kill switch · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
+| Settings | Kill switch · Kill switch on error · LAN DNS through the tunnel · checks profile (Battery / Always) · check every 5 s / 30 s / off · Auto-switch on failure · Notification + test · pause 15 min / 1 h / 4 h, resume · Check now · Report (no keys) · Restart |
 | Log | Filterable by level |
 
 ---
@@ -136,7 +138,7 @@ Tunnels and settings are kept on update.
 | **Checking** | After a restart or a switch: handshake done, waiting for an answer through the tunnel (a few seconds) |
 | **Down** | Nothing answers through the tunnel (or no handshake for 180 s) and self-healing could not fix it - kill switch on: no internet; off: direct until it answers again |
 | **Paused** | You paused it, or a VPN app is connected - direct connection |
-| **Error** | The tunnel cannot be built (file gone, kernel refused it, an AmneziaWG tunnel on a kernel without AmneziaWG) - direct connection, the banner says why |
+| **Error** | The tunnel cannot be built (file gone, kernel refused it, an AmneziaWG tunnel on a kernel without AmneziaWG) - direct connection, the banner says why. With **Kill switch on error** on (Settings, `ctl.sh set ks_error 1`; off by default) and the kill switch on: no internet, like **Down** - until the tunnel can be built, another one is switched on, or the tunnel is turned off |
 | **Off** | No tunnel switched on - your normal connection |
 
 ---
@@ -175,7 +177,8 @@ internet
 ```
 
 - **DNS stays with DNSCrypt Proxy** - while DNSCrypt Proxy is on, WG Shield leaves DNS alone (the `DNS =` line of a config is not used); DNSCrypt's own queries simply travel inside the tunnel. Its System tab shows *Through WG Shield · tunnel*
-- **Without DNSCrypt Proxy, apps use the tunnel's DNS** - app DNS (port 53) that goes into the tunnel is sent to the first IPv4 server of the config's `DNS =` line (and IPv6 DNS to its first IPv6 server while the tunnel carries IPv6). Without this, name lookups fail on mobile data: Android asks the carrier's resolvers through the tunnel, and they do not answer queries arriving from the VPN server. A resolver on your Wi-Fi (the router) stays local, as before; carrier services (VoLTE / IMS, MMS), Android's network check and the captive portal login keep their network's DNS. A config without `DNS =` leaves DNS to the network. While DNSCrypt Proxy takes the phone's DNS, WG Shield does nothing with DNS (while DNSCrypt Proxy is paused, the tunnel's DNS answers). The Dashboard *DNS* row and the status key `dns=` show which one answers
+- **Without DNSCrypt Proxy, apps use the tunnel's DNS** - app DNS (port 53) that goes into the tunnel is sent to the first IPv4 server of the config's `DNS =` line (and IPv6 DNS to its first IPv6 server while the tunnel carries IPv6). With several IPv4 servers in the line the next one takes over when the one in use stops answering (IPv4 only; see Notes). Without this, name lookups fail on mobile data: Android asks the carrier's resolvers through the tunnel, and they do not answer queries arriving from the VPN server. A resolver on your Wi-Fi (the router) stays local, as before; carrier services (VoLTE / IMS, MMS), Android's network check and the captive portal login keep their network's DNS. A config without `DNS =` leaves DNS to the network. While DNSCrypt Proxy takes the phone's DNS, WG Shield does nothing with DNS (while DNSCrypt Proxy is paused, the tunnel's DNS answers). The Dashboard *DNS* row and the status key `dns=` show which one answers
+- **LAN DNS through the tunnel** (Settings, off by default; `ctl.sh set landns 1`) - a resolver on your Wi-Fi sees every name the phone looks up. With this on, and only while the tunnel is up, plain DNS (port 53, IPv4) that leaves through the Wi-Fi - or another network that goes through the tunnel - is sent to the tunnel's DNS as well (nat chain `wgs_dns`, and `wgs_dnss` gives those queries the tunnel's own source address). Names only the router knows (`printer.lan`) stop resolving meanwhile. While the tunnel is connecting or down, also with the kill switch on, the router is asked again and sees the lookups made then: Android's network check and a login page need the network's own resolver, and their lookups cannot be told apart from an app's (so while the tunnel is up they go to the tunnel's DNS too; on a new Wi-Fi with a login page the prompt can come late, until WG Shield has noticed that the tunnel does not answer there). Not redirected: carrier services, a network Android is still checking, a resolver reached over IPv6 (on a Wi-Fi with IPv6 the router can still see lookups), Private DNS. Nothing is done while DNSCrypt Proxy takes the phone's DNS. The *DNS* row shows `+ LAN` while it is active, the status key `dns_lan=` lists the interfaces
 - **Hotspot devices follow the tunnel** - WireGuard or AmneziaWG alike: VPN Hotspot (1.0-r13 or newer) reads WG Shield's status: through the tunnel when it is up, direct when you turn it off or pause it, blocked when it fails
 - **ipset** blocks as always; a tunnel server must never be in its lists (check it with its *Check* tool)
 - **LAN Cloak** - hides what the Wi-Fi network itself sees of the phone (DHCP, announcements); the tunnel covers the rest. WG Shield's Dashboard shows its state
@@ -188,7 +191,7 @@ internet
 | Path | |
 |---|---|
 | `/data/adb/wg-shield/` | Everything the module keeps, in one folder: |
-| `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification |
+| `  settings.conf` | Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification, LAN DNS through the tunnel, kill switch on error |
 | `  tunnels/` | Imported tunnels with their keys, root only (`0600`) |
 | `  favorites` | Favorite tunnel names, one per line |
 | `  speedtest` | Last speed test result per server address (the auto-switch order uses it) |
@@ -205,12 +208,14 @@ internet
 ```
 state=up|handshaking|down|paused|off|error
 reason=…            iface=wgs0            table=51820         type=wireguard|amneziawg
-tunnel=<name>       endpoint=<ip:port>    endpoint_host=<host:port, if a name>
+tunnel=<name>       endpoint=<ip:port, an IPv6 address as [addr]:port>    endpoint_host=<host:port, if a name>
 handshake_age=<s>   killswitch=1|0        ipv6=tunnel|blocked|off
 default_net=…       android_vpn=…         updated=<epoch>
 recover=restart N/2|switch <name>|failed|  recover_from=<tunnel>
 profile=battery|always  checks=5|30|off   autoswitch=0|1    notify=0|1
-dns=tunnel|dnscrypt|network  dns_server=<the tunnel's DNS, IPv4 [IPv6]>
+dns=tunnel|dnscrypt|network  dns_server=<the tunnel's DNS in use, IPv4 [IPv6]>
+landns=0|1          dns_lan=<interfaces whose DNS goes to the tunnel's DNS too, empty when none>
+ks_error=0|1        (1 and killswitch=1: state=error blocks traffic like state=down)
 ```
 
 ---
@@ -229,10 +234,12 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh down'   # normal connec
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh pause <minutes>'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh resume'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set ks_error 0|1'   # kill switch also when the tunnel cannot be built (error)
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set profile battery|always'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set checks 5|30|off'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set autoswitch 0|1'
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
+su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set landns 0|1'   # LAN DNS through the tunnel
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'   # how the notification looks
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   # watchdog + tunnel again
 su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove <name>'
@@ -271,7 +278,10 @@ Within about 40 seconds (10 with Check every 5 s) the banner shows *restart 1 of
 - **The ping** goes through the tunnel only (bound to `wgs0`, to 1.1.1.1 / 8.8.8.8), so it shows nothing new to your network. A server that never answers a ping is not called dead for that - for such a tunnel WireGuard's own 180 s rule decides
 - **The speed test** sends, per server address, one WireGuard handshake and a few pings to 1.1.1.1 through that server - nothing outside a tunnel. A server can take a few seconds before it answers a key it has not seen for a while; the test waits up to 10 seconds for the answers
 - **Notifications** are posted through Android's shell, so they appear as *Shell* / *Command line*; HyperOS shows them when the screen comes on
+- **IPv6 endpoints** - `Endpoint = [2001:db8::1]:51820` (brackets, no zone like `%wlan0`). The tunnel's own packets get their way out in the IPv6 rules (rule 5000 there), everything else in IPv6 stays blocked or in the tunnel as before. The network the phone is on needs IPv6: without an IPv6 route there is no handshake (the tunnel shows *Connecting*, then *Down*); with IPv6 off for the whole phone the state is *Error*. The status and the speed test show the address the way the system lists it (`2001:0DB8:0:0:0:0:0:1` as `2001:db8::1`). A host name is always looked up as an IPv4 address
 - **Host-name endpoints** are looked up with one plain DNS query outside the tunnel to Cloudflare (`1.1.1.1`, `1.0.0.1`), then Google (`8.8.8.8`) (the tunnel is not up yet); the same resolvers DNSCrypt Proxy lets root query directly
+- **Several DNS servers** - `DNS = 10.2.0.1, 10.2.0.2`: the first IPv4 server is used. Together with the tunnel check (so not with the screen off in the Battery profile, and not with the checks off), at most once a minute, the server in use is asked for `example.com` through the tunnel; any DNS answer counts. No reply twice in a row: the next server of the line is used (the log says so, `dns_server=` shows it), after the last one the first again. A tunnel that is loaded again starts with the first server. Needs the root manager's busybox (`nslookup`, `timeout`). Of the IPv6 servers only the first is used
+- **The exit address** (Dashboard **Check**, `ctl.sh exitip`) is asked over HTTPS with Android's `/system/bin/curl`, certificate checked: `ipinfo.io/json`, then `ipwho.is`. Only without `curl` or when both fail it is asked over plain HTTP as before (`ip-api.com`, then `ipinfo.io`); the output key `proto=https|http` says which it was (`via=` is the tunnel's interface when the request went through the tunnel, as before)
 - **DNS already under way when the DNS redirect changes** - when the tunnel's DNS is turned on or off or changes, a DNS flow that already exists keeps its old address translation until the kernel forgets it (UDP about 30 s, longer while it keeps getting answers). Android's resolver uses a new port for every query, so new lookups follow at once. Android has no tool to clear only those kernel entries (no `conntrack` in toybox or busybox), so WG Shield does not try
 - **Same LAN on both sides** - addresses of your own Wi-Fi network always stay local; a home VPN that uses the same range (both `192.168.1.x`) cannot reach its devices while you are on that Wi-Fi
 - **Need internet now?** Action button (off), or disable the module in the root manager and reboot - nothing of it stays active

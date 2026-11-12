@@ -29,22 +29,25 @@ usage() {
         '  pause <minutes>     direct connection for a while (1-1440), then back on' \
         '  resume              end a pause now' \
         '  set killswitch 0|1  1 = no internet while the tunnel is down (default)' \
+        '  set ks_error 0|1    1 = with the kill switch on, no internet also while the tunnel cannot be built (error); 0 = direct then (default)' \
         '  set autoswitch 0|1  1 = when restarts do not help, try other tunnels of the same country' \
         '  set notify 0|1      1 = a notification when the tunnel could not be fixed (default)' \
         '  set profile battery|always  checks only with the screen on (default) / day and night' \
         '  set checks 5|30|off  ping through the tunnel every 5 s / 30 s (default) / never' \
+        '  set landns 0|1      1 = while the tunnel is up, DNS to a resolver on the Wi-Fi (the router) goes to the tunnel DNS too' \
         '  restart             restart the watchdog and reconnect the tunnel' \
         '  notifytest          show a test notification' \
         '  log [lines|clear]   last log lines (default 40) / empty the log' \
         '  poll                everything the WebUI shows (key=value)' \
         '  files               tunnel exports found in Download' \
         '  delfile <name>      delete an export from Download (it holds private keys)' \
-        '  exitip              public exit address (one HTTP request)' \
+        '  exitip              public exit address (one request to an IP service, over HTTPS; plain HTTP only if that fails)' \
         '  diag                report for troubleshooting (no keys)' \
         '  version'
 }
 
-fail() { lock_release 2>/dev/null; echo "ok=0"; echo "error=$*"; exit 1; }
+# (printf: an error can quote a tunnel file's text; mksh's echo would read its backslashes)
+fail() { lock_release 2>/dev/null; echo "ok=0"; printf '%s\n' "error=$*"; exit 1; }
 
 # Settings are changed only under the watchdog's lock: a tick can rewrite
 # settings.conf itself (the auto-switch saves the tunnel it switched to),
@@ -57,7 +60,7 @@ set_locked() {
     ctl_lock; settings_load
     case "$1" in
         KILLSWITCH) S_KILLSWITCH=$2 ;; AUTOSWITCH) S_AUTOSWITCH=$2 ;; NOTIFY) S_NOTIFY=$2 ;;
-        PROFILE) S_PROFILE=$2 ;; CHECKS) S_CHECKS=$2 ;;
+        PROFILE) S_PROFILE=$2 ;; CHECKS) S_CHECKS=$2 ;; LANDNS) S_LANDNS=$2 ;; KS_ERROR) S_KS_ERROR=$2 ;;
     esac
     settings_save || fail "cannot write $CONF"
 }
@@ -131,6 +134,21 @@ _http_get() {  # <host> <path>
     return 1
 }
 _json_str() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" | head -n 1; }
+# exitip over HTTPS: Android's own curl (the root manager's busybox wget has
+# no TLS), the certificate is checked (no -k)
+CURL="${WGS_CURL:-/system/bin/curl}"
+_https_get() { "$CURL" -s --max-time 8 "$1" 2>/dev/null; }   # <https url>
+# _json_val JSON KEY - a string value, also from pretty-printed JSON ("key": "value")
+_json_val() { printf '%s\n' "$1" | sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1; }
+# _exit_https URL PROVIDER-KEY - asks one service; 0 with ip / e_country /
+# e_city / e_isp set when it gave an address (only an address is taken: the
+# answer is not ours)
+_exit_https() {
+    j=$(_https_get "$1") || return 1
+    ip=$(_json_val "$j" ip)
+    case "$ip" in ""|*[!0-9A-Fa-f:.]*) ip=""; return 1 ;; esac
+    e_country=$(_json_val "$j" country); e_city=$(_json_val "$j" city); e_isp=$(_json_val "$j" "$2")
+}
 
 # poll's tunnel rows, "t=name|endpoint|address|valid|ipv6|type|fav". Parsing
 # ~80 files on every poll (every 4 s while the WebUI is open) took seconds, so
@@ -198,7 +216,7 @@ case "$cmd" in
             if tun_parse "$(tun_file "$n")"; then
                 echo "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 type=$T_TYPE active=$a fav=$f"
             else
-                echo "tunnel=$n invalid=1 active=$a fav=$f error=$(echo "$T_ERR" | tr ' ' '_')"
+                printf '%s\n' "tunnel=$n invalid=1 active=$a fav=$f error=$(printf '%s' "$T_ERR" | tr ' ' '_')"
             fi
         done
         echo "ok=1"; echo "count=$c"; echo "active=$S_ACTIVE"; echo "last=$S_LAST"
@@ -280,11 +298,11 @@ case "$cmd" in
         lock_get 20 || fail "busy - try again"
         out=$(bk_restore); rc=$?
         lock_release
-        err=$(echo "$out" | sed -n 's/^error=//p')
+        err=$(printf '%s\n' "$out" | sed -n 's/^error=//p')
         [ -z "$err" ] || fail "$err"
-        wlog INFO "ctl: restore from $BKZIP - $(echo "$out" | sed -n 's/^imported=//p') imported, $(echo "$out" | sed -n 's/^skipped=//p') skipped"
+        wlog INFO "ctl: restore from $BKZIP - $(printf '%s\n' "$out" | sed -n 's/^imported=//p') imported, $(printf '%s\n' "$out" | sed -n 's/^skipped=//p') skipped"
         if [ "$rc" = 0 ]; then echo "ok=1"; else echo "ok=0"; echo "error=nothing imported (see Log)"; fi
-        echo "$out"
+        printf '%s\n' "$out"
         exit "$rc"
         ;;
     backupinfo)
@@ -376,6 +394,16 @@ case "$cmd" in
                 set_locked NOTIFY "$2"
                 wlog INFO "ctl: notifications $2"
                 tick_locked; print_status ;;
+            ks_error|KS_ERROR)
+                case "$2" in 0|1) : ;; *) fail "usage: set ks_error 0|1" ;; esac
+                set_locked KS_ERROR "$2"
+                wlog INFO "ctl: kill switch on error $2"
+                tick_locked; print_status ;;
+            landns|LANDNS)
+                case "$2" in 0|1) : ;; *) fail "usage: set landns 0|1" ;; esac
+                set_locked LANDNS "$2"
+                wlog INFO "ctl: LAN DNS through the tunnel $2"
+                tick_locked; print_status ;;
             *) fail "unknown setting: $1" ;;
         esac
         ;;
@@ -465,16 +493,31 @@ case "$cmd" in
         ;;
     exitip)
         via=""; [ "$(sed -n 's/^state=//p' "$STATE/status" 2>/dev/null)" = up ] && via=$IFACE
-        j=$(_http_get ip-api.com '/json/?fields=status,country,countryCode,city,isp,query')
-        ip=$(_json_str "$j" query)
-        if [ -n "$ip" ]; then
-            echo "ip=$ip"; echo "country=$(_json_str "$j" country)"; echo "city=$(_json_str "$j" city)"; echo "isp=$(_json_str "$j" isp)"
-        else
-            j=$(_http_get ipinfo.io /json); ip=$(_json_str "$j" ip)
-            [ -n "$ip" ] || fail "no answer from ip-api.com or ipinfo.io"
-            echo "ip=$ip"; echo "country=$(_json_str "$j" country)"; echo "city=$(_json_str "$j" city)"; echo "isp=$(_json_str "$j" org)"
+        # HTTPS first: ipinfo.io (ip, country, city, org), then ipwho.is (ip,
+        # country, city, isp). Plain HTTP - where anyone on the way can read
+        # and change the answer - only without curl or when both fail.
+        # proto= says which it was (via= is taken: the tunnel's interface).
+        # The answer's values are printed with printf, not echo: mksh's echo
+        # would read a backslash in them ("\n" = a line of its own)
+        ip=""; proto=https
+        if [ -x "$CURL" ]; then
+            _exit_https https://ipinfo.io/json org || _exit_https https://ipwho.is/ isp
         fi
-        echo "via=$via"; echo "ok=1"
+        if [ -n "$ip" ]; then
+            printf '%s\n' "ip=$ip" "country=$e_country" "city=$e_city" "isp=$e_isp"
+        else
+            proto=http
+            j=$(_http_get ip-api.com '/json/?fields=status,country,countryCode,city,isp,query')
+            ip=$(_json_str "$j" query)
+            if [ -n "$ip" ]; then
+                printf '%s\n' "ip=$ip" "country=$(_json_str "$j" country)" "city=$(_json_str "$j" city)" "isp=$(_json_str "$j" isp)"
+            else
+                j=$(_http_get ipinfo.io /json); ip=$(_json_str "$j" ip)
+                [ -n "$ip" ] || fail "no answer from ipinfo.io, ipwho.is or ip-api.com"
+                printf '%s\n' "ip=$ip" "country=$(_json_str "$j" country)" "city=$(_json_str "$j" city)" "isp=$(_json_str "$j" org)"
+            fi
+        fi
+        echo "via=$via"; echo "proto=$proto"; echo "ok=1"
         ;;
     diag)
         if lock_try; then wgs_tick; lock_release; fi
@@ -490,7 +533,7 @@ case "$cmd" in
         echo; echo "== favorites"; fav_names
         echo; echo "== backup"; if [ "$(bk_count)" -gt 0 ]; then echo "$BKZIP: $(bk_count) tunnels, created $(bk_created)"; else echo "none ($BKZIP)"; fi
         echo; echo "== speed test (address|handshake ms|ping ms|result|epoch|tunnels)"; cat "$TEST_FILE" 2>/dev/null
-        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else echo "$n INVALID: $T_ERR"; fi; done
+        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else printf '%s\n' "$n INVALID: $T_ERR"; fi; done
         k=$(iface_kind)
         if [ "$k" = amneziawg ]; then
             echo; echo "== awg (keys hidden)"; "$AWG" show "$IFACE" 2>&1 | grep -viE 'private key|preshared|protection key'
@@ -499,7 +542,7 @@ case "$cmd" in
         fi
         echo; echo "== our rules"; "$IP" rule 2>/dev/null | grep -E '^50[0-9][0-9]:'; "$IP" -6 rule 2>/dev/null | grep -E '^50[0-9][0-9]:' | sed 's/^/v6 /'
         echo; echo "== table $TABLE"; "$IP" route show table "$TABLE" 2>/dev/null
-        echo; echo "== DNS (nat OUTPUT port 53 and our chain)"; _nat_dump "$IPTS" "$IPT" | grep -E 'wgs_dns|--dport 53'
+        echo; echo "== DNS (nat OUTPUT port 53 and our chains)"; _nat_dump "$IPTS" "$IPT" | grep -E 'wgs_dns|--dport 53'
         [ -f "$STATE/dns6.want" ] && _nat_dump "$IPTS6" "$IPT6" | grep -E 'wgs_dns|--dport 53' | sed 's/^/v6 /'
         echo; echo "== rules wanted ($(grep -c . "$STATE/rules.want" 2>/dev/null))"; sed 's/ rule add pref / /' "$STATE/rules.want" 2>/dev/null
         echo "key $(cat "$STATE/rules.key" 2>/dev/null)"

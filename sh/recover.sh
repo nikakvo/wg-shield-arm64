@@ -37,6 +37,16 @@
 # tunnel / pauses / turns it off, or the network changes.
 #
 # State: $STATE/heal (key=value): orig cur step at tried done notified def
+#
+# DNS failover (dns_fo_check): a config whose DNS line has several IPv4
+# servers uses the first one. When a liveness check found the tunnel
+# answering, and at most once a minute, the active server is asked one
+# question through the tunnel (busybox nslookup, 3 s). Any DNS answer counts,
+# also "no such name"; no reply twice in a row = the next server of the line
+# becomes the active one (around to the first after the last), until that one
+# fails. Back to the first when a tunnel is loaded. No wake-ups of its own:
+# no liveness check (screen off with the Battery profile, checks off) = no
+# question. IPv6 servers: the first one only.
 
 HEAL_WAIT=${WGS_HEAL_WAIT:-10}
 HEAL_RESTARTS=2
@@ -46,6 +56,8 @@ CMD="${WGS_CMD:-/system/bin/cmd}"
 PING="${WGS_PING:-/system/bin/ping}"
 PROBE_TARGETS="${WGS_PROBE:-1.1.1.1 8.8.8.8}"
 LIVE_EVERY=${WGS_LIVE_EVERY:-5}
+DNS_FO_EVERY=${WGS_DNS_FO_EVERY:-60}     # s between two questions to the active DNS server
+DNS_FO_NAME=example.com
 
 # ---- liveness -------------------------------------------------------------------
 # one ping through the tunnel (bound to wgs0, so it never goes around it):
@@ -76,6 +88,49 @@ heal_active() { [ -f "$STATE/heal" ] && ! grep -q '^done=1' "$STATE/heal" 2>/dev
 
 live_reset() { rm -f "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at"; }
 
+# dns_fo_check DNS - called by live_check when the tunnel answered its ping;
+# DNS = the status key dns. 0 when the active DNS server was changed (tick
+# now: the tick redirects to it). Writes only its own files (no lock):
+#   dns_fo_at    when the last question was asked
+#   dns_fo_fail  "<tunnel load>|<server>" that did not reply to the last one
+#   dns_srv      the server switched to + the tunnel load it is for (dns_active)
+dns_fo_check() {
+    [ "$1" = tunnel ] || return 1
+    _fa=$(sed -n 12p "$STATE/tunnel.info" 2>/dev/null)
+    case "$_fa" in *" "*) : ;; *) unset _fa; return 1 ;; esac       # one server: nothing to switch to
+    _fn=$(mono_now)
+    _fl=$(cat "$STATE/dns_fo_at" 2>/dev/null)
+    case "$_fl" in ""|*[!0-9]*) : ;; *) [ $(( _fn - _fl )) -ge "$DNS_FO_EVERY" ] || { unset _fa _fn _fl; return 1; } ;; esac
+    # busybox with nslookup and timeout (asked once per watchdog)
+    if [ -z "$DNS_FO_BB" ]; then
+        DNS_FO_BB=no
+        [ -x "$BB" ] && _fl=$("$BB" --list 2>/dev/null) &&
+            printf '%s\n' "$_fl" | grep -qx nslookup && printf '%s\n' "$_fl" | grep -qx timeout && DNS_FO_BB=yes
+    fi
+    [ "$DNS_FO_BB" = yes ] || { unset _fa _fn _fl; return 1; }
+    _fl=$(cat "$STATE/loaded" 2>/dev/null)
+    [ -n "$_fl" ] || { unset _fa _fn _fl; return 1; }
+    echo "$_fn" > "$STATE/dns_fo_at"
+    _fs=$(dns_active "$_fa" "$_fl")
+    _fr=1
+    if "$BB" timeout 3 "$BB" nslookup "$DNS_FO_NAME" "$_fs" 2>/dev/null | grep -qiE "^Name:|can't find"; then
+        rm -f "$STATE/dns_fo_fail"                      # an answer (also "no such name")
+    elif [ "$(cat "$STATE/dns_fo_fail" 2>/dev/null)" != "$_fl|$_fs" ]; then
+        echo "$_fl|$_fs" > "$STATE/dns_fo_fail"         # no reply, the first time
+    elif [ "$(cat "$STATE/loaded" 2>/dev/null)" = "$_fl" ]; then
+        # no reply twice in a row: the next server of the line, the first after the last
+        _fx=$(echo "$_fa" | awk -v s="$_fs" '{ for (i = 1; i <= NF; i++) if ($i == s) { print $(i % NF + 1); exit } }')
+        if [ -n "$_fx" ] && [ "$_fx" != "$_fs" ]; then
+            printf '%s\n%s\n' "$_fx" "$_fl" > "$STATE/dns_srv.tmp.$$" && mv -f "$STATE/dns_srv.tmp.$$" "$STATE/dns_srv"
+            rm -f "$STATE/dns_fo_fail"
+            wlog WARN "DNS: $_fs does not answer through the tunnel (asked twice, $DNS_FO_NAME) - switching to $_fx"
+            _fr=0
+        fi
+    fi
+    unset _fa _fn _fl _fs _fx
+    return $_fr
+}
+
 # live_check - run by the watchdog between ticks, without the lock (it only
 # writes its own files). 1 = something changed, tick now.
 live_check() {
@@ -86,9 +141,9 @@ live_check() {
         if [ -f "$STATE/dead_at" ]; then live_reset; return 1; fi   # forget "no answer"
         live_reset; return 0
     fi
-    _st=""; _ks=""; _tn=""
+    _st=""; _ks=""; _tn=""; _dn=""
     while IFS='=' read -r _k _v; do
-        case "$_k" in state) _st=$_v ;; killswitch) _ks=$_v ;; tunnel) _tn=$_v ;; esac
+        case "$_k" in state) _st=$_v ;; killswitch) _ks=$_v ;; tunnel) _tn=$_v ;; dns) _dn=$_v ;; esac
     done 2>/dev/null < "$STATE/status"
     case "$_st" in
         up) : ;;
@@ -132,6 +187,8 @@ live_check() {
         mono_cs > "$STATE/alive_at"
         tun_pingable "$_tn" || echo "$_tn" >> "$STATE/pingable"
         if [ -f "$STATE/dead_at" ]; then rm -f "$STATE/dead_at"; return 1; fi
+        # the tunnel answers: does its DNS server? (several servers in the DNS line)
+        dns_fo_check "$_dn" && return 1
         return 0
     fi
     [ "$_st" = up ] || return 0
@@ -191,8 +248,10 @@ tun_country() {
     echo "$1" | awk -F'[-_.]' '{ for (i = 1; i <= NF; i++) if ($i ~ /^[A-Z][A-Z]$/) { print $i; exit } }'
 }
 
-# endpoint (host or address, without the port) of a tunnel, empty if invalid
-tun_ep_host() { ( tun_parse "$(tun_file "$1")" >/dev/null 2>&1 && echo "${T_EP%:*}" ); }
+# endpoint (host or address, without the port) of a tunnel, empty if invalid.
+# A literal address as tun_parse keeps it (T_EPIP: an IPv6 one in the
+# kernel's form, so two spellings of one server are one address)
+tun_ep_host() { ( tun_parse "$(tun_file "$1")" >/dev/null 2>&1 && echo "${T_EPIP:-${T_EP%:*}}" ); }
 
 # next tunnel to try, empty = none left. Runs in a subshell (tun_parse and
 # tun_names use global variables).
@@ -213,7 +272,7 @@ heal_pick() {
             case " $H_TRIED " in *" $_hn "*) continue ;; esac
             tun_parse "$(tun_file "$_hn")" >/dev/null 2>&1 || continue
             if [ "$T_TYPE" = amneziawg ] && [ "$FAKE_LINK" = 0 ] && ! awg_kernel_ok; then continue; fi
-            case "$_bad" in *" ${T_EP%:*} "*) continue ;; esac
+            case "$_bad" in *" ${T_EPIP:-${T_EP%:*}} "*) continue ;; esac
             _g=1; [ -n "$_cc" ] && [ "$(tun_country "$_hn")" = "$_cc" ] && _g=0
             _i=$((_i + 1))
             echo "$_g $(test_rank "$_hn") $_i $_hn"

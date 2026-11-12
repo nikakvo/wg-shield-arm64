@@ -370,6 +370,14 @@
         <div class="rn"><b>Kill switch</b><span>A tunnel is on but not working → no internet at all, never your mobile or Wi-Fi connection directly. Off: the phone goes direct until the tunnel answers again.</span></div>
         <label class="sw" id="sw-ks"><input type="checkbox" id="cb-ks" onchange="setKs(this)"><i></i></label>
       </div>
+      <div class="row">
+        <div class="rn"><b>Kill switch on error</b><span>Off (default): when the tunnel cannot be built at all (its file is gone or invalid, the kernel or the tool refuses it) the phone goes direct, and the banner says why. On: no internet then either, like a tunnel that is down - until the tunnel works, you switch another one on, or turn the tunnel off. Needs the kill switch on. Off, pause and a VPN app never block.</span></div>
+        <label class="sw" id="sw-ke"><input type="checkbox" id="cb-ke" onchange="setOpt(this, 'ks_error', 'Kill switch on error')"><i></i></label>
+      </div>
+      <div class="row">
+        <div class="rn"><b>LAN DNS through the tunnel</b><span>On: while the tunnel is up, name lookups sent to a resolver on your Wi-Fi (the router) go to the tunnel's DNS too, so the router does not see them. Names only the router knows (printer.lan) stop resolving. While the tunnel is connecting or down the router is asked again and sees those lookups - a login page (hotel, airport) needs that. Off (default): the router's resolver is asked directly. Nothing changes while DNSCrypt Proxy answers DNS.</span></div>
+        <label class="sw" id="sw-ld"><input type="checkbox" id="cb-ld" onchange="setOpt(this, 'landns', 'LAN DNS through the tunnel')"><i></i></label>
+      </div>
       <div class="row col">
         <div class="rn"><b>Checks</b><span id="prof-note"></span></div>
         <div class="seg" id="prof-seg">
@@ -584,6 +592,8 @@ function showTab(name) {
 let ST = {};
 function setBanner(cls, msg) { const b = $('banner'); b.className = cls; b.innerHTML = '<span class="live-dot"></span>' + msg; }
 const ks = st => st.killswitch === '1';
+// state error with "Kill switch on error" on: blocked, not direct
+const errBlock = st => st.state === 'error' && ks(st) && st.ks_error === '1';
 
 const REASON = {
   no_kernel_wireguard: 'this kernel has no WireGuard',
@@ -593,6 +603,7 @@ const REASON = {
   wg_setconf_failed: 'the tunnel file was refused (see Log)',
   awg_setconf_failed: 'the AmneziaWG settings were refused (see Log)',
   tunnel_missing: 'the tunnel file is missing',
+  endpoint_needs_ipv6: 'the server address is IPv6 and IPv6 is off on this phone',
 };
 // what self-healing is doing (status recover= / recover_from=)
 function healText(st) {
@@ -617,7 +628,7 @@ function renderBanner(st) {
       if (st.reason === 'user') setBanner('b-warn', `Paused · direct connection · back in ${fmtDur(st.pause_left)}`);
       else setBanner('b-warn', 'Paused · another VPN is connected (' + esc(st.android_vpn || 'app') + ') - back when it disconnects');
       break;
-    case 'error': setBanner('b-error', 'Error: ' + esc(REASON[st.reason] || st.reason) + ' - direct connection'); break;
+    case 'error': setBanner('b-error', 'Error: ' + esc(REASON[st.reason] || st.reason) + (errBlock(st) ? ' - kill switch holds: no internet' : ' - direct connection')); break;
     case 'off': setBanner('b-idle', 'Off · your normal connection' + (st.t.length ? ' - switch a tunnel on in Tunnels' : ' - import tunnels in Tunnels')); break;
     default: setBanner('b-idle', 'Waiting for the watchdog…');
   }
@@ -641,6 +652,7 @@ function renderRoute(st) {
       set('rn-ph', st.state === 'off' ? '' : 'warn'); set('rn-tun', 'off'); set('rn-net', st.state === 'off' ? '' : 'warn');
       setL('rl-1', 'plain'); setL('rl-2', 'plain');
       $('rn-tun2').textContent = st.state === 'off' ? 'off' : st.state === 'paused' ? 'paused' : 'error';
+      if (errBlock(st)) { set('rn-ph', 'on'); set('rn-net', 'off'); setL('rl-1', 'cut'); setL('rl-2', ''); }
       break;
     default: set('rn-ph', 'off'); set('rn-tun', 'off'); set('rn-net', 'off'); setL('rl-1', ''); setL('rl-2', '');
   }
@@ -689,7 +701,7 @@ function renderTunnel(st) {
   $('t-nets').className = 'v wrap ' + (on && st.nets ? '' : 'm');
   $('t-heal').textContent = !on ? '-' : st.recover ? healText(st) : (st.checks === 'off' ? 'handshake only (checks off)' : 'watching every ' + (st.checks === '5' ? '5' : '30') + ' s' + (st.profile === 'always' ? '' : ' while the screen is on')) + ' - 2 restarts' + (st.autoswitch === '1' ? ', then other tunnels (same country first)' : ' (auto-switch off)');
   const dn = st.dns || '';
-  $('t-dns').textContent = dn === 'tunnel' ? "tunnel's DNS " + (st.dns_server || '').trim().split(/\s+/).join(' + ') : dn === 'dnscrypt' ? 'DNSCrypt Proxy' : dn === 'network' ? "the network's" : '-';
+  $('t-dns').textContent = dn === 'tunnel' ? "tunnel's DNS " + (st.dns_server || '').trim().split(/\s+/).join(' + ') + (st.dns_lan ? ' + LAN' : '') : dn === 'dnscrypt' ? 'DNSCrypt Proxy' : dn === 'network' ? "the network's" : '-';
   $('t-dns').className = 'v wrap ' + (dn ? '' : 'm');
   $('t-heal').className = 'v wrap ' + (!on ? 'm' : st.recover === 'failed' ? 'r' : st.recover ? 'a' : '');
   $('w-run').textContent = st.watchdog === 'running' ? 'yes' : 'NO'; $('w-run').className = 'v ' + (st.watchdog === 'running' ? '' : 'r');
@@ -709,7 +721,7 @@ function renderSet(st) {
   const ipm = st.dnscrypt_ipmode;
   const dnTxt = st.dnscrypt === 'on'
     ? 'Resolves all DNS; its own queries go through this tunnel.' + (ipm && ipm !== 'ipv4' ? (st.ipv6 === 'tunnel' ? ' IPv6 mode ' + esc(ipm) + ': IPv6 goes through the tunnel too.' : st.ipv6 === 'blocked' ? ' IPv6 mode ' + esc(ipm) + ', but this tunnel is IPv4 only: IPv6 is blocked while it is on.' : '') : '')
-    : 'Without it, app DNS that goes into the tunnel is sent to the tunnel\'s DNS (the config\'s DNS line); a resolver on your Wi-Fi (the router) stays local.';
+    : 'Without it, app DNS that goes into the tunnel is sent to the tunnel\'s DNS (the config\'s DNS line); ' + (st.landns === '1' ? 'DNS to a resolver on your Wi-Fi (the router) too while the tunnel is up (LAN DNS through the tunnel).' : 'a resolver on your Wi-Fi (the router) stays local.');
   const vhsNew = num(st.vhs_code) >= 13;
   const vhsTxt = st.vhs !== 'on' ? 'Shares the tunnel with hotspot devices.'
     : !vhsNew ? 'This version does not see WG Shield\'s tunnel: with its kill switch on, hotspot devices get no internet while WG Shield is on. Update it to 1.0-r13 or newer.'
@@ -891,6 +903,8 @@ function renderSettings(st) {
   if (!$('sw-ks').classList.contains('busy')) $('cb-ks').checked = ks(st);
   if (!$('sw-as').classList.contains('busy')) $('cb-as').checked = st.autoswitch === '1';
   if (!$('sw-nt').classList.contains('busy')) $('cb-nt').checked = st.notify !== '0';
+  if (!$('sw-ld').classList.contains('busy')) $('cb-ld').checked = st.landns === '1';
+  if (!$('sw-ke').classList.contains('busy')) $('cb-ke').checked = st.ks_error === '1';
   const prof = st.profile === 'always' ? 'always' : 'battery';
   document.querySelectorAll('#prof-seg button').forEach(b => b.classList.toggle('on', b.dataset.p === prof));
   const chk = st.checks === '5' || st.checks === 'off' ? st.checks : '30';
@@ -1116,7 +1130,7 @@ function fallbackCopy(t, done) {
 const EXIT = {};
 async function checkExit() {
   $('exit-sub').textContent = 'Asking…';
-  const r = parseKV(await ctl('exitip', 30000));
+  const r = parseKV(await ctl('exitip', 60000));
   if (r.ok !== '1') {
     $('exit-ip').textContent = 'no answer'; $('exit-ip').className = 'v r';
     $('exit-sub').textContent = (r.error || 'The IP service did not answer.') + (ST.state === 'down' && ks(ST) ? ' The tunnel is down (kill switch).' : '');
@@ -1125,7 +1139,7 @@ async function checkExit() {
   EXIT.ip = r.ip; EXIT.via = r.via ? ST.tunnel : '';
   $('exit-ip').textContent = r.ip; $('exit-ip').className = 'glitch';
   const place = [r.city, r.country].filter(Boolean).join(', ');
-  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' - ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection');
+  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' - ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection') + (r.proto === 'http' ? ' · asked over plain HTTP (HTTPS did not work)' : '');
   renderRoute(ST);
 }
 
