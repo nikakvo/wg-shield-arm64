@@ -99,7 +99,7 @@ tun_parse() {
                 { T_EPIP=""; T_ERR="Endpoint is not a usable IPv6 address (got '$T_EP')"; return 1; } ;;
         *[!0-9.]*)
             case "$_h" in
-                *[!A-Za-z0-9.-]*|.*|*.|*..*|-*) T_ERR="Endpoint must be an IPv4 address or a host name (got '$T_EP')"; return 1 ;;
+                *[!A-Za-z0-9.-]*|.*|*.|*..*|-*) T_ERR="Endpoint must be an IPv4 address, an IPv6 address in brackets or a host name (got '$T_EP')"; return 1 ;;
                 *.*) T_EPHOST=$_h ;;
                 *) T_ERR="Endpoint host name has no domain (got '$T_EP')"; return 1 ;;
             esac ;;

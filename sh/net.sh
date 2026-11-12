@@ -188,6 +188,19 @@ dnsc_ipv4_only() {
     [ "$(sed -n 's/^IP_MODE=//p' "$(dnsc_conf)" 2>/dev/null | tail -n 1)" = ipv4 ]
 }
 v6_kernel_on() { [ "$(cat "$PROC6/all/disable_ipv6" 2>/dev/null)" = 0 ] && ! dnsc_ipv4_only; }
+
+# ep6_usable - an IPv6 endpoint can be reached: IPv6 on for the phone (the
+# kernel's switch, DNSCrypt Proxy not in ipv4 mode) and the default network
+# has an IPv6 default route in its table (netd puts the router's RA route
+# there). Without a default network: yes (state no_network says the rest).
+# Checked at every tick, so a tunnel whose server is IPv6 is not taken up on
+# a network without IPv6 (no handshake = kill switch closed for minutes until
+# self-healing gives up), and comes up by itself once the network has IPv6.
+ep6_usable() {
+    v6_kernel_on || return 1
+    [ -n "$DEF" ] || return 0
+    [ -n "$("$IP" -6 route show table "$DEFN" default 2>/dev/null | head -n 1)" ]
+}
 v6_ensure() {
     V6ON=0
     [ "$T_V6" = 1 ] && [ -n "$T_ADDR6" ] || return 0
@@ -838,8 +851,9 @@ tunnel_ensure() {
             ERR=no_kernel_amneziawg; return 1
         fi
         # an IPv6 endpoint with IPv6 off for the phone (the kernel's switch, or
-        # DNSCrypt Proxy's ipv4 mode): the server cannot be reached at all
-        case "$T_EPIP" in *:*) v6_kernel_on || { ERR=endpoint_needs_ipv6; return 1; } ;; esac
+        # DNSCrypt Proxy's ipv4 mode) or on a network without IPv6: the server
+        # cannot be reached at all
+        case "$T_EPIP" in *:*) ep6_usable || { ERR=endpoint_needs_ipv6; return 1; } ;; esac
         # a link's type cannot change: WireGuard <-> AmneziaWG = new wgs0
         # (the unreachable route in table 51820 keeps the kill switch meanwhile)
         if iface_exists && [ "$(iface_kind)" != "$T_TYPE" ]; then
@@ -886,6 +900,8 @@ tunnel_ensure() {
     else
         { read -r T_ADDR; read -r T_EP; read -r T_EPIP; read -r T_MTU; read -r T_EPHOST; read -r T_PORT; read -r T_ADDR6; read -r T_V6; read -r T_TYPE; read -r T_DNS; read -r T_DNS6; read -r T_DNSALL; } 2>/dev/null < "$STATE/tunnel.info"
         [ -n "$T_TYPE" ] || T_TYPE=wireguard
+        # loaded earlier: the network may have changed to one without IPv6
+        case "$T_EPIP" in *:*) ep6_usable || { ERR=endpoint_needs_ipv6; return 1; } ;; esac
     fi
     case "$("$IP" link show "$IFACE" 2>/dev/null | head -n1)" in
         *",UP"*|*"<UP"*) : ;;

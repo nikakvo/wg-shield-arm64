@@ -1420,6 +1420,16 @@ EOF
     echo 0 > "$WGS_PROC6/all/disable_ipv6"
     rm -f "$STATE/fake_hs"; ctl status >/dev/null
     check "IPv6 on again: the tunnel starts by itself" "handshaking 2001:db8::1" "$(st state) $(e6)"
+    # the network loses its IPv6 default route while the tunnel is loaded
+    ip -6 route del default via fd11::1 dev wlan0 table 1028 2>/dev/null
+    ctl status >/dev/null
+    check "network without IPv6 (tunnel loaded): error endpoint_needs_ipv6, no endpoint rule" "error endpoint_needs_ipv6 0" "$(st state) $(st reason) $(ip -6 rule | grep -c '^5000:')"
+    ctl down >/dev/null
+    ctl up wg-ZZ-1 >/dev/null
+    check "network without IPv6 (switched on): error endpoint_needs_ipv6, no wgs0" "error endpoint_needs_ipv6 no" "$(st state) $(st reason) $(ip link show wgs0 >/dev/null 2>&1 && echo yes || echo no)"
+    ip -6 route add default via fd11::1 dev wlan0 table 1028 2>/dev/null
+    ctl status >/dev/null
+    check "IPv6 route back: the tunnel starts by itself" "handshaking 2001:db8::1" "$(st state) $(e6)"
     ctl down >/dev/null
     check "teardown clean" "off 0 0 wlan0" "$(st state) $(ip rule | grep -c '^50[0-9][0-9]:') $(ip -6 rule | grep -c '^50[0-9][0-9]:') $(route_of)"
     # IPv4 and host-name endpoints as before
