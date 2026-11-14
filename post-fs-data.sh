@@ -11,6 +11,9 @@ layout_migrate
 mkdir -p "$STATE" "$TUNDIR" "$LOGDIR"
 chmod 700 "$DATA" "$TUNDIR"
 rm -rf "$STATE/lock" "$STATE"/import.* "$STATE"/setconf.* "$STATE/test.lock" "$STATE"/testconf.*
+# what a process killed in the middle left: temp files (*.tmp.<pid>), rule
+# batches, the backup / restore folders, a setconf error
+rm -rf "$STATE"/*.tmp.* "$STATE"/rules.batch.* "$STATE"/fast.* "$STATE"/bk.* "$STATE"/bkv.* "$STATE"/restore.* "$STATE/wg.err"
 rm -f "$STATE/test.progress"
 rm -f "$STATE/status" "$STATE/pause_until" "$STATE/loaded" "$STATE/tunnel.info" \
       "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/last_state" \

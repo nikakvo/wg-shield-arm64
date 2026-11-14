@@ -1641,6 +1641,22 @@ if want fav_lock; then
     check "star removed, lock released" "no no" "$([ -f "$WGS_DATA/favorites" ] && echo yes || echo no) $([ -d "$STATE/lock" ] && echo yes || echo no)"
 fi
 
+if want boot_leftovers; then
+    echo "boot_leftovers: post-fs-data removes what killed processes left in state/"
+    reset_state
+    conf "$WGS_DL/wg-BL-1.conf" 203.0.113.102:51820
+    ctl import wg-BL-1.conf >/dev/null
+    ctl set notify 1 >/dev/null; ctl poll >/dev/null
+    for f in status.tmp.11 nets.tmp.12 exempt_uids.tmp.13 heal.tmp.14 dns_srv.tmp.15 tunrows.tmp.16 \
+             rules.batch.17.new rules.batch.17.4 fast.18 fast.18.6 setconf.19 testconf.20 testconf.err.20 wg.err; do
+        : > "$STATE/$f"
+    done
+    for d in bk.21 bkv.22 restore.23 import.24; do mkdir -p "$STATE/$d"; : > "$STATE/$d/x.conf"; done
+    $TSH "$MOD/post-fs-data.sh"
+    check "every leftover removed" "" "$(cd "$STATE" && ls -d *.tmp.* rules.batch.* fast.* setconf.* testconf.* wg.err bk.* bkv.* restore.* import.* 2>/dev/null | tr '\n' ' ')"
+    check "tunnel, settings and the poll cache kept" "yes yes yes" "$([ -f "$WGS_DATA/tunnels/wg-BL-1.conf" ] && echo yes || echo no) $([ -f "$WGS_DATA/settings.conf" ] && echo yes || echo no) $([ -f "$STATE/tunrows" ] && echo yes || echo no)"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
