@@ -1180,30 +1180,40 @@ EOF
     }
 }
 EOF
-    echo '{"status":"success","country":"Exampleland","countryCode":"ZZ","city":"Testburg","isp":"Plain ISP","query":"203.0.113.9"}' > "$CD/ipapi.json"
+    cat > "$CD/ifconfig.json" <<'EOF'
+{
+  "ip": "203.0.113.9",
+  "ip_decimal": 3405803785,
+  "country": "Exampleland",
+  "country_iso": "ZZ",
+  "city": "Testburg",
+  "asn": "AS64500",
+  "asn_org": "Third Example Org"
+}
+EOF
     echo '{"ip": "203.0.113.66<script>", "country": "XX"}' > "$CD/bad.json"
     ex() { WGS_CURL="$CD/curl" WGS_BB="$RUN/no-busybox" PATH="$CD/path:$PATH" ctl exitip 2>&1; }
     keys() { sed 's/=.*//' | tr '\n' ' ' | sed 's/ $//'; }
-    printf 'ipinfo.io ipinfo.json\nipwho.is ipwho.json\nip-api.com ipapi.json\n' > "$WGS_CURLMODE"
+    printf 'ipinfo.io ipinfo.json\nipwho.is ipwho.json\nifconfig.co ifconfig.json\n' > "$WGS_CURLMODE"
     out=$(ex)
     check "HTTPS, first service: its address, place and provider" "ip=203.0.113.7|country=ZZ|city=Exampleton|isp=AS64500 Example Net|proto=https|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
     check "the output keys: the old ones in their order, proto added" "ip country city isp via proto ok" "$(echo "$out" | keys)"
     check "one request: curl -s --max-time 8 to https://ipinfo.io/json, the certificate checked" "1|sys -s --max-time 8 https://ipinfo.io/json|0" "$(grep -c . "$WGS_CURLLOG")|$(cat "$WGS_CURLLOG")|$(grep -c -e ' -k' -e 'insecure' "$WGS_CURLLOG")"
     check "tunnel off: via empty" "via=" "$(echo "$out" | grep '^via=')"
-    : > "$WGS_CURLLOG"; printf 'ipinfo.io fail\nipwho.is ipwho.json\nip-api.com ipapi.json\n' > "$WGS_CURLMODE"
+    : > "$WGS_CURLLOG"; printf 'ipinfo.io fail\nipwho.is ipwho.json\nifconfig.co ifconfig.json\n' > "$WGS_CURLMODE"
     out=$(ex)
     check "first service fails: the second one over HTTPS" "ip=203.0.113.8|country=Exampleland|city=Sampleville|isp=Example ISP|proto=https|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
     check "both asked over HTTPS, nothing over HTTP" "2 0" "$(grep -c 'https://' "$WGS_CURLLOG") $(grep -c ' http://' "$WGS_CURLLOG")"
     : > "$WGS_CURLLOG"; printf 'ipinfo.io bad.json\nipwho.is ipwho.json\n' > "$WGS_CURLMODE"
     check "an answer whose address is not an address is not used" "ip=203.0.113.8" "$(ex | grep '^ip=')"
-    : > "$WGS_CURLLOG"; printf 'https://ipinfo.io fail\nhttps://ipwho.is fail\nip-api.com ipapi.json\n' > "$WGS_CURLMODE"
+    : > "$WGS_CURLLOG"; printf 'https://ipinfo.io fail\nhttps://ipwho.is fail\nifconfig.co ifconfig.json\nhttp:// ipinfo.json\n' > "$WGS_CURLMODE"
     out=$(ex)
-    check "both HTTPS requests fail: plain HTTP as before, and it says so" "ip=203.0.113.9|country=Exampleland|city=Testburg|isp=Plain ISP|proto=http|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
-    check "HTTP only after both HTTPS requests" "sys sys path" "$(cut -d' ' -f1 "$WGS_CURLLOG" | tr '\n' ' ' | sed 's/ $//')"
-    check "the HTTP request is the old one" 1 "$(grep -c '^path -s -m 8 http://ip-api.com/json/?fields=status,country,countryCode,city,isp,query$' "$WGS_CURLLOG")"
+    check "both fail: the third service, over HTTPS too" "ip=203.0.113.9|country=Exampleland|city=Testburg|isp=Third Example Org|proto=https|ok=1" "$(echo "$out" | grep -E '^(ip|country|city|isp|proto|ok)=' | tr '\n' '|' | sed 's/|$//')"
+    check "three HTTPS requests with the checked curl, none over plain HTTP" "sys sys sys|0" "$(cut -d' ' -f1 "$WGS_CURLLOG" | tr '\n' ' ' | sed 's/ $//')|$(grep -c 'http://' "$WGS_CURLLOG")"
+    check "the third request: curl -s --max-time 8 https://ifconfig.co/json" 1 "$(grep -c '^sys -s --max-time 8 https://ifconfig.co/json$' "$WGS_CURLLOG")"
     : > "$WGS_CURLLOG"
     out=$(WGS_CURL="$RUN/no-curl" WGS_BB="$RUN/no-busybox" PATH="$CD/path:$PATH" ctl exitip 2>&1)
-    check "no curl for HTTPS: plain HTTP at once" "ip=203.0.113.9 proto=http 0" "$(echo "$out" | grep '^ip=') $(echo "$out" | grep '^proto=') $(grep -c 'https://' "$WGS_CURLLOG")"
+    check "no curl for HTTPS: an error, nothing asked over plain HTTP" "0 0 1 0" "$(echo "$out" | kv ok) $(echo "$out" | grep -c '^ip=') $(echo "$out" | grep -c '^error=no curl') $(grep -c . "$WGS_CURLLOG")"
     : > "$WGS_CURLMODE"
     out=$(ex)
     check "nothing answers: an error, no address" "0 0 1" "$(echo "$out" | kv ok) $(echo "$out" | grep -c '^ip=') $(echo "$out" | grep -c '^error=no answer')"
@@ -1213,10 +1223,10 @@ EOF
     printf 'ipinfo.io bs.json\n' > "$WGS_CURLMODE"
     out=$(ex)
     check "HTTPS answer with backslashes: printed as it is, no extra line" "7 1 1" "$(echo "$out" | grep -c .) $(echo "$out" | grep -c '^via=') $(echo "$out" | grep -cF 'isp=AS64500 Back\nvia=wgs0 \c slash')"
-    printf '{"status":"success","country":"Exampleland","city":"Testburg","isp":"Plain\\nvia=wgs0 \\c x","query":"203.0.113.9"}\n' > "$CD/bs2.json"
-    printf 'ip-api.com bs2.json\n' > "$WGS_CURLMODE"
+    printf '{\n  "ip": "203.0.113.9",\n  "country": "Exampleland",\n  "city": "Testburg",\n  "asn_org": "Third\\nvia=wgs0 \\c x"\n}\n' > "$CD/bs2.json"
+    printf 'https://ipinfo.io fail\nhttps://ipwho.is fail\nifconfig.co bs2.json\n' > "$WGS_CURLMODE"
     out=$(ex)
-    check "HTTP answer with backslashes: the same" "7 1 1" "$(echo "$out" | grep -c .) $(echo "$out" | grep -c '^via=') $(echo "$out" | grep -cF 'isp=Plain\nvia=wgs0 \c x')"
+    check "third service's answer with backslashes: the same" "7 1 1" "$(echo "$out" | grep -c .) $(echo "$out" | grep -c '^via=') $(echo "$out" | grep -cF 'isp=Third\nvia=wgs0 \c x')"
     # through the tunnel: via says so, as before
     conf "$WGS_DL/wg-EX-1.conf" 203.0.113.91:51820
     ctl import wg-EX-1.conf >/dev/null; date +%s > "$STATE/fake_hs"; ctl up wg-EX-1 >/dev/null

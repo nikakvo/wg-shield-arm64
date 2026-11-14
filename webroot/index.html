@@ -1141,7 +1141,7 @@ async function checkExit() {
   EXIT.ip = r.ip; EXIT.via = r.via ? ST.tunnel : '';
   $('exit-ip').textContent = r.ip; $('exit-ip').className = 'glitch';
   const place = [r.city, r.country].filter(Boolean).join(', ');
-  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' - ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection') + (r.proto === 'http' ? ' · asked over plain HTTP (HTTPS did not work)' : '');
+  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' - ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection');
   renderRoute(ST);
 }
 

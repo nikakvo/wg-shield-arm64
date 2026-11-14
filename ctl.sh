@@ -126,14 +126,6 @@ watchdog_alive() {
     [ -n "$p" ] && kill -0 "$p" 2>/dev/null && grep -q service.sh "/proc/$p/cmdline" 2>/dev/null
 }
 
-_http_get() {  # <host> <path>
-    if command -v curl >/dev/null 2>&1; then
-        curl -s -m 8 "http://$1$2" 2>/dev/null && return 0
-    fi
-    if [ -x "$BB" ]; then "$BB" wget -q -T 8 -O - "http://$1$2" 2>/dev/null && return 0; fi
-    return 1
-}
-_json_str() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" | head -n 1; }
 # exitip over HTTPS: Android's own curl (the root manager's busybox wget has
 # no TLS), the certificate is checked (no -k)
 CURL="${WGS_CURL:-/system/bin/curl}"
@@ -498,30 +490,19 @@ case "$cmd" in
         ;;
     exitip)
         via=""; [ "$(sed -n 's/^state=//p' "$STATE/status" 2>/dev/null)" = up ] && via=$IFACE
-        # HTTPS first: ipinfo.io (ip, country, city, org), then ipwho.is (ip,
-        # country, city, isp). Plain HTTP - where anyone on the way can read
-        # and change the answer - only without curl or when both fail.
-        # proto= says which it was (via= is taken: the tunnel's interface).
+        # HTTPS only, certificate checked: ipinfo.io (ip, country, city, org),
+        # then ipwho.is (isp), then ifconfig.co (asn_org). Never plain HTTP:
+        # anyone on the way could read and change the answer (and busybox
+        # wget checks no certificate). proto= stays, always https (via= is
+        # taken: the tunnel's interface).
         # The answer's values are printed with printf, not echo: mksh's echo
         # would read a backslash in them ("\n" = a line of its own)
         ip=""; proto=https
-        if [ -x "$CURL" ]; then
-            _exit_https https://ipinfo.io/json org || _exit_https https://ipwho.is/ isp
-        fi
-        if [ -n "$ip" ]; then
-            printf '%s\n' "ip=$ip" "country=$e_country" "city=$e_city" "isp=$e_isp"
-        else
-            proto=http
-            j=$(_http_get ip-api.com '/json/?fields=status,country,countryCode,city,isp,query')
-            ip=$(_json_str "$j" query)
-            if [ -n "$ip" ]; then
-                printf '%s\n' "ip=$ip" "country=$(_json_str "$j" country)" "city=$(_json_str "$j" city)" "isp=$(_json_str "$j" isp)"
-            else
-                j=$(_http_get ipinfo.io /json); ip=$(_json_str "$j" ip)
-                [ -n "$ip" ] || fail "no answer from ipinfo.io, ipwho.is or ip-api.com"
-                printf '%s\n' "ip=$ip" "country=$(_json_str "$j" country)" "city=$(_json_str "$j" city)" "isp=$(_json_str "$j" org)"
-            fi
-        fi
+        [ -x "$CURL" ] || fail "no curl for HTTPS ($CURL)"
+        _exit_https https://ipinfo.io/json org || _exit_https https://ipwho.is/ isp ||
+            _exit_https https://ifconfig.co/json asn_org ||
+            fail "no answer from ipinfo.io, ipwho.is or ifconfig.co"
+        printf '%s\n' "ip=$ip" "country=$e_country" "city=$e_city" "isp=$e_isp"
         echo "via=$via"; echo "proto=$proto"; echo "ok=1"
         ;;
     diag)
