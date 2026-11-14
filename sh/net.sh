@@ -1052,7 +1052,7 @@ wgs_tick() {
                 fi
                 [ -n "$DEF" ] || { [ "$ST_STATE" = up ] || ST_REASON=no_network; }
                 if [ -n "$T_EPHOST" ] && [ -n "$DEF" ]; then
-                    case "$ST_STATE" in down) reresolve; ST_ENDPOINT="$T_EPIP:$T_PORT" ;; esac
+                    case "$ST_STATE" in down) reresolve ;; esac   # the endpoint key follows below (st_endpoint)
                 fi
             fi
             # self-healing (sh/recover.sh): restarts, maybe another tunnel
