@@ -148,7 +148,8 @@ tun_parse() {
 # resolved address. Lines start at column 0: awg keeps the spaces inside
 # I1-I5 only when the line begins with the key.
 tun_setconf() {
-    umask 077
+    # umask 077 only for this file (a subshell): the caller's files keep their modes
+    ( umask 077
     tr -d '\r' 2>/dev/null < "$1" | awk -v addka="$( [ -z "$T_KA" ] && echo 1 || echo 0 )" -v ep="$3" '
         {
             line = $0; sub(/^[ \t]+/, "", line); k = line
@@ -158,7 +159,7 @@ tun_setconf() {
             print line
             h = line; gsub(/[ \t]/, "", h)
             if (tolower(h) == "[peer]" && addka == "1") print "PersistentKeepalive = 25"
-        }' > "$2"
+        }' > "$2" )
 }
 
 tun_file() { echo "$TUNDIR/$1.conf"; }
@@ -337,8 +338,7 @@ tun_import_one() {
     fi
     dst="$TUNDIR/$name.conf"
     what=imported; [ -f "$dst" ] && what=replaced
-    umask 077
-    cp -f "$src" "$dst.tmp.$$" && chmod 600 "$dst.tmp.$$" && mv -f "$dst.tmp.$$" "$dst" || { printf '%s\n' "skipped=$base reason=cannot-write"; return 1; }
+    ( umask 077; cp -f "$src" "$dst.tmp.$$" ) && chmod 600 "$dst.tmp.$$" && mv -f "$dst.tmp.$$" "$dst" || { printf '%s\n' "skipped=$base reason=cannot-write"; return 1; }
     echo "$what=$name endpoint=$T_EP type=$T_TYPE${T_WARN:+ notes=$(echo "$T_WARN" | tr ' ' ';')}"
     wlog INFO "tunnel $name $what (endpoint $T_EP, $T_TYPE)${T_WARN:+ - notes: $T_WARN}"
     return 0

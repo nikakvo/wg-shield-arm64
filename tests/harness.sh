@@ -1577,6 +1577,21 @@ if want error_quiet; then
     unset WGS_IPCALLS
 fi
 
+if want umask_kept; then
+    echo "umask_kept: writing a tunnel file leaves the process umask as it was"
+    reset_state
+    conf "$WGS_DL/wg-UM-1.conf" 203.0.113.97:51820
+    ctl import wg-UM-1.conf >/dev/null
+    out=$($TSH -c 'umask 022; b=$(umask)
+        . "$WGS_MODDIR/sh/common.sh"; . "$WGS_MODDIR/sh/tunnels.sh"; . "$WGS_MODDIR/sh/net.sh"
+        tun_import_one "$WGS_DL/wg-UM-1.conf" >/dev/null; a1=$(umask)
+        tun_parse "$TUNDIR/wg-UM-1.conf"; tun_setconf "$TUNDIR/wg-UM-1.conf" "$STATE/setconf.test"; a2=$(umask)
+        ST_STATE=paused; ST_REASON=user; module_desc   # a description line that differs: rewritten
+        echo "$([ "$a1" = "$b" ] && echo same || echo "changed:$a1") $([ "$a2" = "$b" ] && echo same || echo "changed:$a2") $(stat -c %a "$TUNDIR/wg-UM-1.conf") $(stat -c %a "$STATE/setconf.test") $(stat -c %a "$WGS_MODDIR/module.prop")"
+        rm -f "$STATE/setconf.test"')
+    check "umask after import / setconf, tunnel 600, setconf 600, module.prop 644" "same same 600 600 644" "$out"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
