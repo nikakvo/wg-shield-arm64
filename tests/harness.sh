@@ -142,7 +142,7 @@ export WGS_IP="$(command -v ip)" WGS_BB="${WGS_TEST_BB:-$RUN/no-busybox}" WGS_RT
 export WGS_GETPROP="$FAKES/getprop" WGS_DUMPSYS="$FAKES/dumpsys" WGS_PM="$FAKES/pm"
 export WGS_PING="$FAKES/ping" WGS_SU="$FAKES/su" WGS_CMD="$FAKES/cmd"
 export WGS_LINKTYPE=veth WGS_PROC6="$RUN/proc6" WGS_SYSNET="$RUN/sysnet"
-export WGS_SH="$TSH" WGS_HEAL_WAIT=1
+export WGS_SH="$TSH" WGS_HEAL_WAIT=1 WGS_UP_WAIT=1    # tests: 1 s of wait_up and heal (6 s / 10 s on the phone)
 export WGS_IPT="$FAKES/iptables" WGS_IPT6="$FAKES/ip6tables" WGS_IPTS="$FAKES/iptables-save" WGS_IPTS6="$FAKES/ip6tables-save" WGS_IPT_DIR="$RUN/ipt"
 STATE="$WGS_DATA/state"
 mkdir -p "$WGS_MODULES" "$WGS_DL" "$WGS_PROC6/all"
@@ -1525,7 +1525,7 @@ if want wait_up; then
     ctl import wg-WU-1.conf >/dev/null
     rm -f "$STATE/fake_hs"
     ( sleep 2; date +%s > "$STATE/fake_hs" ) & hsw=$!
-    out=$(ctl up wg-WU-1)
+    out=$(unset WGS_UP_WAIT; ctl up wg-WU-1)      # the phone default
     wait "$hsw"
     check "up returns with the handshake that came after 2 s" up "$(echo "$out" | sed -n 's/^state=//p')"
     ctl down >/dev/null

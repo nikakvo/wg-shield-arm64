@@ -185,7 +185,7 @@ print_status() {
 # after "up": give the first handshake a few seconds
 wait_up() {
     n=0
-    while [ "$n" -lt 6 ]; do
+    while [ "$n" -lt "${WGS_UP_WAIT:-6}" ]; do
         tick_now
         case "$(sed -n 's/^state=//p' "$STATE/status" 2>/dev/null)" in handshaking) : ;; *) break ;; esac
         sleep 1; n=$((n + 1))
