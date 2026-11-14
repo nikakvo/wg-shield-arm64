@@ -263,11 +263,11 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   # report, no ke
 curl https://ifconfig.me          → the VPN's address
 ```
 
-Then block the server for a moment (the first command reads the tunnel's server address from the status file and remembers it for the undo): internet stops at once - nothing goes around the tunnel.
+Then block the server for a moment (the first command reads the tunnel's server address from the status file - IPv4, or IPv6 with `ip6tables` - and remembers it for the undo): internet stops at once - nothing goes around the tunnel.
 
 ```sh
-su -c 'e=$(/system/bin/sed -n "s/^endpoint=\([^:]*\):.*/\1/p" /data/adb/wg-shield/state/status); echo $e > /data/local/tmp/wgs-block; /system/bin/iptables -I OUTPUT -d $e -j DROP'
-su -c '/system/bin/iptables -D OUTPUT -d $(/system/bin/cat /data/local/tmp/wgs-block) -j DROP'   # undo
+su -c 'e=$(/system/bin/sed -n "s/^endpoint=\[\(.*\)\]:[0-9]*\$/\1/p; s/^endpoint=\([0-9.]*\):[0-9]*\$/\1/p" /data/adb/wg-shield/state/status); case $e in *:*) t=ip6tables ;; *) t=iptables ;; esac; echo $t $e > /data/local/tmp/wgs-block; /system/bin/$t -I OUTPUT -d $e -j DROP'
+su -c 'set -- $(/system/bin/cat /data/local/tmp/wgs-block); /system/bin/$1 -D OUTPUT -d $2 -j DROP'   # undo
 ```
 
 Within about 40 seconds (10 with Check every 5 s) the banner shows *restart 1 of 2*, then the recovery steps; after that comes the notification (or, with Auto-switch, another tunnel takes over).
