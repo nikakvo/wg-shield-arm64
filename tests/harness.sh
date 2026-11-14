@@ -233,7 +233,7 @@ if want status_backslash; then
     # the tunnel file edited by root afterwards: the error quotes the raw Endpoint
     sed -i 's#^Endpoint = .*#Endpoint = vpn\\cx.example:51820#' "$WGS_DATA/tunnels/wg-AT-1.conf"
     ctl status >/dev/null
-    check "reason kept with its backslash" "invalid_tunnel: Endpoint must be an IPv4 address or a host name (got 'vpn\\cx.example:51820')" "$(st reason)"
+    check "reason kept with its backslash" "invalid_tunnel: Endpoint must be an IPv4 address, an IPv6 address in brackets or a host name (got 'vpn\\cx.example:51820')" "$(st reason)"
     check "keys after it still written" wg-AT-1 "$(st tunnel)"
     ctl down >/dev/null
 fi
