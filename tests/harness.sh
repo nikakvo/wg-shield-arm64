@@ -1540,6 +1540,22 @@ if want v6_address; then
     echo 1 > "$WGS_PROC6/all/disable_ipv6"
 fi
 
+if want outside_names; then
+    echo "outside_names: a file name with a backslash stays one line (mksh's echo)"
+    reset_state
+    conf "$WGS_DL/vpn\\ninjected=1.conf" 203.0.113.95:51820
+    out=$(ctl files)
+    check "files: the name whole on one line" "1 0" "$(echo "$out" | grep -cF 'file=vpn\ninjected=1.conf|') $(echo "$out" | grep -c '^injected=')"
+    out=$(ctl import 'gone\nerror=x.zip')
+    check "import of a missing file: one error line" 1 "$(echo "$out" | grep -c '^error=')"
+    rmdir "$WGS_DATA/tunnels"; : > "$WGS_DATA/tunnels"
+    out=$(ctl import 'vpn\ninjected=1.conf')
+    rm -f "$WGS_DATA/tunnels"; mkdir -p "$WGS_DATA/tunnels"
+    check "import that cannot write: the name whole on one line, nothing added" "1 0" "$(echo "$out" | grep -cxF 'skipped=vpn\ninjected=1 reason=cannot-write') $(echo "$out" | grep -c '^injected=')"
+    out=$(ctl delfile 'vpn\ninjected=1.conf')
+    check "delfile: one line for the name, the file gone" "1 0 no" "$(echo "$out" | grep -c '^deleted=') $(echo "$out" | grep -c '^injected=') $([ -e "$WGS_DL/vpn\\ninjected=1.conf" ] && echo yes || echo no)"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]

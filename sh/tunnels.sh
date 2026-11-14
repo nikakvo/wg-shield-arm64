@@ -338,7 +338,7 @@ tun_import_one() {
     dst="$TUNDIR/$name.conf"
     what=imported; [ -f "$dst" ] && what=replaced
     umask 077
-    cp -f "$src" "$dst.tmp.$$" && chmod 600 "$dst.tmp.$$" && mv -f "$dst.tmp.$$" "$dst" || { echo "skipped=$base reason=cannot-write"; return 1; }
+    cp -f "$src" "$dst.tmp.$$" && chmod 600 "$dst.tmp.$$" && mv -f "$dst.tmp.$$" "$dst" || { printf '%s\n' "skipped=$base reason=cannot-write"; return 1; }
     echo "$what=$name endpoint=$T_EP type=$T_TYPE${T_WARN:+ notes=$(echo "$T_WARN" | tr ' ' ';')}"
     wlog INFO "tunnel $name $what (endpoint $T_EP, $T_TYPE)${T_WARN:+ - notes: $T_WARN}"
     return 0
@@ -347,7 +347,7 @@ tun_import_one() {
 # tun_import PATH (.zip export from the WireGuard app, or one .conf)
 tun_import() {
     p=$1; ok=0; bad=0
-    [ -f "$p" ] || { echo "ok=0"; echo "error=file not found: $p"; return 1; }
+    [ -f "$p" ] || { echo "ok=0"; printf '%s\n' "error=file not found: $p"; return 1; }
     mkdir -p "$TUNDIR"; chmod 700 "$DATA" "$TUNDIR"
     case "$p" in
         *.zip|*.ZIP)
@@ -365,7 +365,7 @@ tun_import() {
             done
             IFS=$_ti_ifs; set +f
             rm -rf "$tmp"
-            [ "$found" = 1 ] || { echo "ok=0"; echo "error=no .conf files in $p"; return 1; }
+            [ "$found" = 1 ] || { echo "ok=0"; printf '%s\n' "error=no .conf files in $p"; return 1; }
             ;;
         *)
             if tun_import_one "$p"; then ok=1; else bad=1; fi

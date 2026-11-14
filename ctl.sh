@@ -479,7 +479,7 @@ case "$cmd" in
             is_export "$f" || continue
             set -- $(stat -c '%s %Y' "$f" 2>/dev/null)
             n=0; case "$f" in *.zip|*.ZIP) n=$(zip_list "$f" | grep -ciE '\.conf$') ;; *) n=1 ;; esac
-            echo "$2|file=${f##*/}|$1|$2|$n"
+            printf '%s\n' "$2|file=${f##*/}|$1|$2|$n"   # not echo: mksh's echo reads a backslash in the name
         done | sort -rn | cut -d'|' -f2-
         ;;
     delfile)
@@ -489,7 +489,7 @@ case "$cmd" in
         is_export "$f" || fail "not a tunnel export: $1"
         rm -f "$f" || fail "cannot delete $1"
         wlog INFO "ctl: export $1 deleted from Download"
-        echo "ok=1"; echo "deleted=$1"
+        echo "ok=1"; printf '%s\n' "deleted=$1"
         ;;
     exitip)
         via=""; [ "$(sed -n 's/^state=//p' "$STATE/status" 2>/dev/null)" = up ] && via=$IFACE
