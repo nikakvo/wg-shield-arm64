@@ -1,6 +1,11 @@
 # WG Shield Arm64 - shared helpers (sourced by every script)
 # Works under busybox ash (KSU module scripts) and mksh (ksu.exec / su -c).
 
+# The root manager starts the module's scripts with umask 0000 (seen on
+# KernelSU: module.prop, state/ and the log came out 666). Every entry point
+# sources this file: new files are 644 / dirs 755 unless chmod says otherwise
+umask 022
+
 MODID=wg-shield
 MODDIR="${WGS_MODDIR:-/data/adb/modules/wg-shield}"
 # 1.0-r4: everything in ONE folder (up to r3: /data/adb/wg-shield.conf and

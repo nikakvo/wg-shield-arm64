@@ -1657,6 +1657,29 @@ if want boot_leftovers; then
     check "tunnel, settings and the poll cache kept" "yes yes yes" "$([ -f "$WGS_DATA/tunnels/wg-BL-1.conf" ] && echo yes || echo no) $([ -f "$WGS_DATA/settings.conf" ] && echo yes || echo no) $([ -f "$STATE/tunrows" ] && echo yes || echo no)"
 fi
 
+if want device_umask; then
+    echo "device_umask: started with umask 0000 (as the root manager does), files get sane modes"
+    reset_state
+    perm() { stat -c %a "$1" 2>/dev/null; }
+    gow() { m=$(stat -c %a "$1" 2>/dev/null) && [ $(( 0$m & 022 )) = 0 ] && echo ok || echo "writable:$m"; }
+    conf "$WGS_DL/wg-DU-1.conf" 203.0.113.103:51820
+    ( umask 000
+      ctl import wg-DU-1.conf >/dev/null
+      date +%s > "$STATE/fake_hs"
+      ctl up wg-DU-1 >/dev/null
+      ctl status >/dev/null )
+    check "a tick under umask 0000: module.prop 644" 644 "$(perm "$MOD/module.prop")"
+    check "state files and the log not group/other writable" "ok ok ok ok" "$(gow "$STATE/rules.key") $(gow "$STATE/last_state") $(gow "$STATE/tunnel.info") $(gow "$WGS_DATA/logs/wg-shield.log")"
+    check "status 644, tunnel 600, settings 600" "644 600 600" "$(perm "$STATE/status") $(perm "$WGS_DATA/tunnels/wg-DU-1.conf") $(perm "$WGS_DATA/settings.conf")"
+    # files an older version left with 666: the next boot removes group/other write
+    chmod 666 "$MOD/module.prop" "$WGS_DATA/logs/wg-shield.log" "$STATE/iftype"
+    chmod 600 "$WGS_DATA/favorites" 2>/dev/null
+    ( umask 000; $TSH "$MOD/post-fs-data.sh" )
+    check "boot: module.prop, log, state file go-w" "644 644 ok" "$(perm "$MOD/module.prop") $(perm "$WGS_DATA/logs/wg-shield.log") $(gow "$STATE/iftype")"
+    check "boot: 600 files stay 600" "600 600" "$(perm "$WGS_DATA/tunnels/wg-DU-1.conf") $(perm "$WGS_DATA/settings.conf")"
+    ctl down >/dev/null
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]

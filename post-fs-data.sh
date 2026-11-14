@@ -10,6 +10,10 @@ MODDIR=${0%/*}
 layout_migrate
 mkdir -p "$STATE" "$TUNDIR" "$LOGDIR"
 chmod 700 "$DATA" "$TUNDIR"
+# files written with the root manager's umask 0000 before 2.9.1-fork1 (666):
+# no write for group / other (600 files stay 600)
+chmod go-w "$MODDIR/module.prop" 2>/dev/null
+chmod -R go-w "$STATE" "$LOGDIR" 2>/dev/null
 rm -rf "$STATE/lock" "$STATE"/import.* "$STATE"/setconf.* "$STATE/test.lock" "$STATE"/testconf.*
 # what a process killed in the middle left: temp files (*.tmp.<pid>), rule
 # batches, the backup / restore folders, a setconf error
