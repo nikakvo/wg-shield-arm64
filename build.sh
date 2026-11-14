@@ -20,9 +20,10 @@ command -v "${ZIG%% *}" >/dev/null || { echo "zig not found (set ZIG=/path/to/zi
 echo "==> zig $($ZIG version)"
 
 # The sources are checked before they are used: the tarball by its SHA-256,
-# the git fallback by its commit. Another version (WG_TOOLS_VERSION /
-# AWG_TOOLS_COMMIT) needs its own pins (WG_TAR_SHA256 / WG_COMMIT,
-# AWG_TAR_SHA256).
+# the git fallback by its commit. A tarball that does not match is not used:
+# the git fallback, checked by its commit, is taken instead. Another version
+# (WG_TOOLS_VERSION / AWG_TOOLS_COMMIT) needs its own pins (WG_TAR_SHA256 /
+# WG_COMMIT, AWG_TAR_SHA256).
 WG_TAR_SHA256="${WG_TAR_SHA256:-859f8af03702db5e5c43f8ece77f5ebef40a2f4627c3e03997a031d4940ea9bc}"
 WG_COMMIT="${WG_COMMIT:-49ce333da02056ae7b22ee2aeb6afe8aaed79b19}"
 AWG_TAR_SHA256="${AWG_TAR_SHA256:-22438f231d39ea27e4bdc69707ec3103357f3cecc9ad3eecba18a61e5b39c9b9}"
@@ -33,16 +34,19 @@ fetch() {
     echo "==> downloading $1"
     if curl -fL -o "$1.tar.gz" "$2"; then
         got=$(sha256sum "$1.tar.gz" | cut -d' ' -f1)
-        if [ "$got" != "$5" ]; then
-            rm -f "$1.tar.gz"
-            echo "==> $1.tar.gz: SHA-256 $got, expected $5 - not used"; exit 1
-        fi
-        if mkdir -p "$1" && tar xzf "$1.tar.gz" -C "$1" --strip-components=1; then
-            rm -f "$1.tar.gz"; return 0
+        if [ "$got" = "$5" ]; then
+            if mkdir -p "$1" && tar xzf "$1.tar.gz" -C "$1" --strip-components=1; then
+                rm -f "$1.tar.gz"; return 0
+            fi
+        else
+            # GitHub may build its archives anew (other bytes, same files):
+            # the tarball is not used, the git checkout below is checked
+            # against the pinned commit instead
+            echo "==> $1.tar.gz: SHA-256 $got, expected $5 - not used"
         fi
     fi
     rm -rf "$1" "$1.tar.gz"
-    echo "==> tarball failed, trying git"
+    echo "==> tarball failed, trying git (checked against commit $6)"
     git clone -q "$3" "$1"
     git -C "$1" checkout -q "$4"
     got=$(git -C "$1" rev-parse HEAD)
