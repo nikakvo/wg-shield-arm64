@@ -1023,14 +1023,16 @@ async function loadFiles() {
   if (r.ok !== '1') { $('file-body').innerHTML = '<div class="empty">Could not read Download.</div>'; return; }
   if (!r.file.length) { $('file-body').innerHTML = '<div class="empty">No tunnel export in Download.<br>WireGuard app: ⋮ → Export tunnels, or put an AmneziaWG .conf there.</div>'; return; }
   $('file-body').innerHTML = r.file.map((line, i) => {
-    const [name, size, mtime, n] = line.split('|');
+    const { name, size, mtime, n } = fileRow(line);
     const when = new Date(num(mtime) * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
     return `<div class="row"><div class="rn"><b>${esc(name)}</b><span>${num(n)} ${num(n) === 1 ? 'config' : 'configs'} · ${fmtBytes(size)} · ${esc(when)}</span></div>` +
       `<div class="file-btns"><button class="btn-s clip" data-i="${i}" onclick="importFile(this)">Import</button><button class="x-btn" data-i="${i}" title="Delete the file" onclick="delFile(this)">✕</button></div></div>`;
   }).join('');
-  FILES = r.file.map(l => l.split('|')[0]);
+  FILES = r.file.map(l => fileRow(l).name);
 }
 let FILES = [];
+// ctl files row: size|mtime|configs|name - the name last, it may contain "|"
+function fileRow(line) { const f = String(line).split('|'); return { size: f[0], mtime: f[1], n: f[2], name: f.slice(3).join('|') }; }
 async function importFile(b) {
   const name = FILES[num(b.dataset.i)]; if (!name) return;
   const r = parseKV(await ctl('import ' + q(name), 60000));

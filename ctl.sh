@@ -39,7 +39,7 @@ usage() {
         '  notifytest          show a test notification' \
         '  log [lines|clear]   last log lines (default 40) / empty the log' \
         '  poll                everything the WebUI shows (key=value)' \
-        '  files               tunnel exports found in Download' \
+        '  files               tunnel exports found in Download (file=size|mtime|configs|name)' \
         '  delfile <name>      delete an export from Download (it holds private keys)' \
         '  exitip              public exit address (one request to an IP service, over HTTPS; plain HTTP only if that fails)' \
         '  diag                report for troubleshooting (no keys)' \
@@ -479,7 +479,8 @@ case "$cmd" in
             is_export "$f" || continue
             set -- $(stat -c '%s %Y' "$f" 2>/dev/null)
             n=0; case "$f" in *.zip|*.ZIP) n=$(zip_list "$f" | grep -ciE '\.conf$') ;; *) n=1 ;; esac
-            printf '%s\n' "$2|file=${f##*/}|$1|$2|$n"   # not echo: mksh's echo reads a backslash in the name
+            # the name last: it may contain "|" (not echo: mksh's echo reads a backslash in it)
+            printf '%s\n' "$2|file=$1|$2|$n|${f##*/}"
         done | sort -rn | cut -d'|' -f2-
         ;;
     delfile)

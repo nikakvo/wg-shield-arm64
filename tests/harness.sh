@@ -1545,7 +1545,7 @@ if want outside_names; then
     reset_state
     conf "$WGS_DL/vpn\\ninjected=1.conf" 203.0.113.95:51820
     out=$(ctl files)
-    check "files: the name whole on one line" "1 0" "$(echo "$out" | grep -cF 'file=vpn\ninjected=1.conf|') $(echo "$out" | grep -c '^injected=')"
+    check "files: the name whole on one line" "1 0" "$(echo "$out" | awk -F'|' '$1 ~ /^file=/ && $4 == "vpn\\ninjected=1.conf"' | grep -c .) $(echo "$out" | grep -c '^injected=')"
     out=$(ctl import 'gone\nerror=x.zip')
     check "import of a missing file: one error line" 1 "$(echo "$out" | grep -c '^error=')"
     rmdir "$WGS_DATA/tunnels"; : > "$WGS_DATA/tunnels"
@@ -1590,6 +1590,26 @@ if want umask_kept; then
         echo "$([ "$a1" = "$b" ] && echo same || echo "changed:$a1") $([ "$a2" = "$b" ] && echo same || echo "changed:$a2") $(stat -c %a "$TUNDIR/wg-UM-1.conf") $(stat -c %a "$STATE/setconf.test") $(stat -c %a "$WGS_MODDIR/module.prop")"
         rm -f "$STATE/setconf.test"')
     check "umask after import / setconf, tunnel 600, setconf 600, module.prop 644" "same same 600 600 644" "$out"
+fi
+
+if want pipe_name; then
+    echo "pipe_name: a file name with \"|\" in Download is listed, imported and deleted"
+    reset_state
+    DL0=$WGS_DL; export WGS_DL="$RUN/dl-pipe"; mkdir -p "$WGS_DL"    # only these two files
+    conf "$WGS_DL/my|vpn.conf" 203.0.113.98:51820
+    conf "$WGS_DL/wg-PN-1.conf" 203.0.113.99:51820
+    ctl files > "$RUN/files.out"
+    check "files: the name is the last field" 1 "$(grep -cE '^file=[0-9]+\|[0-9]+\|1\|my\|vpn\.conf$' "$RUN/files.out")"
+    if command -v node >/dev/null; then
+        node "$REPO/tests/webui_rows.js" "$REPO/webroot/index.html" "$RUN/files.out" 'my|vpn.conf' wg-PN-1.conf > "$RUN/files.node" 2>&1
+        check "WebUI parser: names whole, numbers in place" "0 2" "$(grep -c FAIL "$RUN/files.node") $(grep -c '^  ok   files:' "$RUN/files.node")"
+    else
+        echo "  skip node (node missing)"
+    fi
+    check "import by that name" 1 "$(ctl import 'my|vpn.conf' | kv imported)"
+    out=$(ctl delfile 'my|vpn.conf')
+    check "delfile by that name: deleted, gone" "1 no" "$(echo "$out" | grep -cxF 'deleted=my|vpn.conf') $([ -e "$WGS_DL/my|vpn.conf" ] && echo yes || echo no)"
+    export WGS_DL="$DL0"
 fi
 
 echo

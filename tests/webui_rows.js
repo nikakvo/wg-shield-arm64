@@ -1,6 +1,9 @@
 // WG Shield Arm64 - WebUI check (node, no browser): a tunnel row rendered for
 // a name with quotes keeps the name out of its handler code.
 //   node tests/webui_rows.js webroot/index.html
+// With the output of `ctl.sh files` and the file names in it, the page's own
+// parser (parseKV + fileRow) is checked on it as well:
+//   node tests/webui_rows.js webroot/index.html FILES_OUTPUT NAME...
 // Prints one "ok"/"FAIL" line per check; exit 1 on a failure.
 const fs = require('fs'), vm = require('vm');
 const html = fs.readFileSync(process.argv[2], 'utf8');
@@ -23,5 +26,13 @@ for (const fav of [false, true]) {
   check(`fav=${fav}: no handler contains the name`, h.every(e => { const c = e.onclick || e.onchange; return !c.includes("it's") && !c.includes('"x"'); }));
   check(`fav=${fav}: the name reaches each handler whole`, h.every(e => e['data-n'] === name));
   check(`fav=${fav}: handler code is valid JS`, h.every(e => { try { new Function(e.onclick || e.onchange); return true; } catch (x) { return false; } }));
+}
+if (process.argv[3]) {
+  const want = process.argv.slice(4).sort();
+  const r = vm.runInContext('parseKV', ctx)(fs.readFileSync(process.argv[3], 'utf8'));
+  const rows = r.file.map(l => vm.runInContext('fileRow', ctx)(l));
+  const got = rows.map(x => x.name).sort();
+  check(`files: names whole (${JSON.stringify(got)})`, JSON.stringify(got) === JSON.stringify(want));
+  check('files: size, time and count are numbers', rows.length > 0 && rows.every(x => /^\d+$/.test(x.size) && /^\d+$/.test(x.mtime) && /^\d+$/.test(x.n)));
 }
 process.exit(fail ? 1 : 0);
