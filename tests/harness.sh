@@ -1655,6 +1655,20 @@ if want boot_leftovers; then
     $TSH "$MOD/post-fs-data.sh"
     check "every leftover removed" "" "$(cd "$STATE" && ls -d *.tmp.* rules.batch.* fast.* setconf.* testconf.* wg.err bk.* bkv.* restore.* import.* 2>/dev/null | tr '\n' ' ')"
     check "tunnel, settings and the poll cache kept" "yes yes yes" "$([ -f "$WGS_DATA/tunnels/wg-BL-1.conf" ] && echo yes || echo no) $([ -f "$WGS_DATA/settings.conf" ] && echo yes || echo no) $([ -f "$STATE/tunrows" ] && echo yes || echo no)"
+    # temp files of writes outside state/ (an import's copy holds the private key)
+    ctl fav add wg-BL-1 >/dev/null
+    for f in "$WGS_DATA/tunnels/wg-BL-1.conf.tmp.31" "$WGS_DATA/settings.conf.tmp.32" "$WGS_DATA/favorites.tmp.33" \
+             "$MOD/module.prop.tmp.34" "$WGS_DATA/speedtest.tmp.35"; do
+        : > "$f"
+    done
+    $TSH "$MOD/post-fs-data.sh"
+    check "temp files outside state/ removed" "" "$(ls -d "$WGS_DATA"/tunnels/*.tmp.* "$WGS_DATA"/*.tmp.* "$MOD"/*.tmp.* 2>/dev/null | tr '\n' ' ')"
+    check "tunnel, settings, favorites, module.prop kept" "yes yes yes yes" "$([ -f "$WGS_DATA/tunnels/wg-BL-1.conf" ] && echo yes || echo no) $([ -f "$WGS_DATA/settings.conf" ] && echo yes || echo no) $([ -f "$WGS_DATA/favorites" ] && echo yes || echo no) $([ -f "$MOD/module.prop" ] && echo yes || echo no)"
+    # a tunnel whose name looks like a temp file is a tunnel: kept
+    : > "$WGS_DATA/tunnels/wg-BL.conf.tmp.7.conf"
+    $TSH "$MOD/post-fs-data.sh"
+    check "tunnel named like a temp file kept" yes "$([ -f "$WGS_DATA/tunnels/wg-BL.conf.tmp.7.conf" ] && echo yes || echo no)"
+    rm -f "$WGS_DATA/tunnels/wg-BL.conf.tmp.7.conf"
 fi
 
 if want device_umask; then
