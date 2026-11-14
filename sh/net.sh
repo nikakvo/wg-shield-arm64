@@ -206,7 +206,8 @@ v6_ensure() {
     [ "$T_V6" = 1 ] && [ -n "$T_ADDR6" ] || return 0
     v6_kernel_on || return 0
     [ "$(cat "$PROC6/$IFACE/disable_ipv6" 2>/dev/null)" = 0 ] || return 0
-    a=${T_ADDR6%/*}
+    # compared as `ip` lists it (FD00:0:0:0::2 is shown as fd00::2)
+    a=$(ipv6_canon "${T_ADDR6%/*}") || a=${T_ADDR6%/*}
     "$IP" -6 addr show dev "$IFACE" 2>/dev/null | grep -q "inet6 $a/" ||
         "$IP" -6 addr add "$T_ADDR6" dev "$IFACE" nodad 2>/dev/null
     "$IP" -6 addr show dev "$IFACE" 2>/dev/null | grep -q "inet6 $a/" || return 0

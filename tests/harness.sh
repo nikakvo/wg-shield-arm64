@@ -1524,6 +1524,22 @@ if want dash_name; then
     rm -f "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
 fi
 
+if want v6_address; then
+    echo "v6_address: the tunnel's IPv6 address written in a long form with capitals"
+    reset_state
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"; mkdir -p "$WGS_PROC6/wgs0"; echo 0 > "$WGS_PROC6/wgs0/disable_ipv6"
+    conf "$WGS_DL/wg-VA-6.conf" 203.0.113.94:51820
+    sed -i 's#^Address = .*#Address = 10.2.0.2/32, FD00:0:0:0::2/128#; s#^AllowedIPs = .*#AllowedIPs = 0.0.0.0/0, ::/0#' "$WGS_DL/wg-VA-6.conf"
+    ctl import wg-VA-6.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-VA-6 >/dev/null
+    ctl status >/dev/null
+    check "IPv6 through the tunnel" tunnel "$(st ipv6)"
+    check "the address once on wgs0, IPv6 into the tunnel" "1 wgs0" "$(ip -6 addr show dev wgs0 | grep -c 'inet6 fd00::2/128') $(ip -6 route get 2001:db8::1 2>&1 | grep -q 'dev wgs0' && echo wgs0 || echo other)"
+    ctl down >/dev/null
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
