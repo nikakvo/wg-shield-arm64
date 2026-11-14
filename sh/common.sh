@@ -235,10 +235,11 @@ lock_try() {
 }
 
 lock_get() {  # lock_get [seconds]
-    n=${1:-20}
-    while [ "$n" -gt 0 ]; do
+    # a counter of its own: callers count in n (wait_up ticks through here)
+    _lg=${1:-20}
+    while [ "$_lg" -gt 0 ]; do
         lock_try && return 0
-        sleep 1; n=$((n - 1))
+        sleep 1; _lg=$((_lg - 1))
     done
     return 1
 }
