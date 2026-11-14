@@ -37,11 +37,13 @@ TSH=$(command -v bash)
 
 RUN="$REPO/tests/.run"
 # a run killed midway leaves its watchdog and network watch running on this
-# folder; they would act on the new run's files: stop them first
+# folder; they would act on the new run's files: stop them first. Only
+# what runs from its module/ or fakes/ is stopped, so a `tail -f` on a log
+# in here is left alone
 stale=""
 for p in /proc/[0-9]*; do
     case "$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" in
-        *"$RUN/"*) stale="$stale ${p#/proc/}" ;;
+        *"$RUN/module/"*|*"$RUN/fakes/"*) stale="$stale ${p#/proc/}" ;;
     esac
 done
 if [ -n "$stale" ]; then
