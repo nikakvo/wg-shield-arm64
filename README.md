@@ -211,6 +211,7 @@ reason=…            iface=wgs0            table=51820         type=wireguard|a
 tunnel=<name>       endpoint=<ip:port, an IPv6 address as [addr]:port>    endpoint_host=<host:port, if a name>
 handshake_age=<s>   killswitch=1|0        ipv6=tunnel|blocked|off
 default_net=…       android_vpn=…         updated=<epoch>
+pause_left=<s, while paused>  rx=<bytes>  tx=<bytes>  nets=<table>/<default|tunnel|checking|outside>,...
 recover=restart N/2|switch <name>|failed|  recover_from=<tunnel>
 profile=battery|always  checks=5|30|off   autoswitch=0|1    notify=0|1
 dns=tunnel|dnscrypt|network  dns_server=<the tunnel's DNS in use, IPv4 [IPv6]>
