@@ -1556,6 +1556,27 @@ if want outside_names; then
     check "delfile: one line for the name, the file gone" "1 0 no" "$(echo "$out" | grep -c '^deleted=') $(echo "$out" | grep -c '^injected=') $([ -e "$WGS_DL/vpn\\ninjected=1.conf" ] && echo yes || echo no)"
 fi
 
+if want error_quiet; then
+    echo "error_quiet: a tunnel in error is torn down once, not at every tick"
+    reset_state
+    printf '#!/bin/sh\necho "$*" >> "$WGS_IPCALLS"\nexec "%s" "$@"\n' "$REALIP" > "$FAKES/ipc"; chmod 755 "$FAKES/ipc"
+    export WGS_IPCALLS="$RUN/ipcalls"
+    conf "$WGS_DL/wg-EQ-1.conf" 203.0.113.96:51820
+    ctl import wg-EQ-1.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-EQ-1 >/dev/null
+    sed -i 's#^Endpoint = .*#Endpoint = 203.0.113.96#' "$WGS_DATA/tunnels/wg-EQ-1.conf"
+    rm -f "$WGS_IPCALLS"
+    WGS_IP="$FAKES/ipc" ctl status >/dev/null
+    check "entering error: torn down (no wgs0, no rule 50xx)" "error no 0" "$(st state) $(ip link show wgs0 >/dev/null 2>&1 && echo yes || echo no) $(ip rule | grep -c '^50[0-9][0-9]:')"
+    check "entering error: the teardown ran" yes "$(grep -q '^rule del pref 5020' "$WGS_IPCALLS" && echo yes || echo no)"
+    rm -f "$WGS_IPCALLS"
+    WGS_IP="$FAKES/ipc" ctl status >/dev/null
+    check "next tick in error: no teardown again" "error 0" "$(st state) $(cat "$WGS_IPCALLS" 2>/dev/null | grep -c 'del')"
+    ctl down >/dev/null
+    unset WGS_IPCALLS
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]

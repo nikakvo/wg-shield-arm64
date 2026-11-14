@@ -1031,7 +1031,8 @@ wgs_tick() {
             # at shutdown netd and the links go away - not a tunnel error
             shutting_down && return 2
             ST_STATE=error; ST_REASON=$ERR
-            if error_blocks; then error_block || return 2; else teardown; fi
+            # teardown only when something is left (not at every tick in error)
+            if error_blocks; then error_block || return 2; elif anything_present; then teardown; fi
         else
             st_endpoint
             [ -n "$T_EPHOST" ] && ST_EPHOST=$T_EP
