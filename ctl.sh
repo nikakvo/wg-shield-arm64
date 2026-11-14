@@ -260,6 +260,7 @@ case "$cmd" in
         ;;
     remove)
         tun_exists "$1" || fail "no such tunnel: $1"
+        test_running && fail "a speed test is running - wait until it ends"
         ctl_lock
         settings_load
         if [ "$S_ACTIVE" = "$1" ]; then S_ACTIVE=""; fi

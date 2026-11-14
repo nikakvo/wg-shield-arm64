@@ -1612,6 +1612,19 @@ if want pipe_name; then
     export WGS_DL="$DL0"
 fi
 
+if want remove_test; then
+    echo "remove_test: remove waits for a running speed test, like removeall"
+    reset_state
+    conf "$WGS_DL/wg-RT-1.conf" 203.0.113.100:51820
+    ctl import wg-RT-1.conf >/dev/null
+    sleep 30 & tester=$!
+    mkdir "$STATE/test.lock" && echo "$tester" > "$STATE/test.lock/pid"
+    out=$(ctl remove wg-RT-1 2>&1)
+    check "refused while a test runs, tunnel kept" "0 1 yes" "$(echo "$out" | sed -n 's/^ok=//p') $(echo "$out" | grep -c '^error=a speed test is running') $([ -f "$WGS_DATA/tunnels/wg-RT-1.conf" ] && echo yes || echo no)"
+    kill "$tester" 2>/dev/null; wait "$tester" 2>/dev/null; rm -rf "$STATE/test.lock"
+    check "removed once the test is over" "wg-RT-1 no" "$(ctl remove wg-RT-1 | sed -n 's/^removed=//p') $([ -f "$WGS_DATA/tunnels/wg-RT-1.conf" ] && echo yes || echo no)"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
