@@ -36,6 +36,20 @@ TSH=$(command -v bash)
 [ -n "${WGS_TEST_SH:-}" ] && TSH=$WGS_TEST_SH
 
 RUN="$REPO/tests/.run"
+# a run killed midway leaves its watchdog and network watch running on this
+# folder; they would act on the new run's files: stop them first
+stale=""
+for p in /proc/[0-9]*; do
+    case "$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" in
+        *"$RUN/"*) stale="$stale ${p#/proc/}" ;;
+    esac
+done
+if [ -n "$stale" ]; then
+    kill $stale 2>/dev/null
+    # they clean up on TERM: let them finish before the folder goes
+    i=0; while [ "$i" -lt 30 ] && kill -0 $stale 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+    kill -9 $stale 2>/dev/null
+fi
 rm -rf "$RUN"; mkdir -p "$RUN"
 FAKES="$RUN/fakes"; mkdir -p "$FAKES"
 
