@@ -83,7 +83,7 @@ screen_on() {
 # missing answer means "dead" (a server that drops ICMP must not be
 # restarted forever; for it the handshake rule alone decides)
 # (Checks off: nothing is pinged, so no tunnel counts - the handshake decides)
-tun_pingable() { [ "$S_CHECKS" != off ] && grep -qxF "$1" "$STATE/pingable" 2>/dev/null; }
+tun_pingable() { [ "$S_CHECKS" != off ] && grep -qxF -e "$1" "$STATE/pingable" 2>/dev/null; }
 heal_active() { [ -f "$STATE/heal" ] && ! grep -q '^done=1' "$STATE/heal" 2>/dev/null; }
 
 live_reset() { rm -f "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at"; }

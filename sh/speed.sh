@@ -84,7 +84,7 @@ tun_privkey() {
 # tunnel NAME in box BOX? (FAVLIST = fav_names, read once)
 test_in_box() {
     case "$1" in
-        favorites) printf '%s\n' "$FAVLIST" | grep -qxF "$2" ;;
+        favorites) printf '%s\n' "$FAVLIST" | grep -qxF -e "$2" ;;
         others) [ -z "$(tun_country "$2")" ] ;;
         *) [ "$(tun_country "$2")" = "$1" ] ;;
     esac

@@ -168,7 +168,7 @@ tun_exists() { tunnel_name_ok "$1" && [ -f "$TUNDIR/$1.conf" ]; }
 tun_names() {
     for f in "$TUNDIR"/*.conf; do
         [ -f "$f" ] || continue
-        n=${f##*/}; echo "${n%.conf}"
+        n=${f##*/}; printf '%s\n' "${n%.conf}"
     done
 }
 
@@ -179,17 +179,18 @@ fav_names() {
     [ -f "$FAVS" ] || return 0
     while IFS= read -r _fn; do
         _fn=$(printf '%s' "$_fn" | tr -d '\r')
-        tunnel_name_ok "$_fn" && echo "$_fn"
+        tunnel_name_ok "$_fn" && printf '%s\n' "$_fn"
     done < "$FAVS" 2>/dev/null | sort -u
 }
-fav_has() { fav_names | grep -qxF "$1"; }
+# names may start with "-": printed with printf, patterns after -e
+fav_has() { fav_names | grep -qxF -e "$1"; }
 _fav_write() {  # names on stdin -> $FAVS (removed when empty)
     _ft="$FAVS.tmp.$$"
     sort -u > "$_ft" && chmod 600 "$_ft" || { rm -f "$_ft"; return 1; }
     if [ -s "$_ft" ]; then mv -f "$_ft" "$FAVS"; else rm -f "$_ft" "$FAVS"; fi
 }
-fav_add() { { fav_names; echo "$1"; } | _fav_write; }
-fav_del() { fav_names | grep -vxF "$1" | _fav_write; }
+fav_add() { { fav_names; printf '%s\n' "$1"; } | _fav_write; }
+fav_del() { fav_names | grep -vxF -e "$1" | _fav_write; }
 
 # ---- backup (2.6) -------------------------------------------------------------
 # One zip, like the WireGuard app's export: <name>.conf per tunnel +
@@ -271,7 +272,8 @@ bk_make() {
       echo "or import this zip in the WireGuard / AmneziaWG app."
       echo "created_epoch=$_bnow"
       echo "tunnels=$_bn"; } > "$_bs/backup-info.txt"
-    _bl=$(cd "$_bs" && ls *.conf | sort); [ -s "$_bs/favorites.txt" ] && _bl="$_bl favorites.txt"
+    _bl=""; for _bf in "$_bs"/*.conf; do [ -f "$_bf" ] && _bl="$_bl${_bl:+ }${_bf##*/}"; done   # not ls: a name may start with "-"
+    [ -s "$_bs/favorites.txt" ] && _bl="$_bl favorites.txt"
     _bt="$BACKUP_ROOT/.wg-shield-backup.zip.tmp"
     if ! zip_store "$_bt" "$_bs" $_bl backup-info.txt; then
         rm -rf "$_bs"; bk_fix; echo "error=cannot write $BACKUP_ROOT (storage full?)"; return 1
@@ -310,11 +312,11 @@ bk_restore() {
     if [ -f "$_br/favorites.txt" ]; then
         _br_list=$(tr -d '\r' < "$_br/favorites.txt" | while IFS= read -r _fn; do
             tunnel_name_ok "$_fn" || continue
-            case " $_br_names " in *" $_fn "*) echo "$_fn" ;; esac
+            case " $_br_names " in *" $_fn "*) printf '%s\n' "$_fn" ;; esac
         done)
         if [ -n "$_br_list" ]; then
-            { fav_names; echo "$_br_list"; } | _fav_write
-            _br_fav=$(echo "$_br_list" | grep -c .)
+            { fav_names; printf '%s\n' "$_br_list"; } | _fav_write
+            _br_fav=$(printf '%s\n' "$_br_list" | grep -c .)
         fi
     fi
     rm -rf "$_br"

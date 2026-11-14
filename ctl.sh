@@ -162,7 +162,7 @@ tun_rows() {
         {
             echo "$_k"
             for n in $(tun_names); do
-                _f=0; printf '%s\n' "$_fl" | grep -qxF "$n" && _f=1
+                _f=0; printf '%s\n' "$_fl" | grep -qxF -e "$n" && _f=1
                 if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE|$_f"; else echo "t=$n|-|-|0|0|-|$_f"; fi
             done
         } > "$_c.tmp.$$" && mv -f "$_c.tmp.$$" "$_c"
@@ -533,7 +533,7 @@ case "$cmd" in
         echo; echo "== favorites"; fav_names
         echo; echo "== backup"; if [ "$(bk_count)" -gt 0 ]; then echo "$BKZIP: $(bk_count) tunnels, created $(bk_created)"; else echo "none ($BKZIP)"; fi
         echo; echo "== speed test (address|handshake ms|ping ms|result|epoch|tunnels)"; cat "$TEST_FILE" 2>/dev/null
-        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else printf '%s\n' "$n INVALID: $T_ERR"; fi; done
+        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then printf '%s\n' "$n $T_EP $T_ADDR $T_TYPE"; else printf '%s\n' "$n INVALID: $T_ERR"; fi; done
         k=$(iface_kind)
         if [ "$k" = amneziawg ]; then
             echo; echo "== awg (keys hidden)"; "$AWG" show "$IFACE" 2>&1 | grep -viE 'private key|preshared|protection key'

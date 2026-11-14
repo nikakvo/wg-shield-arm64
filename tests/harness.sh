@@ -1505,6 +1505,25 @@ if want wait_up; then
     ctl down >/dev/null
 fi
 
+if want dash_name; then
+    echo "dash_name: tunnel names that start with a dash"
+    reset_state
+    conf "$WGS_DL/-dash.conf" 203.0.113.92:51820
+    conf "$WGS_DL/-n.conf" 203.0.113.93:51820
+    ctl import -dash.conf >/dev/null; ctl import -n.conf >/dev/null
+    check "list: both tunnels" "2 1 1" "$(ctl list | kv count) $(ctl list | grep -c '^tunnel=-dash ') $(ctl list | grep -c '^tunnel=-n ')"
+    ctl fav add -dash >/dev/null
+    check "fav add: a favorite in list and poll" "1 1" "$(ctl list | grep -c '^tunnel=-dash .* fav=1$') $(ctl poll | grep -c '^t=-dash|.*|1$')"
+    ctl fav del -dash >/dev/null
+    check "fav del: no longer a favorite" "1 0" "$(ctl list | grep -c '^tunnel=-dash .* fav=0$') $(grep -c . "$WGS_DATA/favorites" 2>/dev/null || echo 0)"
+    ctl fav add -n >/dev/null
+    check "backup: both tunnels in the zip" "2 2" "$(ctl backup | kv backed_up) $(unzip -l "$WGS_BACKUP_ROOT/wg-shield-backup.zip" 2>/dev/null | grep -c '\.conf$')"
+    ctl removeall >/dev/null
+    out=$(ctl restore)
+    check "restore: both tunnels and the favorite back" "2 1 1" "$(echo "$out" | kv imported) $(echo "$out" | kv favorites) $(ctl list | grep -c '^tunnel=-n .* fav=1$')"
+    rm -f "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
