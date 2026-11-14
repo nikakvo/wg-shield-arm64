@@ -330,6 +330,8 @@ case "$cmd" in
     fav)
         case "$1" in add|del) : ;; *) fail "usage: fav add|del <name>" ;; esac
         tunnel_name_ok "$2" || fail "not a valid tunnel name: $2"
+        # under the lock: a restore (also under it) rewrites the favorites too
+        ctl_lock
         if [ "$1" = add ]; then
             tun_exists "$2" || fail "no such tunnel: $2"
             fav_has "$2" || fav_add "$2" || fail "cannot write $FAVS"
@@ -338,6 +340,7 @@ case "$cmd" in
             ! fav_has "$2" || fav_del "$2" || fail "cannot write $FAVS"
             f=0
         fi
+        lock_release
         echo "ok=1"; echo "tunnel=$2"; echo "fav=$f"
         ;;
     test)

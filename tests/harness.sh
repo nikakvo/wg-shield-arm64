@@ -1625,6 +1625,22 @@ if want remove_test; then
     check "removed once the test is over" "wg-RT-1 no" "$(ctl remove wg-RT-1 | sed -n 's/^removed=//p') $([ -f "$WGS_DATA/tunnels/wg-RT-1.conf" ] && echo yes || echo no)"
 fi
 
+if want fav_lock; then
+    echo "fav_lock: a star is written under the watchdog's lock"
+    reset_state
+    conf "$WGS_DL/wg-FL-1.conf" 203.0.113.101:51820
+    ctl import wg-FL-1.conf >/dev/null
+    sleep 30 & holder=$!
+    mkdir "$STATE/lock" && echo "$holder" > "$STATE/lock/pid"
+    ctl fav add wg-FL-1 >/dev/null 2>&1 & c=$!
+    sleep 2
+    check "favorites untouched while the lock is held" no "$([ -f "$WGS_DATA/favorites" ] && echo yes || echo no)"
+    rm -rf "$STATE/lock"; kill "$holder" 2>/dev/null; wait "$c"
+    check "star written once the lock is free, lock released" "wg-FL-1 no" "$(cat "$WGS_DATA/favorites" 2>/dev/null) $([ -d "$STATE/lock" ] && echo yes || echo no)"
+    ctl fav del wg-FL-1 >/dev/null
+    check "star removed, lock released" "no no" "$([ -f "$WGS_DATA/favorites" ] && echo yes || echo no) $([ -d "$STATE/lock" ] && echo yes || echo no)"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
