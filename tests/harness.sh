@@ -1764,6 +1764,33 @@ if want pause_zero; then
     ctl down >/dev/null
 fi
 
+if want poll_sibling_text; then
+    echo "poll_sibling_text: other modules' values, a tunnel file name and the backup's date stay on their own line (mksh's echo reads backslashes)"
+    reset_state
+    conf "$WGS_DL/wg-ST-1.conf" 203.0.113.108:51820
+    ctl import wg-ST-1.conf >/dev/null
+    # a tunnel file copied into tunnels/ by hand, a backslash in its name
+    cp "$WGS_DATA/tunnels/wg-ST-1.conf" "$WGS_DATA/tunnels/wg-ST\\nhijack=1.conf"
+    mkdir -p "$WGS_MODULES/lan-cloak" "$WGS_ADB/lan-cloak/state" "$WGS_ADB/vpn-hotspot/state"
+    printf '%s\n' 'state=on' 'wifi=a\nhijack=1' "updated=$(date +%s)" > "$WGS_ADB/lan-cloak/state/status"
+    printf '%s\n' 'state=idle\nhijack=1' 'vpn_source=x\nhijack=1' > "$WGS_ADB/vpn-hotspot/state/status"
+    out=$(ctl poll)
+    check "poll: no line made of the text" 0 "$(echo "$out" | grep -c '^hijack=')"
+    check "poll: the values whole" "1 1 1" "$(echo "$out" | grep -cxF 'lancloak_wifi=a\nhijack=1') $(echo "$out" | grep -cxF 'vhs_state=idle\nhijack=1') $(echo "$out" | grep -c '^t=wg-ST\\nhijack=1|')"
+    check "list: the tunnel's row whole, no line made of its name" "1 0" "$(ctl list | grep -c '^tunnel=wg-ST\\nhijack=1 endpoint=') $(ctl list | grep -c '^hijack=')"
+    # the backup zip lies in shared storage: an app can change backup-info.txt
+    mkdir -p "$WGS_BACKUP_ROOT"
+    python3 -I - "$WGS_BACKUP_ROOT/wg-shield-backup.zip" "$WGS_DATA/tunnels/wg-ST-1.conf" <<'EOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    z.write(sys.argv[2], "wg-ST-1.conf")
+    z.writestr("backup-info.txt", "created_epoch=1\\nhijack=1\n")
+EOF
+    out=$(ctl backupinfo)
+    check "backupinfo: no line made of the text, a number as created" "0 1" "$(echo "$out" | grep -c '^hijack=') $(echo "$out" | grep -c '^created=[0-9][0-9]*$')"
+    rm -rf "$WGS_MODULES/lan-cloak" "$WGS_ADB/lan-cloak" "$WGS_ADB/vpn-hotspot" "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]

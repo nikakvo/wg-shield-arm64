@@ -168,7 +168,7 @@ tun_setconf() {
         }' > "$2" )
 }
 
-tun_file() { echo "$TUNDIR/$1.conf"; }
+tun_file() { printf '%s\n' "$TUNDIR/$1.conf"; }   # printf: a name from the folder may hold a backslash
 
 tun_exists() { tunnel_name_ok "$1" && [ -f "$TUNDIR/$1.conf" ]; }
 
@@ -261,7 +261,8 @@ bk_fix() {  # leftovers: an interrupted backup, the folder of 2.6-test1
     rm -f "$BACKUP_ROOT/.wg-shield-backup.zip.tmp" "$BACKUP_ROOT/.wg-shield-backup.zip.tmp.list" 2>/dev/null
 }
 bk_count() { if [ -f "$BKZIP" ]; then _bk_unzip -l "$BKZIP" 2>/dev/null | grep -cE '\.conf$'; else echo 0; fi; }
-bk_created() { _bk_unzip -p "$BKZIP" backup-info.txt 2>/dev/null | sed -n 's/^created_epoch=//p' | head -n 1; }
+# digits only: the zip lies in shared storage, where apps can change it
+bk_created() { _bk_unzip -p "$BKZIP" backup-info.txt 2>/dev/null | sed -n 's/^created_epoch=\([0-9][0-9]*\)$/\1/p' | head -n 1; }
 bk_favs() { _bk_unzip -p "$BKZIP" favorites.txt 2>/dev/null | grep -c .; }
 
 # bk_make - prints backed_up=N; returns 1 (with error=) when nothing was written

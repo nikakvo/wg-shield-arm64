@@ -109,11 +109,8 @@ lanc_rows() {
             esac
         done 2>/dev/null < "$_lf"
     fi
-    echo "lancloak_state=$_ls"
-    echo "lancloak_reason=$_lr"
-    echo "lancloak_dhcp=$_ld"
-    echo "lancloak_announce=$_la"
-    echo "lancloak_wifi=$_lw"
+    # printf, not echo: the values are another module's text (mksh's echo reads backslashes)
+    printf '%s\n' "lancloak_state=$_ls" "lancloak_reason=$_lr" "lancloak_dhcp=$_ld" "lancloak_announce=$_la" "lancloak_wifi=$_lw"
     case "$_lu" in
         ''|*[!0-9]*) echo "lancloak_age=" ;;
         *) echo "lancloak_age=$(( $(epoch_now) - _lu ))" ;;
@@ -155,7 +152,7 @@ tun_rows() {
             echo "$_k"
             for n in $(tun_names); do
                 _f=0; printf '%s\n' "$_fl" | grep -qxF -e "$n" && _f=1
-                if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE|$_f"; else echo "t=$n|-|-|0|0|-|$_f"; fi
+                if tun_parse "$(tun_file "$n")"; then printf '%s\n' "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE|$_f"; else printf '%s\n' "t=$n|-|-|0|0|-|$_f"; fi
             done
         } > "$_c.tmp.$$" && mv -f "$_c.tmp.$$" "$_c"
     fi
@@ -206,7 +203,7 @@ case "$cmd" in
             a=0; [ "$n" = "$S_ACTIVE" ] && a=1
             f=0; fav_has "$n" && f=1
             if tun_parse "$(tun_file "$n")"; then
-                echo "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 type=$T_TYPE active=$a fav=$f"
+                printf '%s\n' "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 type=$T_TYPE active=$a fav=$f"
             else
                 printf '%s\n' "tunnel=$n invalid=1 active=$a fav=$f error=$(printf '%s' "$T_ERR" | tr ' ' '_')"
             fi
@@ -451,15 +448,16 @@ case "$cmd" in
         echo "dnscrypt=$(sib_state dnscrypt-proxy-android)"
         # DNSCrypt Proxy r22+ keeps everything in /data/adb/dnscrypt-proxy/, older versions at the top of /data/adb
         h="$ADB/dnscrypt-proxy/state/health"; [ -f "$h" ] || h="$ADB/dnscrypt-proxy-state/health"
-        echo "dnscrypt_state=$(sed -n 's/^state=//p' "$h" 2>/dev/null | head -n1)"
-        echo "dnscrypt_ipmode=$(sed -n 's/^IP_MODE=//p' "$(dnsc_conf)" 2>/dev/null | tail -n1)"
+        # the other modules' values with printf (mksh's echo reads backslashes)
+        printf '%s\n' "dnscrypt_state=$(sed -n 's/^state=//p' "$h" 2>/dev/null | head -n1)"
+        printf '%s\n' "dnscrypt_ipmode=$(sed -n 's/^IP_MODE=//p' "$(dnsc_conf)" 2>/dev/null | tail -n1)"
         echo "ipset=$(sib_state ipset_arm64)"
         echo "vhs=$(sib_state vpn-hotspot)"
         # VPN Hotspot r15+ keeps its status in /data/adb/vpn-hotspot/state/
         vs="$ADB/vpn-hotspot/state/status"; [ -f "$vs" ] || vs="$ADB/vpn-hotspot-state/status"
-        echo "vhs_state=$(sed -n 's/^state=//p' "$vs" 2>/dev/null | head -n1)"
-        echo "vhs_code=$(sed -n 's/^versionCode=//p' "$MODULES/vpn-hotspot/module.prop" 2>/dev/null | head -n1)"
-        echo "vhs_source=$(sed -n 's/^vpn_source=//p' "$vs" 2>/dev/null | head -n1)"
+        printf '%s\n' "vhs_state=$(sed -n 's/^state=//p' "$vs" 2>/dev/null | head -n1)"
+        printf '%s\n' "vhs_code=$(sed -n 's/^versionCode=//p' "$MODULES/vpn-hotspot/module.prop" 2>/dev/null | head -n1)"
+        printf '%s\n' "vhs_source=$(sed -n 's/^vpn_source=//p' "$vs" 2>/dev/null | head -n1)"
         lanc_rows
         test_rows
         if test_running; then echo "test_run=$(cat "$TEST_PROG" 2>/dev/null)"; fi
