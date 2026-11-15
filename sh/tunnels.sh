@@ -329,8 +329,10 @@ bk_restore() {
 tun_import_one() {
     src=$1
     base=${src##*/}; base=${base%.conf}
-    name=$(printf '%s' "$base" | sed 's/[^A-Za-z0-9._-]/_/g' | cut -c1-40)
+    name=$(printf '%s' "$base" | sed 's/[^A-Za-z0-9._-]/_/g')
     case "$name" in .*|"") name="tunnel_$name" ;; esac
+    # cut after the prefix: tunnel_name_ok takes at most 40 characters
+    name=$(printf '%s' "$name" | cut -c1-40)
     if ! tun_parse "$src"; then
         printf '%s\n' "skipped=$base reason=$T_ERR"    # not echo: mksh's echo reads the backslashes
         wlog WARN "import: $base skipped - $T_ERR"

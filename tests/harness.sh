@@ -1720,6 +1720,19 @@ if want device_umask; then
     ctl down >/dev/null
 fi
 
+if want import_long_dotname; then
+    echo "import_long_dotname: a long file name starting with a dot gets a name the other commands accept"
+    reset_state
+    ln=.abcdefghijabcdefghijabcdefghijabcdefghij
+    conf "$WGS_DL/$ln.conf" 203.0.113.105:51820
+    nm=$(ctl import "$ln.conf" | sed -n 's/^imported=\([^ ]*\) .*/\1/p')
+    check "imported as tunnel_ + the start of the name, 40 characters" tunnel_.abcdefghijabcdefghijabcdefghijab "$nm"
+    ctl up "$nm" >/dev/null
+    check "up accepts the name" handshaking "$(st state)"
+    check "remove accepts the name" "$nm" "$(ctl remove "$nm" | sed -n 's/^removed=//p')"
+    rm -f "$WGS_DL/$ln.conf"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
