@@ -895,6 +895,11 @@ if want landns; then
     "$WGS_IPT" -w -t nat -D wgs_dns -o wlan0 -p tcp --dport 53 -j DNAT --to-destination 10.2.0.1:53
     ctl status >/dev/null
     check "rebuild: a copy left by a killed rebuild removed, the chain as wanted" "0 yes 1" "$(nat | grep -c -- 'wgs_dns_n') $(hasnat "$DLT") $(nat | grep -cxF -- "$J")"
+    # ... also while the chain is as wanted (killed while the copy was filled)
+    w0=$(grep -c "changed by someone else - repaired" "$WGS_DATA/logs/wg-shield.log")
+    printf '%s\n' "-N wgs_dns_n" "$CP" "-A OUTPUT -j wgs_dns_n" >> "$WGS_IPT_DIR/nat"
+    ctl status >/dev/null
+    check "chain as wanted: a left copy removed, nothing logged as repaired" "0 1 $w0" "$(nat | grep -c -- 'wgs_dns_n') $(nat | grep -cxF -- "$J") $(grep -c "changed by someone else - repaired" "$WGS_DATA/logs/wg-shield.log")"
     printf '%s\n' "-N wgs_dns_n" "$CP" "-A OUTPUT -j wgs_dns_n" >> "$WGS_IPT_DIR/nat"
     ctl down >/dev/null
     check "down: both chains and both jumps removed" 0 "$(nat | grep -c -- 'wgs_dns')"

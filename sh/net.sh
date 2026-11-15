@@ -726,6 +726,11 @@ _dns_sync() {
     # $STATE/<name>.want: the server as the config has it (with several
     # servers and / or LAN DNS through the tunnel: and "|" + DNS_KEY), then
     # the DNAT target as the kernel printed it when the chain was set up
+    # a copy left by a rebuild that was killed (see below) goes first: the
+    # check for "as wanted" does not see it
+    if _nat_has "$_du" "$DNSCOPY" || _nat_has "$_du" "$DNSSCOPY"; then
+        _dns_copy_del "$_x" "$_du"; _du=$(_nat_dump "$_s" "$_x")
+    fi
     _k=$_t${_lk:+|$_lk}
     _old=$(sed -n 1p "$STATE/$_n.want" 2>/dev/null)
     if [ "$_old" = "$_k" ] && _dns_ok "$_du" "$(sed -n 2p "$STATE/$_n.want" 2>/dev/null)" "$_lk"; then unset _x _s _n _t _du _w _lk _k _old; return 0; fi
@@ -737,9 +742,6 @@ _dns_sync() {
     # router). The copy goes once the chain is back.
     _cp=0
     if _nat_has "$_du" "$DNSCHAIN"; then
-        if _nat_has "$_du" "$DNSCOPY" || _nat_has "$_du" "$DNSSCOPY"; then
-            _dns_copy_del "$_x" "$_du"; _du=$(_nat_dump "$_s" "$_x")
-        fi
         _cp=1; _oc=$DNSCHAIN; _os=$DNSSNAT; DNSCHAIN=$DNSCOPY; DNSSNAT=$DNSSCOPY
         _dns_apply "$_x" "$_t" "$_lk"
         "$_x" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
