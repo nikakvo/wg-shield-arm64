@@ -78,6 +78,9 @@ tun_parse() {
         *) T_ADDR="$T_ADDR/32" ;;
     esac
     _pl=${T_ADDR#*/}
+    # leading zeros (/08): `ip` reads a prefix and an MTU as octal - /08 is
+    # refused, /010 is /8, MTU 01400 is 768. Taken as the decimal number
+    case "$_pl" in 0?*) _pl=${_pl#"${_pl%%[!0]*}"}; _pl=${_pl:-0}; T_ADDR="${T_ADDR%%/*}/$_pl" ;; esac
     ipv4_ok "${T_ADDR%%/*}" && case "$_pl" in ""|*[!0-9]*) false ;; *) [ "${#_pl}" -le 2 ] && [ "$_pl" -le 32 ] ;; esac ||
         { T_ERR="bad Address '$T_ADDR'"; return 1; }
     # Endpoint: IPv4 literal, an IPv6 literal in brackets, or a host name
@@ -110,9 +113,12 @@ tun_parse() {
     # IPv6 through the tunnel: an IPv6 address and ::/0
     if [ -n "$T_ADDR6" ]; then
         case "$T_ADDR6" in *[!0-9A-Fa-f:/]*) T_WARN="$T_WARN bad-IPv6-address-ignored"; T_ADDR6="" ;; */*) : ;; *) T_ADDR6="$T_ADDR6/128" ;; esac
+        _pl=${T_ADDR6##*/}
+        case "$_pl" in 0?*) _pl=${_pl#"${_pl%%[!0]*}"}; T_ADDR6="${T_ADDR6%/*}/${_pl:-0}" ;; esac
     fi
     case ",$_aips," in *,::/0,*) [ -n "$T_ADDR6" ] && T_V6=1 ;; esac
     [ -n "$T_ADDR6" ] && [ "$T_V6" = 0 ] && T_WARN="$T_WARN IPv6-address-without-::/0-ignored"
+    case "$_mtu" in 0?*) _mtu=${_mtu#"${_mtu%%[!0]*}"}; _mtu=${_mtu:-0} ;; esac
     case "$_mtu" in "") : ;; *[!0-9]*) T_WARN="$T_WARN bad-MTU-ignored" ;;
         *) if [ "$_mtu" -ge 1280 ] && [ "$_mtu" -le 1500 ]; then T_MTU=$_mtu; else T_WARN="$T_WARN MTU-out-of-range-ignored"; fi ;;
     esac

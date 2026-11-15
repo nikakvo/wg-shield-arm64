@@ -1733,6 +1733,21 @@ if want import_long_dotname; then
     rm -f "$WGS_DL/$ln.conf"
 fi
 
+if want leading_zero; then
+    echo "leading_zero: an Address prefix or MTU written with leading zeros is decimal (ip reads 08 / 010 as octal)"
+    reset_state
+    conf "$WGS_DL/wg-LZ-1.conf" 203.0.113.106:51820
+    sed -i 's#^Address = .*#Address = 10.2.0.2/08, fd00::2/0128\nMTU = 01400#; s#^AllowedIPs = .*#AllowedIPs = 0.0.0.0/0, ::/0#' "$WGS_DL/wg-LZ-1.conf"
+    ctl import wg-LZ-1.conf >/dev/null
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"; mkdir -p "$WGS_PROC6/wgs0"; echo 0 > "$WGS_PROC6/wgs0/disable_ipv6"
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-LZ-1 >/dev/null
+    check "wgs0 has the address and the MTU" "10.2.0.2/8 1400" "$(ip -4 -o addr show dev wgs0 | awk '{ print $4; exit }') $(ip -o link show wgs0 | sed -n 's/.* mtu \([0-9]*\) .*/\1/p')"
+    check "wgs0 has the IPv6 address, IPv6 through the tunnel" "1 tunnel" "$(ip -6 -o addr show dev wgs0 | grep -c ' fd00::2/128 ') $(st ipv6)"
+    ctl down >/dev/null
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
