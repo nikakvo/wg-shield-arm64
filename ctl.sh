@@ -30,7 +30,7 @@ usage() {
         '  resume              end a pause now' \
         '  set killswitch 0|1  1 = no internet while the tunnel is down (default)' \
         '  set ks_error 0|1    1 = with the kill switch on, no internet also while the tunnel cannot be built (error); 0 = direct then (default)' \
-        '  set autoswitch 0|1  1 = when restarts do not help, try other tunnels of the same country' \
+        '  set autoswitch 0|1  1 = when restarts do not help, try other tunnels (the same country first)' \
         '  set notify 0|1      1 = a notification when the tunnel could not be fixed (default)' \
         '  set profile battery|always  checks only with the screen on (default) / day and night' \
         '  set checks 5|30|off  ping through the tunnel every 5 s / 30 s (default) / never' \
@@ -41,7 +41,7 @@ usage() {
         '  poll                everything the WebUI shows (key=value)' \
         '  files               tunnel exports found in Download (file=size|mtime|configs|name)' \
         '  delfile <name>      delete an export from Download (it holds private keys)' \
-        '  exitip              public exit address (one request to an IP service, over HTTPS; plain HTTP only if that fails)' \
+        '  exitip              public exit address (one request to an IP service, over HTTPS only)' \
         '  diag                report for troubleshooting (no keys)' \
         '  version'
 }
