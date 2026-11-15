@@ -502,6 +502,10 @@ IPTS="${WGS_IPTS:-/system/bin/iptables-save}"
 IPTS6="${WGS_IPTS6:-/system/bin/ip6tables-save}"
 DNSCHAIN=wgs_dns
 DNSSNAT=wgs_dnss    # nat POSTROUTING, only with LAN DNS through the tunnel; removed otherwise
+# while the chains are rebuilt, a copy of the new rules under these names
+# takes the DNS (_dns_sync); gone again once the chains are back
+DNSCOPY=wgs_dns_n
+DNSSCOPY=wgs_dnss_n
 
 # _nat_dump SAVE TOOL - the nat table as "-A ..." lines (iptables-save, else -S)
 _nat_dump() { "$1" -t nat 2>/dev/null || "$2" -w -t nat -S 2>/dev/null; }
@@ -529,8 +533,21 @@ _dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP]
     _dj=$(_nat_cnt "$_dd" "-A POSTROUTING -j $DNSSNAT")
     while [ "${_dj:-0}" -gt 0 ]; do "$1" -w -t nat -D POSTROUTING -j "$DNSSNAT" 2>/dev/null || break; _dj=$((_dj - 1)); done
     _nat_has "$_dd" "$DNSSNAT" && { "$1" -w -t nat -F "$DNSSNAT" 2>/dev/null; "$1" -w -t nat -X "$DNSSNAT" 2>/dev/null; }
+    _dns_copy_del "$1" "$_dd"
     rm -f "$STATE/$3.want"
     unset _dd _dj
+}
+# _dns_copy_del TOOL DUMP - the rebuild's copy (DNSCOPY / DNSSCOPY), when
+# DUMP lists it: also one a killed rebuild left
+_dns_copy_del() {
+    if _nat_has "$2" "$DNSCOPY"; then
+        while "$1" -w -t nat -D OUTPUT -j "$DNSCOPY" 2>/dev/null; do :; done
+        "$1" -w -t nat -F "$DNSCOPY" 2>/dev/null; "$1" -w -t nat -X "$DNSCOPY" 2>/dev/null
+    fi
+    if _nat_has "$2" "$DNSSCOPY"; then
+        while "$1" -w -t nat -D POSTROUTING -j "$DNSSCOPY" 2>/dev/null; do :; done
+        "$1" -w -t nat -F "$DNSSCOPY" 2>/dev/null; "$1" -w -t nat -X "$DNSSCOPY" 2>/dev/null
+    fi
 }
 # _dns_to DUMP SERVER - the DNAT target of our rules as the kernel prints
 # it: SERVER:53 for IPv4; for IPv6 the address in ip6tables' own short form
@@ -700,7 +717,7 @@ _dns_sync() {
     _x=$1; _s=$2; _n=$3; _t=$4; _du=$5; _w=$6; _lk=$7
     if [ -z "$_t" ]; then
         rm -f "$STATE/$_n.bad"
-        if [ -f "$STATE/$_n.want" ] || _nat_has "$_du" "$DNSCHAIN" || _nat_has "$_du" "$DNSSNAT"; then
+        if [ -f "$STATE/$_n.want" ] || _nat_has "$_du" "$DNSCHAIN" || _nat_has "$_du" "$DNSSNAT" || _nat_has "$_du" "$DNSCOPY" || _nat_has "$_du" "$DNSSCOPY"; then
             [ -f "$STATE/$_n.want" ] && wlog INFO "DNS$_w: left to $( [ "$ST_DNS" = dnscrypt ] && echo 'DNSCrypt Proxy' || echo 'the network')"
             _dns_del "$_x" "$_s" "$_n" "$_du"
         fi
@@ -713,11 +730,27 @@ _dns_sync() {
     _old=$(sed -n 1p "$STATE/$_n.want" 2>/dev/null)
     if [ "$_old" = "$_k" ] && _dns_ok "$_du" "$(sed -n 2p "$STATE/$_n.want" 2>/dev/null)" "$_lk"; then unset _x _s _n _t _du _w _lk _k _old; return 0; fi
     # something is off (new server, other networks, or rules changed by
-    # someone else): rebuild
+    # someone else): rebuild. While our chain is there, the new rules go in
+    # first as a copy under other names, its jump after ours: from the
+    # moment our chain is deleted until its new jump is in, DNS would go
+    # where the routing sends it (with LAN DNS through the tunnel: to the
+    # router). The copy goes once the chain is back.
+    _cp=0
+    if _nat_has "$_du" "$DNSCHAIN"; then
+        if _nat_has "$_du" "$DNSCOPY" || _nat_has "$_du" "$DNSSCOPY"; then
+            _dns_copy_del "$_x" "$_du"; _du=$(_nat_dump "$_s" "$_x")
+        fi
+        _cp=1; _oc=$DNSCHAIN; _os=$DNSSNAT; DNSCHAIN=$DNSCOPY; DNSSNAT=$DNSSCOPY
+        _dns_apply "$_x" "$_t" "$_lk"
+        "$_x" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
+        DNSCHAIN=$_oc; DNSSNAT=$_os
+    fi
     _dns_del "$_x" "$_s" "$_n" "$_du"
     _dns_apply "$_x" "$_t" "$_lk"
     "$_x" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
-    _du=$(_nat_dump "$_s" "$_x"); _to=$(_dns_to "$_du" "$_t")
+    _du=$(_nat_dump "$_s" "$_x")
+    [ "$_cp" = 1 ] && { _dns_copy_del "$_x" "$_du"; _du=$(_nat_dump "$_s" "$_x"); }
+    _to=$(_dns_to "$_du" "$_t")
     if _dns_ok "$_du" "$_to" "$_lk"; then
         printf '%s\n%s\n' "$_k" "$_to" > "$STATE/$_n.want"; rm -f "$STATE/$_n.bad"
         if [ "$_old" = "$_k" ]; then wlog WARN "DNS$_w: the redirect to the tunnel's DNS was changed by someone else - repaired"
@@ -740,7 +773,7 @@ _dns_sync() {
         fi
         _r=1
     fi
-    unset _x _s _n _t _du _w _lk _k _old _to _ol _nl
+    unset _x _s _n _t _du _w _lk _k _old _to _ol _nl _cp _oc _os
     return $_r
 }
 

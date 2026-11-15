@@ -744,6 +744,33 @@ except OSError:
         date +%s > "$STATE/fake_hs"
         rctl status >/dev/null
         check "landns, up again: Wi-Fi LAN resolver -> tunnel DNS" "up wgs0 192.168.1.50 10.2.0.1" "$(st state) $(dns_leaves 0x10064 192.168.1.1)"
+        # a rebuild (here: a new network Android is still checking changes
+        # the layout): a query sent between the chain's removal and its new
+        # jump still goes to the tunnel's DNS, not to the router
+        cat > "$RUN/midq" <<EOF
+#!/bin/sh
+"$IPTR" -w -t mangle -F POSTROUTING
+for o in wlan0 wgs0; do for d in 192.168.1.1 10.2.0.1; do
+    "$IPTR" -w -t mangle -A POSTROUTING -o "\$o" -s 192.168.1.50 -d "\$d" -p udp --dport 53 -j ACCEPT
+done; done
+python3 -I -c 'import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_MARK", 36), 0x10064)
+s.connect(("192.168.1.1", 53)); s.send(b"q")'
+echo "\$("$IPTR" -w -t nat -S | grep -c '^-A OUTPUT -j wgs_dns\$') \$("$IPTR" -w -t mangle -L POSTROUTING -v -n -x | awk '\$1 ~ /^[0-9]+\$/ && \$1 > 0 { print \$7, \$8, \$9; exit }')" > "$RUN/midq.out"
+"$IPTR" -w -t mangle -F POSTROUTING
+EOF
+        cat > "$FAKES/iptq" <<EOF
+#!/bin/sh
+case "\$*" in *"-t nat -A OUTPUT -j wgs_dns") [ -f "$RUN/midq.on" ] && { rm -f "$RUN/midq.on"; sh "$RUN/midq"; } ;; esac
+exec "$IPTR" "\$@"
+EOF
+        chmod 755 "$FAKES/iptq"; rm -f "$RUN/midq.out"; : > "$RUN/midq.on"
+        ip rule add pref 16000 fwmark 0x10068/0x1ffff iif lo lookup 1031
+        WGS_IPTS=$(command -v iptables-save) WGS_IPT="$FAKES/iptq" ctl status >/dev/null
+        check "landns, rebuild: a query before the new jump (none yet) -> tunnel DNS" "0 wgs0 192.168.1.50 10.2.0.1" "$(cat "$RUN/midq.out" 2>/dev/null)"
+        check "landns, rebuild: then one jump, no copy left" "1 0 wgs0 192.168.1.50 10.2.0.1" "$("$IPTR" -w -t nat -S | grep -c '^-A OUTPUT -j wgs_dns$') $("$IPTR" -w -t nat -S | grep -c -e wgs_dns_n -e wgs_dnss_n) $(dns_leaves 0x10064 192.168.1.1)"
+        ip rule del pref 16000 fwmark 0x10068/0x1ffff iif lo lookup 1031
         WGS_IPTS=$(command -v iptables-save) WGS_IPT=$IPTR ctl down >/dev/null
         check "down: real nat table clean" 0 "$("$IPTR" -w -t nat -S 2>/dev/null | grep -c wgs_dns)"
         ip rule del pref 16000 fwmark 0xd0067/0xdffff iif lo lookup 1028
@@ -862,6 +889,13 @@ if want landns; then
     check "paused: everything removed" "paused 0" "$(st state) $(nat | grep -c -- 'wgs_dns')"
     ctl resume >/dev/null
     check "resumed: redirected again" "up yes" "$(st state) $(hasnat "$DL")"
+    # the copy a rebuild killed midway left (wgs_dns_n): the next rebuild removes it
+    CP="-A wgs_dns_n -o wlan0 -p udp --dport 53 -j DNAT --to-destination 10.2.0.1:53"
+    printf '%s\n' "-N wgs_dns_n" "$CP" "-A OUTPUT -j wgs_dns_n" >> "$WGS_IPT_DIR/nat"
+    "$WGS_IPT" -w -t nat -D wgs_dns -o wlan0 -p tcp --dport 53 -j DNAT --to-destination 10.2.0.1:53
+    ctl status >/dev/null
+    check "rebuild: a copy left by a killed rebuild removed, the chain as wanted" "0 yes 1" "$(nat | grep -c -- 'wgs_dns_n') $(hasnat "$DLT") $(nat | grep -cxF -- "$J")"
+    printf '%s\n' "-N wgs_dns_n" "$CP" "-A OUTPUT -j wgs_dns_n" >> "$WGS_IPT_DIR/nat"
     ctl down >/dev/null
     check "down: both chains and both jumps removed" 0 "$(nat | grep -c -- 'wgs_dns')"
     check "down: status" "1 -" "$(st landns) $(st dns_lan)-"
