@@ -1605,6 +1605,27 @@ if want v6_address; then
     echo 1 > "$WGS_PROC6/all/disable_ipv6"
 fi
 
+if want v6_prefix; then
+    echo "v6_prefix: an IPv6 Address that ip refuses is ignored with a note; what ip takes stays"
+    reset_state
+    for na in "wg-VP-1 fd00::2/129" "wg-VP-2 fd00::3/ff" "wg-VP-3 fd00::4/64/3" "wg-VP-4 fd00:::2/64" "wg-VP-5 1:2:3:4:5:6:7:8:9/64" "wg-VP-6 12345::1/64"; do
+        n=${na%% *}; a=${na#* }; conf "$WGS_DL/$n.conf" 203.0.113.97:51820
+        sed -i "s#^Address = .*#Address = 10.2.0.2/32, $a#; s#^AllowedIPs = .*#AllowedIPs = 0.0.0.0/0, ::/0#" "$WGS_DL/$n.conf"
+        check "import $a: a note, listed without IPv6" "1 1" "$(ctl import "$n.conf" | grep -c 'notes=.*bad-IPv6-address-ignored') $(ctl list | grep -c "^tunnel=$n .*ipv6=0 ")"
+    done
+    for na in "wg-VQ-1 fd00::5/0" "wg-VQ-2 ::2/64" "wg-VQ-3 2001:db8:0:0:0:0:0:6/64" "wg-VQ-4 fd00::/64" "wg-VQ-5 FD00:0:0:0::7/128"; do
+        n=${na%% *}; a=${na#* }; conf "$WGS_DL/$n.conf" 203.0.113.98:51820
+        sed -i "s#^Address = .*#Address = 10.2.0.2/32, $a#; s#^AllowedIPs = .*#AllowedIPs = 0.0.0.0/0, ::/0#" "$WGS_DL/$n.conf"
+        check "import $a: no note, listed with IPv6" "0 1" "$(ctl import "$n.conf" | grep -c 'bad-IPv6-address-ignored') $(ctl list | grep -c "^tunnel=$n .*ipv6=1 ")"
+    done
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"; mkdir -p "$WGS_PROC6/wgs0"; echo 0 > "$WGS_PROC6/wgs0/disable_ipv6"
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-VP-1 >/dev/null; ctl status >/dev/null
+    echo "  info: up with fd00::2/129: ipv6=$(st ipv6) fd00::2_on_wgs0=$(ip -6 -o addr show dev wgs0 2>/dev/null | grep -c 'fd00::2/')"
+    ctl down >/dev/null
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+fi
+
 if want outside_names; then
     echo "outside_names: a file name with a backslash stays one line (mksh's echo)"
     reset_state
