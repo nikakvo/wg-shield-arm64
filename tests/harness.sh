@@ -1838,6 +1838,10 @@ if want poll_sibling_text; then
     check "poll: no line made of the text" 0 "$(echo "$out" | grep -c '^hijack=')"
     check "poll: the values whole" "1 1 1" "$(echo "$out" | grep -cxF 'lancloak_wifi=a\nhijack=1') $(echo "$out" | grep -cxF 'vhs_state=idle\nhijack=1') $(echo "$out" | grep -c '^t=wg-ST\\nhijack=1|')"
     check "list: the tunnel's row whole, no line made of its name" "1 0" "$(ctl list | grep -c '^tunnel=wg-ST\\nhijack=1 endpoint=') $(ctl list | grep -c '^hijack=')"
+    # updated= with a leading zero: poll goes on, the age a number
+    printf '%s\n' 'state=on' 'updated=08' > "$WGS_ADB/lan-cloak/state/status"
+    out=$(ctl poll); rc=$?
+    check "poll: updated=08 - rc 0, an age" "0 1" "$rc $(echo "$out" | grep -c '^lancloak_age=[0-9][0-9]*$')"
     # the backup zip lies in shared storage: an app can change backup-info.txt
     mkdir -p "$WGS_BACKUP_ROOT"
     python3 -I - "$WGS_BACKUP_ROOT/wg-shield-backup.zip" "$WGS_DATA/tunnels/wg-ST-1.conf" <<'EOF'

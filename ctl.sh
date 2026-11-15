@@ -113,7 +113,8 @@ lanc_rows() {
     printf '%s\n' "lancloak_state=$_ls" "lancloak_reason=$_lr" "lancloak_dhcp=$_ld" "lancloak_announce=$_la" "lancloak_wifi=$_lw"
     case "$_lu" in
         ''|*[!0-9]*) echo "lancloak_age=" ;;
-        *) echo "lancloak_age=$(( $(epoch_now) - _lu ))" ;;
+        # without leading zeros: bash and busybox ash read 010 as octal, 08 as an error (poll stopped)
+        *) _lu=${_lu#"${_lu%%[!0]*}"}; echo "lancloak_age=$(( $(epoch_now) - ${_lu:-0} ))" ;;
     esac
     unset _lf _ls _lr _ld _la _lw _lu _lk _lv
 }
