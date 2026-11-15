@@ -348,10 +348,12 @@ case "$cmd" in
         ;;
     pause)
         case "$1" in ""|*[!0-9]*) fail "usage: pause <minutes 1-1440>" ;; esac
-        [ "$1" -ge 1 ] && [ "$1" -le 1440 ] || fail "minutes must be 1-1440"
+        # without leading zeros: bash and busybox ash read 010 as octal, 08 as an error
+        m=${1#"${1%%[!0]*}"}; m=${m:-0}
+        [ "$m" -ge 1 ] && [ "$m" -le 1440 ] || fail "minutes must be 1-1440"
         settings_load; [ -n "$S_ACTIVE" ] || fail "tunnel is off - nothing to pause"
-        echo $(( $(mono_now) + $1 * 60 )) > "$STATE/pause_until"
-        wlog INFO "ctl: pause $1 min"
+        echo $(( $(mono_now) + m * 60 )) > "$STATE/pause_until"
+        wlog INFO "ctl: pause $m min"
         tick_now; print_status
         ;;
     resume)

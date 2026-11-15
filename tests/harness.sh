@@ -1748,6 +1748,22 @@ if want leading_zero; then
     echo 1 > "$WGS_PROC6/all/disable_ipv6"
 fi
 
+if want pause_zero; then
+    echo "pause_zero: pause minutes with leading zeros are decimal (bash / busybox ash: octal, 08 an error)"
+    reset_state
+    conf "$WGS_DL/wg-PZ-1.conf" 203.0.113.107:51820
+    ctl import wg-PZ-1.conf >/dev/null
+    ctl up wg-PZ-1 >/dev/null
+    out=$(ctl pause 010 2>&1)
+    check "pause 010: paused for 10 minutes" "1 paused 1" "$(echo "$out" | grep -c '^ok=1') $(st state) $([ "$(st pause_left)" -gt 540 ] 2>/dev/null && echo 1 || echo 0)"
+    ctl resume >/dev/null
+    out=$(ctl pause 08 2>&1)
+    check "pause 08: paused for 8 minutes" "1 paused 1" "$(echo "$out" | grep -c '^ok=1') $(st state) $([ "$(st pause_left)" -gt 420 ] 2>/dev/null && echo 1 || echo 0)"
+    ctl resume >/dev/null
+    check "pause 0 and 00: refused (1-1440)" "1 1" "$(ctl pause 0 2>&1 | grep -c '^error=minutes must be 1-1440') $(ctl pause 00 2>&1 | grep -c '^error=minutes must be 1-1440')"
+    ctl down >/dev/null
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
