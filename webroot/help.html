@@ -216,7 +216,8 @@
     <li>Names only the router knows (<code>printer.lan</code>, <code>nas.home</code>) stop resolving while the tunnel is up. The devices are still reached by their address.</li>
     <li>While the tunnel is connecting or down - also with the kill switch on - the router's resolver is asked again, and the router sees the lookups made then. This is on purpose: Android's network check and the login page of a hotel / airport Wi-Fi need the network's own resolver, and their lookups cannot be told apart from an app's.</li>
     <li>On a new Wi-Fi with a login page the prompt can come late: until WG Shield has noticed that the tunnel does not answer there (about 40 seconds with the default checks, up to 3 minutes with the checks off), the lookups of Android's check still go to the tunnel's DNS.</li>
-    <li>Not redirected: carrier services (VoLTE / IMS, MMS), a network Android is still checking, and a resolver on the Wi-Fi that is reached over IPv6 - on a Wi-Fi with IPv6 the router can still see lookups. Private DNS (DNS over TLS) is not plain DNS and is not touched.</li>
+    <li>A resolver on the Wi-Fi that is reached over IPv6 (a Wi-Fi with IPv6) is not asked at all: such lookups are refused, and the phone asks the IPv4 one, which goes to the tunnel's DNS. A Wi-Fi that gives the phone only IPv6 resolvers has no name lookups while this is on.</li>
+    <li>Not redirected: carrier services (VoLTE / IMS, MMS) and a network Android is still checking. Private DNS (DNS over TLS) is not plain DNS and is not touched.</li>
     <li>Nothing is done while DNSCrypt Proxy answers the phone's DNS; a tunnel without a <code>DNS</code> line has nothing to redirect to.</li>
   </ul>
   <p>Dashboard → Tunnel → DNS shows <em>tunnel's DNS … + LAN</em> while it is active.</p>

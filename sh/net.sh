@@ -495,7 +495,8 @@ resolve_host() {
 # lookups go to the tunnel's DNS as well. The IPv4 re-route after the
 # redirect does not look at the uid, so they do arrive there. The IPv6 one
 # does (measured), a redirected lookup of Android's check would leave on the
-# network and be lost: a LAN resolver reached over IPv6 is left alone.
+# network and be lost; and an IPv4-only tunnel has no IPv6 DNS at all. So
+# IPv6 DNS to a resolver on the LAN is refused instead (dnsb_sync).
 IPT="${WGS_IPT:-/system/bin/iptables}"
 IPT6="${WGS_IPT6:-/system/bin/ip6tables}"
 IPTS="${WGS_IPTS:-/system/bin/iptables-save}"
@@ -518,11 +519,12 @@ dnsc_dnat() { printf '%s\n' "$1" | grep -E '^-A OUTPUT ' | grep -F -e '--dport 5
 # dns_dnat_to SERVER - DNAT target (IPv6 in brackets)
 dns_dnat_to() { case "$1" in *:*) echo "[$1]:53" ;; *) echo "$1:53" ;; esac; }
 
-dns_present() { [ -f "$STATE/dns.want" ] || [ -f "$STATE/dns6.want" ]; }
+dns_present() { [ -f "$STATE/dns.want" ] || [ -f "$STATE/dns6.want" ] || [ -f "$STATE/dns6b.want" ]; }
 dns_del() {
     _dns_del "$IPT" "$IPTS" dns
     # IPv6: only when it was set up (no ip6tables-save on every teardown)
     [ -f "$STATE/dns6.want" ] && _dns_del "$IPT6" "$IPTS6" dns6
+    [ -f "$STATE/dns6b.want" ] && dnsb_del
     return 0
 }
 _dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP [keep]] - keep: STATENAME.want stays
@@ -706,6 +708,7 @@ dns_ensure() {
         fi
     fi
     _dns_sync "$IPT" "$IPTS" dns "$_w4" "$_d4" "" "$DNS_KEY" && [ -n "$_w4" ] && { ST_DNS=tunnel; ST_DNS_SERVER=$_w4; [ -n "$DNS_LAN" ] && ST_DNS_LAN=$DNS_OIFS; }
+    if [ -n "$ST_DNS_LAN" ]; then dnsb_sync "$DNS_OIFS|$DNS_OUT|$DNS_CHK"; else dnsb_sync ""; fi
     if [ -n "$_w6" ] || [ -f "$STATE/dns6.want" ]; then
         _dns_sync "$IPT6" "$IPTS6" dns6 "$_w6" "$(_nat_dump "$IPTS6" "$IPT6")" " for IPv6" &&
             [ -n "$_w6" ] && [ "$ST_DNS" = tunnel ] && ST_DNS_SERVER="$ST_DNS_SERVER $_w6"
@@ -784,6 +787,88 @@ _dns_sync() {
     return $_r
 }
 
+# IPv6 DNS to the LAN while LAN DNS goes through the tunnel (ST_DNS_LAN):
+# it cannot be sent to the tunnel's DNS (see above), so it is refused -
+# filter OUTPUT, its first rule a jump to our chain: -o <interface of every
+# captured network> udp/tcp 53 REJECT. The resolver gets "port unreachable"
+# at once and asks the network's next server, the IPv4 one, which goes to
+# the tunnel's DNS. Left alone like by the IPv4 chain: networks that stay
+# outside and those Android is still checking (their marks RETURN first).
+# A Wi-Fi whose only resolvers are reached over IPv6 has no plain DNS then.
+# A new layout (or a chain changed by someone else): the new chain, under
+# the other of the two names, and its jump go in before the old ones go -
+# no lookup gets through meanwhile. $STATE/dns6b.want: the chain in use,
+# then the layout; there from before the first chain is made until the
+# last one is gone.
+DNSB=wgs_dnsb
+DNSB2=wgs_dnsb_n
+_dnsb_dump() { "$IPTS6" -t filter 2>/dev/null || "$IPT6" -w -t filter -S 2>/dev/null; }
+# _dnsb_rm DUMP CHAIN - the chain and its jumps, when DUMP lists it
+_dnsb_rm() {
+    _nat_has "$1" "$2" || return 0
+    while "$IPT6" -w -t filter -D OUTPUT -j "$2" 2>/dev/null; do :; done
+    "$IPT6" -w -t filter -F "$2" 2>/dev/null; "$IPT6" -w -t filter -X "$2" 2>/dev/null
+}
+dnsb_del() {
+    _bd=$(_dnsb_dump); _dnsb_rm "$_bd" "$DNSB"; _dnsb_rm "$_bd" "$DNSB2"
+    rm -f "$STATE/dns6b.want"; unset _bd
+}
+# _dnsb_ok DUMP CHAIN - one jump to CHAIN, none to the other name, CHAIN
+# holds the RETURN rules of DNS_OUT / DNS_CHK and the REJECT rules of DNS_OIFS
+_dnsb_ok() {
+    [ -n "$2" ] || return 1
+    _ow=0; for _m in $DNS_OUT $DNS_CHK; do _ow=$((_ow + 1)); done
+    _ow="1 0 $_ow"; _oc=0
+    for _d in $DNS_OIFS; do _oc=$((_oc + 2)); done
+    _ow="$_ow $_oc"
+    _oh=$(printf '%s\n' "$1" | awk -v c="$2" -v a="$DNSB" -v b="$DNSB2" '
+        $1 != "-A" { next }
+        NF == 4 && $2 == "OUTPUT" && $3 == "-j" && $4 == c { j++; next }
+        NF == 4 && $2 == "OUTPUT" && $3 == "-j" && ($4 == a || $4 == b) { x++; next }
+        $2 == c && $NF == "RETURN" && index($0, " --mark ") { r++; next }
+        $2 == c && index($0, " -j REJECT") && index($0, " --dport 53 ") && index($0, " -o ") { d++ }
+        END { print j + 0, x + 0, r + 0, d + 0 }')
+    [ "$_oh" = "$_ow" ]; _or=$?
+    unset _ow _oh _oc _m _d
+    return $_or
+}
+# dnsb_sync LAYOUT - the IPv6 DNS refusal as DNS_OIFS / DNS_OUT / DNS_CHK
+# say (LAYOUT: their key), or none (empty)
+dnsb_sync() {
+    if [ -z "$1" ]; then
+        [ -f "$STATE/dns6b.want" ] && dnsb_del
+        rm -f "$STATE/dns6b.bad"; return 0
+    fi
+    _bd=$(_dnsb_dump)
+    _bo=$(sed -n 1p "$STATE/dns6b.want" 2>/dev/null)
+    if [ "$(sed -n 2p "$STATE/dns6b.want" 2>/dev/null)" = "$1" ] && _dnsb_ok "$_bd" "$_bo"; then unset _bd _bo; return 0; fi
+    if [ "$_bo" = "$DNSB" ]; then _bn=$DNSB2; _bx=$DNSB; else _bn=$DNSB; _bx=$DNSB2; fi
+    [ -f "$STATE/dns6b.want" ] || : > "$STATE/dns6b.want"
+    _dnsb_rm "$_bd" "$_bn"
+    "$IPT6" -w -t filter -N "$_bn" 2>/dev/null
+    for _m in $DNS_OUT $DNS_CHK; do
+        "$IPT6" -w -t filter -A "$_bn" -m mark --mark "$_m/0xffff" -j RETURN 2>/dev/null
+    done
+    for _d in $DNS_OIFS; do
+        for _p in udp tcp; do
+            "$IPT6" -w -t filter -A "$_bn" -o "$_d" -p "$_p" --dport 53 -j REJECT 2>/dev/null
+        done
+    done
+    "$IPT6" -w -t filter -I OUTPUT -j "$_bn" 2>/dev/null
+    _dnsb_rm "$_bd" "$_bx"
+    if _dnsb_ok "$(_dnsb_dump)" "$_bn"; then
+        [ -n "$_bo" ] || wlog INFO "DNS: IPv6 DNS leaving through $(echo "$DNS_OIFS" | sed 's/ /, /g') refused - the resolvers are asked over IPv4"
+        printf '%s\n%s\n' "$_bn" "$1" > "$STATE/dns6b.want"; rm -f "$STATE/dns6b.bad"
+    else
+        dnsb_del
+        if [ "$1" != "$(cat "$STATE/dns6b.bad" 2>/dev/null)" ]; then
+            echo "$1" > "$STATE/dns6b.bad"
+            wlog WARN "DNS: could not refuse IPv6 DNS leaving through $(echo "$DNS_OIFS" | sed 's/ /, /g') (${IPT6##*/}) - a resolver there reached over IPv6 sees lookups"
+        fi
+    fi
+    unset _bd _bo _bn _bx _m _d _p
+}
+
 # boot guard (post-fs-data): block everything not bound to a network until the tunnel is up
 boot_guard() {
     "$IP" route replace unreachable default metric 4096 table "$TABLE" 2>/dev/null
@@ -813,7 +898,7 @@ teardown() {
     "$IP" route flush table "$TABLE" 2>/dev/null
     "$IP" -6 route flush table "$TABLE" 2>/dev/null
     "$IP" link del "$IFACE" 2>/dev/null
-    rm -f "$STATE/dns.bad" "$STATE/dns6.bad"
+    rm -f "$STATE/dns.bad" "$STATE/dns6.bad" "$STATE/dns6b.bad"
     rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
 }
 
@@ -842,7 +927,7 @@ error_block() {
         rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
     fi
     dns_present && dns_del
-    rm -f "$STATE/dns.bad" "$STATE/dns6.bad"
+    rm -f "$STATE/dns.bad" "$STATE/dns6.bad" "$STATE/dns6b.bad"
     for _p in 5000 5001; do
         while "$IP" rule del pref "$_p" 2>/dev/null; do :; done
         while "$IP" -6 rule del pref "$_p" 2>/dev/null; do :; done

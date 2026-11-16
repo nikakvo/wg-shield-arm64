@@ -33,7 +33,7 @@ rm -f "$STATE/status" "$STATE/pause_until" "$STATE/loaded" "$STATE/tunnel.info" 
       "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/last_state" \
       "$STATE/watchdog.pid" "$STATE/boot.log" "$STATE/nets" "$STATE/last_nets" \
       "$STATE/monitor.pid" "$STATE/events" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" \
-      "$STATE/exempt_uids" "$STATE/heal" "$STATE/dns.want" "$STATE/dns.bad" "$STATE/dns6.want" "$STATE/dns6.bad" \
+      "$STATE/exempt_uids" "$STATE/heal" "$STATE/dns.want" "$STATE/dns.bad" "$STATE/dns6.want" "$STATE/dns6.bad" "$STATE/dns6b.want" "$STATE/dns6b.bad" \
       "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/pingable" \
       "$STATE/dns_srv" "$STATE/dns_fo_fail" "$STATE/dns_fo_at"
 settings_load

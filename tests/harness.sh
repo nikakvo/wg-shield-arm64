@@ -86,6 +86,7 @@ case "$op" in
     -X) has || exit 1; grep -q -- "^-A $ch " "$f" && exit 1; grep -q -- "-j $ch\$" "$f" && exit 1
         grep -vx -- "-N $ch" "$f" > "$f.n"; mv "$f.n" "$f" ;;
     -A) [ "$ch" = OUTPUT ] || [ "$ch" = POSTROUTING ] || has || exit 1; echo "$r" >> "$f" ;;
+    -I) [ "$ch" = OUTPUT ] || has || exit 1; { echo "$r"; cat "$f"; } > "$f.n"; mv "$f.n" "$f" ;;
     -C) grep -qxF -- "$r" "$f" ;;
     -D) grep -qxF -- "$r" "$f" || exit 1
         awk -v l="$r" '!d && $0 == l { d = 1; next } { print }' "$f" > "$f.n"; mv "$f.n" "$f" ;;
@@ -911,6 +912,145 @@ if want landns; then
     ctl down >/dev/null
     check "lock released" no "$([ -d "$STATE/lock" ] && echo yes || echo no)"
     export WGS_IP="$REALIP"
+fi
+
+if want landns6; then
+    echo "landns6: LAN DNS through the tunnel on a Wi-Fi with IPv6: the router's IPv6 resolver gets no lookups (real ip6tables)"
+    IP6R=$(command -v ip6tables 2>/dev/null)
+    if [ -z "$IP6R" ] || ! command -v python3 >/dev/null || ! "$IP6R" -w -t filter -L -n >/dev/null 2>&1 || ! "$IP6R" -w -t mangle -L -n >/dev/null 2>&1; then
+        echo "  skip (no usable ip6tables filter/mangle or python3 in the namespace)"
+    else
+        # "-m mark" as nft's own meta mark (see dns_route: without xt_mark
+        # the host's iptables-nft would match everything)
+        cat > "$FAKES/ip6r" <<EOF
+#!/bin/sh
+case "\$*" in
+    *" -t filter -A "*" -m mark --mark "*" -j RETURN") set -- \$*; exec nft add rule ip6 filter "\$5" meta mark and "\${9#*/}" == "\${9%/*}" return ;;
+esac
+exec "$IP6R" "\$@"
+EOF
+        chmod 755 "$FAKES/ip6r"
+        r6ctl() { WGS_IPTS6=$(command -v ip6tables-save) WGS_IPT6="$FAKES/ip6r" ctl "$@"; }
+        export WGS_IP="$FAKES/ipn"
+        reset_state; rm -rf "$WGS_IPT_DIR"
+        echo 0 > "$WGS_PROC6/all/disable_ipv6"; mkdir -p "$WGS_PROC6/wgs0"; echo 0 > "$WGS_PROC6/wgs0/disable_ipv6"
+        # a dual-stack Wi-Fi: the router fd11::1 (and fe80::1) answers DNS too
+        ip -6 addr add fd11::50/64 dev wlan0 nodad 2>/dev/null
+        ip -6 route add fd11::/64 dev wlan0 table 1028 2>/dev/null
+        ip -6 route add fe80::/64 dev wlan0 table 1028 2>/dev/null
+        ip -6 route add default via fd11::1 dev wlan0 table 1028 2>/dev/null
+        ip -6 rule add pref 16000 fwmark 0x10064/0x1ffff iif lo lookup 1028
+        ip -6 rule add pref 31000 fwmark 0x0/0xffff iif lo lookup 1028
+        ip -6 rule add pref 32000 unreachable
+        # where one IPv6 query (socket mark as DnsResolver sets it) leaves:
+        # wlan0, wgs0 or none (refused / unreachable)
+        q6() {  # q6 SERVER [MARK]
+            "$IP6R" -w -t mangle -F POSTROUTING
+            "$IP6R" -w -t mangle -A POSTROUTING -o wlan0 -p udp --dport 53 -j ACCEPT
+            "$IP6R" -w -t mangle -A POSTROUTING -o wgs0 -p udp --dport 53 -j ACCEPT
+            python3 -I -c 'import socket, sys
+s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_MARK", 36), int(sys.argv[2], 16))
+a = sys.argv[1]
+try:
+    if a.startswith("fe80"):
+        s.connect((a, 53, 0, socket.if_nametoindex("wlan0")))
+    else:
+        s.connect((a, 53))
+    s.send(b"q")
+except OSError:
+    pass' "$1" "${2:-0x10064}"
+            "$IP6R" -w -t mangle -L POSTROUTING -v -n -x | awk '$1 ~ /^[0-9]+$/ && $1 > 0 { print $7; f = 1; exit } END { if (!f) print "none" }'
+            "$IP6R" -w -t mangle -F POSTROUTING
+        }
+        q3() { echo "$(q6 fd11::1) $(q6 fe80::1) $(q6 2001:db8::53)"; }
+        blk() { "$IP6R" -w -t filter -S 2>/dev/null | grep -c -- 'wgs_dnsb'; }
+        conf "$WGS_DL/wg-LE-1.conf" 203.0.113.67:51820      # IPv4 only
+        ctl import wg-LE-1.conf >/dev/null
+        date +%s > "$STATE/fake_hs"
+        r6ctl up wg-LE-1 >/dev/null
+        check "IPv4-only tunnel, setting off: the router's IPv6 resolver stays local, off-LAN IPv6 DNS blocked" "up blocked wlan0 wlan0 none" "$(st state) $(st ipv6) $(q3)"
+        r6ctl set landns 1 >/dev/null
+        check "LAN DNS through the tunnel on: IPv4 LAN DNS redirected" "tunnel wlan0" "$(st dns) $(st dns_lan)"
+        check "LAN DNS on: no IPv6 lookup reaches the router (ULA, link-local), off-LAN blocked" "none none none" "$(q3)"
+        # a carrier service network on the Wi-Fi's interface stays outside: its mark RETURNs
+        ip rule add pref 16000 fwmark 0xd0069/0xdffff iif lo lookup 1028; ip -6 rule add pref 16000 fwmark 0xd0069/0xdffff iif lo lookup 1028
+        r6ctl status >/dev/null
+        check "LAN DNS on: a network that stays outside keeps its IPv6 resolver" "1 wlan0" "$("$IP6R" -w -t filter -S | grep -c -- '--mark 0x69/0xffff -j RETURN') $(q6 fd11::1 0xd0069)"
+        ip rule del pref 16000 fwmark 0xd0069/0xdffff iif lo lookup 1028; ip -6 rule del pref 16000 fwmark 0xd0069/0xdffff iif lo lookup 1028
+        r6ctl status >/dev/null
+        r6ctl set killswitch 0 >/dev/null
+        check "LAN DNS on, kill switch off, tunnel up: the same" "up none none none" "$(st state) $(q3)"
+        n0=$("$IP6R" -w -t filter -S | md5sum)
+        r6ctl status >/dev/null; r6ctl status >/dev/null
+        check "stable: nothing rebuilt by the next ticks, no warning" "$n0 0" "$("$IP6R" -w -t filter -S | md5sum) $(grep -c WARN "$WGS_DATA/logs/wg-shield.log")"
+        # the tunnel stops answering: the network's resolvers again (as for IPv4)
+        echo $(( $(date +%s) - 600 )) > "$STATE/fake_hs"
+        r6ctl status >/dev/null
+        check "tunnel not up, kill switch off: direct" "no wlan0 wlan0 wlan0 0" "$([ "$(st state)" = up ] && echo yes || echo no) $(q3) $(blk)"
+        r6ctl set killswitch 1 >/dev/null
+        check "tunnel not up, kill switch on: the router stays reachable, off-LAN blocked" "wlan0 wlan0 none 0" "$(q3) $(blk)"
+        date +%s > "$STATE/fake_hs"; r6ctl status >/dev/null
+        check "up again: no IPv6 lookup reaches the router" "up none none" "$(st state) $(q6 fd11::1) $(q6 fe80::1)"
+        # a rebuild (a new network Android is still checking changes the
+        # layout): a query sent while the old chain goes is still refused
+        cat > "$RUN/midq6" <<EOF
+#!/bin/sh
+"$IP6R" -w -t mangle -F POSTROUTING
+"$IP6R" -w -t mangle -A POSTROUTING -o wlan0 -p udp --dport 53 -j ACCEPT
+python3 -I -c 'import socket
+s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_MARK", 36), 0x10064)
+try:
+    s.connect(("fd11::1", 53)); s.send(b"q")
+except OSError:
+    pass'
+"$IP6R" -w -t mangle -L POSTROUTING -v -n -x | awk '\$1 ~ /^[0-9]+\$/ && \$1 > 0 { print \$7; f = 1; exit } END { if (!f) print "none" }' >> "$RUN/midq6.out"
+"$IP6R" -w -t mangle -F POSTROUTING
+EOF
+        cat > "$FAKES/ip6q" <<EOF
+#!/bin/sh
+case "\$*" in *" -D OUTPUT -j wgs_dnsb"*|*" -F wgs_dnsb"*|*" -X wgs_dnsb"*) [ -f "$RUN/midq6.on" ] && sh "$RUN/midq6" ;; esac
+"$FAKES/ip6r" "\$@"; rc=\$?
+case "\$*" in *" -D OUTPUT -j wgs_dnsb"*|*" -F wgs_dnsb"*|*" -X wgs_dnsb"*) [ -f "$RUN/midq6.on" ] && sh "$RUN/midq6" ;; esac
+exit \$rc
+EOF
+        chmod 755 "$FAKES/ip6q"; rm -f "$RUN/midq6.out"; : > "$RUN/midq6.on"
+        ip rule add pref 16000 fwmark 0x10068/0x1ffff iif lo lookup 1031
+        WGS_IPTS6=$(command -v ip6tables-save) WGS_IPT6="$FAKES/ip6q" ctl status >/dev/null
+        rm -f "$RUN/midq6.on"
+        check "rebuild: queries while the old chain went: none reached the router" "yes 0" "$([ -s "$RUN/midq6.out" ] && echo yes || echo no) $(grep -vc '^none$' "$RUN/midq6.out" 2>/dev/null)"
+        check "rebuild: the network Android checks keeps its resolver, one jump" "1 1 none" "$("$IP6R" -w -t filter -S | grep -c -- '--mark 0x68/0xffff -j RETURN') $("$IP6R" -w -t filter -S OUTPUT | grep -c -- '-j wgs_dnsb') $(q6 fd11::1)"
+        ip rule del pref 16000 fwmark 0x10068/0x1ffff iif lo lookup 1031
+        r6ctl status >/dev/null
+        # removed by someone else: back at the next tick
+        "$IP6R" -w -t filter -F OUTPUT
+        r6ctl status >/dev/null
+        check "jump removed by someone else: back" "1 none" "$("$IP6R" -w -t filter -S OUTPUT | grep -c -- '-j wgs_dnsb') $(q6 fd11::1)"
+        r6ctl set landns 0 >/dev/null
+        check "set landns 0: the router's IPv6 resolver again, nothing of ours" "wlan0 0" "$(q6 fd11::1) $(blk)"
+        r6ctl set landns 1 >/dev/null
+        check "set landns 1: refused again" "none" "$(q6 fd11::1)"
+        # a tunnel that carries IPv6: its IPv6 DNS for DNS routed into it, the router's refused
+        conf "$WGS_DL/wg-LE-6.conf" 203.0.113.68:51820
+        sed -i 's#^Address = .*#Address = 10.2.0.2/32, fd00::2/128#; s#^AllowedIPs = .*#AllowedIPs = 0.0.0.0/0, ::/0#; s#^DNS = .*#DNS = 10.2.0.1, fd00::53#' "$WGS_DL/wg-LE-6.conf"
+        ctl import wg-LE-6.conf >/dev/null
+        r6ctl up wg-LE-6 >/dev/null
+        check "tunnel with IPv6, LAN DNS on: router refused, off-LAN into the tunnel" "up tunnel none none wgs0" "$(st state) $(st ipv6) $(q3)"
+        r6ctl down >/dev/null
+        check "down: nothing of ours in ip6tables, the router's resolver again" "0 wlan0" "$(blk) $(q6 fd11::1)"
+        # no ip6tables filter: one warning, IPv4 kept
+        WGS_IPT6="$RUN/no-ip6tables" WGS_IPTS6="$RUN/no-ip6tables-save" ctl up wg-LE-1 >/dev/null
+        WGS_IPT6="$RUN/no-ip6tables" WGS_IPTS6="$RUN/no-ip6tables-save" ctl status >/dev/null
+        check "no ip6tables: one warning, IPv4 LAN DNS still redirected" "1 wlan0" "$(grep -c 'could not refuse IPv6 DNS' "$WGS_DATA/logs/wg-shield.log") $(st dns_lan)"
+        ctl down >/dev/null
+        r6ctl set landns 0 >/dev/null
+        ip -6 rule del pref 32000 unreachable; ip -6 rule del pref 31000; ip -6 rule del pref 16000
+        ip -6 route flush table 1028 2>/dev/null
+        ip -6 addr del fd11::50/64 dev wlan0 2>/dev/null
+        echo 1 > "$WGS_PROC6/all/disable_ipv6"
+        export WGS_IP="$REALIP"
+    fi
 fi
 
 if want dns_failover; then
