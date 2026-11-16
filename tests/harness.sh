@@ -1162,6 +1162,24 @@ EOF
     export WGS_IP="$REALIP"
 fi
 
+if want dns6_bad; then
+    echo "dns6_bad: an IPv6 server in the DNS line that is not an address is skipped, the next one is used"
+    export WGS_IP="$FAKES/ipn"
+    nat6() { cat "$WGS_IPT_DIR/v6/nat" 2>/dev/null; }
+    reset_state; rm -rf "$WGS_IPT_DIR"
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"; mkdir -p "$WGS_PROC6/wgs0"; echo 0 > "$WGS_PROC6/wgs0/disable_ipv6"
+    conf "$WGS_DL/wg-CB-6.conf" 203.0.113.70:51820
+    sed -i 's#^Address = .*#Address = 10.2.0.2/32, fd00::2/128#; s#^AllowedIPs = .*#AllowedIPs = 0.0.0.0/0, ::/0#; s#^DNS = .*#DNS = 10.2.0.1, fd00::1::2, 1:2:3:4:5:6:7:8:9, 12345::1, fd00::53#' "$WGS_DL/wg-CB-6.conf"
+    ctl import wg-CB-6.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-CB-6 >/dev/null
+    check "the first IPv6 server that is an address: status, redirect" "tunnel 10.2.0.1 fd00::53 1" "$(st dns) $(st dns_server) $(nat6 | grep -cxF -- '-A wgs_dns -o wgs0 -p udp --dport 53 -j DNAT --to-destination [fd00::53]:53')"
+    check "the others never reach ip6tables" 0 "$(nat6 | grep -c -e '::1::2' -e '7:8:9' -e '12345')"
+    ctl down >/dev/null
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+    export WGS_IP="$REALIP"
+fi
+
 if want webui; then
     echo "webui: the page script, and tunnel names kept out of handler code (node)"
     if command -v node >/dev/null; then

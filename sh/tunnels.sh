@@ -144,7 +144,9 @@ tun_parse() {
             [ -z "$T_DNS" ] && T_DNS=$_d
             case " $T_DNSALL " in *" $_d "*) : ;; *) T_DNSALL="$T_DNSALL${T_DNSALL:+ }$_d" ;; esac
         else
-            case "$_d" in *:*:*) case "$_d" in *[!0-9A-Fa-f:]*|*:::*) : ;; *) [ -z "$T_DNS6" ] && [ "${#_d}" -le 39 ] && T_DNS6=$_d ;; esac ;; esac
+            # the first IPv6 one that is an address (one that is not would go to
+            # ip6tables, which refuses it, and keep the next one from being used)
+            ipv6_ok "$_d" && [ -z "$T_DNS6" ] && T_DNS6=$_d
         fi
     done
     [ -n "$_dns" ] && [ -z "$T_DNS" ] && T_WARN="$T_WARN DNS-without-IPv4-ignored"
