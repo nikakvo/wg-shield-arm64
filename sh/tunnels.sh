@@ -275,8 +275,14 @@ bk_fix() {  # leftovers: an interrupted backup, the folder of 2.6-test1
     rm -f "$BACKUP_ROOT/.wg-shield-backup.zip.tmp" "$BACKUP_ROOT/.wg-shield-backup.zip.tmp.list" 2>/dev/null
 }
 bk_count() { if [ -f "$BKZIP" ]; then _bk_unzip -l "$BKZIP" 2>/dev/null | grep -cE '\.conf$'; else echo 0; fi; }
-# digits only: the zip lies in shared storage, where apps can change it
-bk_created() { _bk_unzip -p "$BKZIP" backup-info.txt 2>/dev/null | sed -n 's/^created_epoch=\([0-9][0-9]*\)$/\1/p' | head -n 1; }
+# when the backup was made (epoch): backup-info.txt's created_epoch, digits
+# only (the zip lies in shared storage, where apps can change it), else the
+# zip's time
+bk_created() {
+    _bc=$(_bk_unzip -p "$BKZIP" backup-info.txt 2>/dev/null | sed -n 's/^created_epoch=\([0-9][0-9]*\)$/\1/p' | head -n 1)
+    [ -n "$_bc" ] || _bc=$(stat -c %Y "$BKZIP" 2>/dev/null)
+    printf '%s\n' "$_bc"; unset _bc
+}
 bk_favs() { _bk_unzip -p "$BKZIP" favorites.txt 2>/dev/null | grep -c .; }
 
 # bk_make - prints backed_up=N; returns 1 (with error=) when nothing was written

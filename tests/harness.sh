@@ -1929,6 +1929,7 @@ with zipfile.ZipFile(sys.argv[1], "w") as z:
 EOF
     out=$(ctl backupinfo)
     check "backupinfo: no line made of the text, a number as created" "0 1" "$(echo "$out" | grep -c '^hijack=') $(echo "$out" | grep -c '^created=[0-9][0-9]*$')"
+    check "diag: the zip's time as created, as backupinfo shows it" "1 $(echo "$out" | sed -n 's/^created=//p')" "$(ctl diag | grep -c ': 1 tunnels, created [0-9][0-9]*$') $(ctl diag | sed -n 's/.*: 1 tunnels, created //p')"
     rm -rf "$WGS_MODULES/lan-cloak" "$WGS_ADB/lan-cloak" "$WGS_ADB/vpn-hotspot" "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
 fi
 

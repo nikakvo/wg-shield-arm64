@@ -301,8 +301,7 @@ case "$cmd" in
         n=$(bk_count)
         echo "ok=1"; echo "file=$BKZIP"
         if [ "$n" -gt 0 ]; then
-            c=$(bk_created); [ -n "$c" ] || c=$(stat -c %Y "$BKZIP" 2>/dev/null)
-            echo "exists=1"; echo "tunnels=$n"; echo "created=$c"; echo "favorites=$(bk_favs)"
+            echo "exists=1"; echo "tunnels=$n"; echo "created=$(bk_created)"; echo "favorites=$(bk_favs)"
             echo "size=$(stat -c %s "$BKZIP" 2>/dev/null)"
         else
             echo "exists=0"
