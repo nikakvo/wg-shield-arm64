@@ -525,7 +525,7 @@ dns_del() {
     [ -f "$STATE/dns6.want" ] && _dns_del "$IPT6" "$IPTS6" dns6
     return 0
 }
-_dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP]
+_dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP [keep]] - keep: STATENAME.want stays
     _dd=${4-$(_nat_dump "$2" "$1")}
     _dj=$(_nat_cnt "$_dd" "-A OUTPUT -j $DNSCHAIN")
     while [ "${_dj:-0}" -gt 0 ]; do "$1" -w -t nat -D OUTPUT -j "$DNSCHAIN" 2>/dev/null || break; _dj=$((_dj - 1)); done
@@ -534,7 +534,7 @@ _dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP]
     while [ "${_dj:-0}" -gt 0 ]; do "$1" -w -t nat -D POSTROUTING -j "$DNSSNAT" 2>/dev/null || break; _dj=$((_dj - 1)); done
     _nat_has "$_dd" "$DNSSNAT" && { "$1" -w -t nat -F "$DNSSNAT" 2>/dev/null; "$1" -w -t nat -X "$DNSSNAT" 2>/dev/null; }
     _dns_copy_del "$1" "$_dd"
-    rm -f "$STATE/$3.want"
+    [ "$5" = keep ] || rm -f "$STATE/$3.want"
     unset _dd _dj
 }
 # _dns_copy_del TOOL DUMP - the rebuild's copy (DNSCOPY / DNSSCOPY), when
@@ -740,6 +740,11 @@ _dns_sync() {
     # moment our chain is deleted until its new jump is in, DNS would go
     # where the routing sends it (with LAN DNS through the tunnel: to the
     # router). The copy goes once the chain is back.
+    # <name>.want is there for the whole rebuild (it says that chains of ours
+    # may exist: dns_present, dns_del's IPv6 half and the cleanup above look
+    # only at it): a rebuild killed midway leaves no chain nothing removes.
+    # Its key stays the old one (or empty): the next tick checks the chain.
+    [ -f "$STATE/$_n.want" ] || : > "$STATE/$_n.want"
     _cp=0
     if _nat_has "$_du" "$DNSCHAIN"; then
         _cp=1; _oc=$DNSCHAIN; _os=$DNSSNAT; DNSCHAIN=$DNSCOPY; DNSSNAT=$DNSSCOPY
@@ -747,7 +752,7 @@ _dns_sync() {
         "$_x" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
         DNSCHAIN=$_oc; DNSSNAT=$_os
     fi
-    _dns_del "$_x" "$_s" "$_n" "$_du"
+    _dns_del "$_x" "$_s" "$_n" "$_du" keep
     _dns_apply "$_x" "$_t" "$_lk"
     "$_x" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
     _du=$(_nat_dump "$_s" "$_x")

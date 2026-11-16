@@ -1057,6 +1057,7 @@ if want dns6; then
     "$WGS_IPT6" -w -t nat -D OUTPUT -j wgs_dns
     ctl status >/dev/null
     check "IPv6: jump removed by someone else: repaired" yes "$(hasnat6 "$J6")"
+    check "IPv6: the rebuild's copy gone again, one jump" "0 1" "$(nat6 | grep -c -- 'wgs_dns_n') $(nat6 | grep -cxF -- "$J6")"
     # IPv6 goes off for the phone: the tunnel carries IPv4 only
     echo 1 > "$WGS_PROC6/all/disable_ipv6"
     ctl status >/dev/null
@@ -1100,6 +1101,64 @@ except OSError:
         echo "  skip real ip6tables (no usable ip6tables nat/mangle or python3)"
     fi
     echo 1 > "$WGS_PROC6/all/disable_ipv6"
+    export WGS_IP="$REALIP"
+fi
+
+if want dns_killed; then
+    echo "dns_killed: a DNS chain rebuild killed midway leaves nothing behind once the tunnel goes off"
+    export WGS_IP="$FAKES/ipn"
+    nat() { cat "$WGS_IPT_DIR/nat" 2>/dev/null; }
+    nat6() { cat "$WGS_IPT_DIR/v6/nat" 2>/dev/null; }
+    # ip6tables / iptables that kill the ctl.sh calling them right after its
+    # new OUTPUT jump (the moment before <name>.want is written), once
+    for f in ip6tables iptables; do
+        cat > "$FAKES/$f-k" <<EOF
+#!/bin/sh
+"$FAKES/$f" "\$@"; rc=\$?
+case "\$*" in *"-t nat -A OUTPUT -j wgs_dns") [ -f "$RUN/kill.$f" ] && { rm -f "$RUN/kill.$f"; kill -9 \$PPID; } ;; esac
+exit \$rc
+EOF
+        chmod 755 "$FAKES/$f-k"
+    done
+    reset_state; rm -rf "$WGS_IPT_DIR"
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"; mkdir -p "$WGS_PROC6/wgs0"; echo 0 > "$WGS_PROC6/wgs0/disable_ipv6"
+    conf "$WGS_DL/wg-KD-6.conf" 203.0.113.69:51820
+    sed -i 's#^Address = .*#Address = 10.2.0.2/32, fd00::2/128#; s#^AllowedIPs = .*#AllowedIPs = 0.0.0.0/0, ::/0#; s#^DNS = .*#DNS = 10.2.0.1, fd00::53#' "$WGS_DL/wg-KD-6.conf"
+    ctl import wg-KD-6.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    # the first set-up of the IPv6 chain killed
+    : > "$RUN/kill.ip6tables"
+    WGS_IPT6="$FAKES/ip6tables-k" ctl up wg-KD-6 >/dev/null 2>&1
+    check "IPv6: killed after its jump (chain there)" "1 1" "$([ -f "$RUN/kill.ip6tables" ] && echo 0 || echo 1) $(nat6 | grep -cx -- '-A OUTPUT -j wgs_dns')"
+    ctl down >/dev/null
+    check "IPv6: off - nothing of ours left in ip6tables, no state" "0 no" "$(nat6 | grep -c -- 'wgs_dns') $([ -f "$STATE/dns6.want" ] && echo yes || echo no)"
+    # a rebuild (here: the jump removed by someone else) killed, IPv4 and IPv6
+    for f in iptables ip6tables; do
+        ctl up wg-KD-6 >/dev/null
+        if [ "$f" = ip6tables ]; then "$WGS_IPT6" -w -t nat -D OUTPUT -j wgs_dns; else "$WGS_IPT" -w -t nat -D OUTPUT -j wgs_dns; fi
+        : > "$RUN/kill.$f"
+        if [ "$f" = ip6tables ]; then WGS_IPT6="$FAKES/$f-k" ctl status >/dev/null 2>&1; else WGS_IPT="$FAKES/$f-k" ctl status >/dev/null 2>&1; fi
+        check "$f: a rebuild killed after its jump" no "$([ -f "$RUN/kill.$f" ] && echo yes || echo no)"
+        # the tunnel file goes: error, direct (teardown)
+        mv "$WGS_DATA/tunnels/wg-KD-6.conf" "$RUN/kd6.conf"
+        ctl status >/dev/null
+        check "$f: error - nothing of ours left in iptables or ip6tables" "error 0 0" "$(st state) $(nat | grep -c -- 'wgs_dns') $(nat6 | grep -c -- 'wgs_dns')"
+        mv "$RUN/kd6.conf" "$WGS_DATA/tunnels/wg-KD-6.conf"
+        ctl down >/dev/null
+    done
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+    # IPv4 only, kill switch on error: the first set-up killed, then the
+    # tunnel file goes (error_block, not teardown)
+    conf "$WGS_DL/wg-KD-4.conf" 203.0.113.71:51820
+    ctl import wg-KD-4.conf >/dev/null
+    ctl set ks_error 1 >/dev/null
+    rm -rf "$WGS_IPT_DIR"; : > "$RUN/kill.iptables"
+    WGS_IPT="$FAKES/iptables-k" ctl up wg-KD-4 >/dev/null 2>&1
+    rm -f "$WGS_DATA/tunnels/wg-KD-4.conf"
+    ctl status >/dev/null
+    check "IPv4, kill switch on error: blocked, nothing of ours left in iptables" "error blocked 0" "$(st state) $(route_of) $(nat | grep -c -- 'wgs_dns')"
+    ctl set ks_error 0 >/dev/null
+    ctl down >/dev/null
     export WGS_IP="$REALIP"
 fi
 
