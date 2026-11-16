@@ -1658,7 +1658,7 @@ if want ks_error6; then
     cat > "$FAKES/ipe" <<EOF
 #!/bin/sh
 p() {
-    for a in "-6 route get 2001:db8::99" "-6 route get 2001:db8::99 mark 0x10064" "route get 198.51.100.99" "route get 198.51.100.99 mark 0x10064"; do
+    for a in "-6 route get 2001:db8::99" "-6 route get 2001:db8::99 mark 0x10064" "route get 192.0.2.99" "route get 192.0.2.99 mark 0x10064"; do
         "$REALIP" \$a 2>&1 | head -n 1 | grep -q 'dev wlan0' && echo "\$a after: \$1" >> "\$WGS_PROBELOG"
     done
 }
