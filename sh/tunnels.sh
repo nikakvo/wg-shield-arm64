@@ -187,7 +187,7 @@ tun_file() { printf '%s\n' "$TUNDIR/$1.conf"; }   # printf: a name from the fold
 tun_exists() { tunnel_name_ok "$1" && [ -f "$TUNDIR/$1.conf" ]; }
 
 # only names tunnel_name_ok accepts: a file placed by hand under another name
-# (spaces, "*", a leading dot, over 40 characters) cannot be used by up,
+# (spaces, "*", a backslash, over 40 characters) cannot be used by up,
 # remove or star, and its name split into several words in the callers'
 # unquoted $(tun_names)
 tun_names() {

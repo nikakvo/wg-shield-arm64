@@ -144,8 +144,10 @@ _exit_https() {
 # ~80 files on every poll (every 4 s while the WebUI is open) took seconds, so
 # the rows are kept in $STATE/tunrows and made again only when a file in
 # tunnels/ changed (name, inode, size, time) or the favorites changed.
+# "rows 2": tun_names leaves out names tunnel_name_ok refuses since then; a
+# cache made before lists them, so its key no longer matches once.
 tun_rows() {
-    _k=$({ stat -c '%n %i %s %Y' "$TUNDIR"/*.conf 2>/dev/null; echo "favorites"; fav_names; } | cksum)
+    _k=$({ echo "rows 2"; stat -c '%n %i %s %Y' "$TUNDIR"/*.conf 2>/dev/null; echo "favorites"; fav_names; } | cksum)
     _c="$STATE/tunrows"
     if [ "$(head -n 1 "$_c" 2>/dev/null)" != "$_k" ]; then
         _fl=$(fav_names)

@@ -1759,14 +1759,17 @@ if want hand_names; then
     mkdir -p "$WGS_DATA/tunnels"
     conf "$WGS_DATA/tunnels/wg-HN-1.conf" 203.0.113.97:51820
     conf "$WGS_DATA/tunnels/my vpn.conf" 203.0.113.98:51820
-    conf "$WGS_DATA/tunnels/.hidden.conf" 203.0.113.98:51820
     conf "$WGS_DATA/tunnels/a*b.conf" 203.0.113.98:51820
     conf "$WGS_DATA/tunnels/wg-01234567890123456789012345678901234567.conf" 203.0.113.98:51820
     out=$(ctl list)
     check "list: only the usable name" "1 1" "$(echo "$out" | grep -c '^tunnel=') $(echo "$out" | grep -c '^tunnel=wg-HN-1 ')"
+    # the WebUI's row cache as an earlier version wrote it (its key, a refused name's row)
+    mkdir -p "$STATE"
+    k=$({ stat -c '%n %i %s %Y' "$WGS_DATA/tunnels"/*.conf 2>/dev/null; echo "favorites"; } | cksum)
+    printf '%s\n%s\n%s\n' "$k" 't=a*b|-|-|0|0|-|0' 't=wg-HN-1|203.0.113.97:51820|10.2.0.2/32|1|0|wireguard|0' > "$STATE/tunrows"
     out=$(ctl poll)
-    check "poll: only the usable name" "1 1" "$(echo "$out" | grep -c '^t=') $(echo "$out" | grep -c '^t=wg-HN-1|')"
-    check "the files stay" 5 "$(ls -A "$WGS_DATA/tunnels" | grep -c '\.conf$')"
+    check "poll: only the usable name, also with an earlier version's cache" "1 1" "$(echo "$out" | grep -c '^t=') $(echo "$out" | grep -c '^t=wg-HN-1|')"
+    check "the files stay" 4 "$(ls -A "$WGS_DATA/tunnels" | grep -c '\.conf$')"
 fi
 
 if want error_quiet; then
