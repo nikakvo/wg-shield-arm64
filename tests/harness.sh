@@ -1027,6 +1027,16 @@ EOF
         "$IP6R" -w -t filter -F OUTPUT
         r6ctl status >/dev/null
         check "jump removed by someone else: back" "1 none" "$("$IP6R" -w -t filter -S OUTPUT | grep -c -- '-j wgs_dnsb') $(q6 fd11::1)"
+        # a rebuild killed after the old chain went, before dns6b.want was
+        # written again: the file names the chain that is gone - the next
+        # tick must not take the live one away before its new one is in
+        _live=$(sed -n 1p "$STATE/dns6b.want")
+        if [ "$_live" = wgs_dnsb ]; then _gone=wgs_dnsb_n; else _gone=wgs_dnsb; fi
+        sed -i "1s/.*/$_gone/" "$STATE/dns6b.want"
+        rm -f "$RUN/midq6.out"; : > "$RUN/midq6.on"
+        WGS_IPTS6=$(command -v ip6tables-save) WGS_IPT6="$FAKES/ip6q" ctl status >/dev/null
+        rm -f "$RUN/midq6.on"
+        check "killed rebuild: the next one lets no query reach the router, one jump" "yes 0 1 none" "$([ -s "$RUN/midq6.out" ] && echo yes || echo no) $(grep -vc '^none$' "$RUN/midq6.out" 2>/dev/null) $("$IP6R" -w -t filter -S OUTPUT | grep -c -- '-j wgs_dnsb') $(q6 fd11::1)"
         r6ctl set landns 0 >/dev/null
         check "set landns 0: the router's IPv6 resolver again, nothing of ours" "wlan0 0" "$(q6 fd11::1) $(blk)"
         r6ctl set landns 1 >/dev/null

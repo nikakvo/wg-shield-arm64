@@ -842,7 +842,11 @@ dnsb_sync() {
     _bd=$(_dnsb_dump)
     _bo=$(sed -n 1p "$STATE/dns6b.want" 2>/dev/null)
     if [ "$(sed -n 2p "$STATE/dns6b.want" 2>/dev/null)" = "$1" ] && _dnsb_ok "$_bd" "$_bo"; then unset _bd _bo; return 0; fi
-    if [ "$_bo" = "$DNSB" ]; then _bn=$DNSB2; _bx=$DNSB; else _bn=$DNSB; _bx=$DNSB2; fi
+    # the new chain takes the name that is not there (with both there - a
+    # rebuild killed before the old one went - the other one than the
+    # file's): never the only chain left, also when a killed rebuild left
+    # the file naming one that is gone
+    if _nat_has "$_bd" "$DNSB" && { ! _nat_has "$_bd" "$DNSB2" || [ "$_bo" = "$DNSB" ]; }; then _bn=$DNSB2; _bx=$DNSB; else _bn=$DNSB; _bx=$DNSB2; fi
     [ -f "$STATE/dns6b.want" ] || : > "$STATE/dns6b.want"
     _dnsb_rm "$_bd" "$_bn"
     "$IPT6" -w -t filter -N "$_bn" 2>/dev/null
