@@ -835,8 +835,10 @@ error_blocks() { [ "$ST_STATE" = error ] && [ "$S_KILLSWITCH" = 1 ] && [ "$S_KS_
 # or one of the two settings off = teardown.
 error_block() {
     if iface_exists || [ -f "$STATE/loaded" ] || [ -f "$STATE/tunnel.info" ]; then
+        # with wgs0 its routes go; the IPv6 unreachable default stays: until
+        # rules_sync below makes 5020-5022 unreachable, IPv6 they take into
+        # table 51820 would otherwise find it empty and go around (netd's rules)
         "$IP" link del "$IFACE" 2>/dev/null
-        "$IP" -6 route flush table "$TABLE" 2>/dev/null
         rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
     fi
     dns_present && dns_del

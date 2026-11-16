@@ -1499,6 +1499,78 @@ if want ks_error; then
     check "lock released" no "$([ -d "$STATE/lock" ] && echo yes || echo no)"
 fi
 
+if want ks_error6; then
+    echo "ks_error6: a tunnel that carries IPv6 enters the error state (kill switch on error): IPv6 never goes around it"
+    reset_state; rm -rf "$WGS_IPT_DIR"
+    echo 0 > "$WGS_PROC6/all/disable_ipv6"; mkdir -p "$WGS_PROC6/wgs0"; echo 0 > "$WGS_PROC6/wgs0/disable_ipv6"
+    # a Wi-Fi with IPv6, netd's IPv6 rules as for IPv4
+    ip -6 addr add fd11::50/64 dev wlan0 nodad 2>/dev/null
+    ip -6 route add default via fd11::1 dev wlan0 table 1028 2>/dev/null
+    ip -6 rule add pref 16000 fwmark 0x10064/0x1ffff iif lo lookup 1028
+    ip -6 rule add pref 31000 fwmark 0x0/0xffff iif lo lookup 1028
+    ip -6 rule add pref 32000 unreachable
+    v6of() {  # v6of [mark M]: where IPv6 to a server on the internet goes
+        r=$(ip -6 route get 2001:db8::99 "$@" 2>&1 | head -n 1)
+        case "$r" in *"dev wgs0"*) echo wgs0 ;; *"dev wlan0"*) echo wlan0 ;; *) echo blocked ;; esac
+    }
+    # ip that runs a batch line by line and, after every command, notes the
+    # command when IPv6 or IPv4 (unbound or bound to the Wi-Fi) leaves on it
+    cat > "$FAKES/ipe" <<EOF
+#!/bin/sh
+p() {
+    for a in "-6 route get 2001:db8::99" "-6 route get 2001:db8::99 mark 0x10064" "route get 198.51.100.99" "route get 198.51.100.99 mark 0x10064"; do
+        "$REALIP" \$a 2>&1 | head -n 1 | grep -q 'dev wlan0' && echo "\$a after: \$1" >> "\$WGS_PROBELOG"
+    done
+}
+case "\$*" in
+    *" -batch "*) fam=""; [ "\$1" = -6 ] && fam=-6
+        for f; do :; done
+        while IFS= read -r l; do "$REALIP" \$fam \$l >/dev/null 2>&1; p "\$fam \$l"; done < "\$f"
+        exit 0 ;;
+esac
+"$REALIP" "\$@"; rc=\$?
+p "\$*"
+exit \$rc
+EOF
+    chmod 755 "$FAKES/ipe"
+    export WGS_PROBELOG="$RUN/probe6"
+    for n in 1 2; do
+        conf "$WGS_DL/wg-KF-$n.conf" "203.0.113.9$((n + 5)):51820"
+        sed -i 's#^Address = .*#Address = 10.2.0.2/32, fd00::2/128#; s#^AllowedIPs = .*#AllowedIPs = 0.0.0.0/0, ::/0#' "$WGS_DL/wg-KF-$n.conf"
+        ctl import "wg-KF-$n.conf" >/dev/null
+    done
+    ctl set ks_error 1 >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-KF-1 >/dev/null
+    check "up, IPv6 through the tunnel" "up tunnel wgs0 wgs0" "$(st state) $(st ipv6) $(v6of) $(v6of mark 0x10064)"
+    # the tunnel file disappears
+    mv "$WGS_DATA/tunnels/wg-KF-1.conf" "$RUN/kf1.conf"; rm -f "$WGS_PROBELOG"
+    WGS_IP="$FAKES/ipe" ctl status >/dev/null
+    check "file missing: error, IPv6 and IPv4 blocked" "error blocked blocked blocked" "$(st state) $(v6of) $(v6of mark 0x10064) $(route_of)"
+    check "file missing: nothing left on the Wi-Fi while the block was set up" "" "$(cat "$WGS_PROBELOG" 2>/dev/null)"
+    w0=$(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")
+    ctl status >/dev/null; ctl status >/dev/null
+    check "stable over the next ticks: blocked, nothing repaired" "blocked $w0" "$(v6of) $(grep -c 'WARN' "$WGS_DATA/logs/wg-shield.log")"
+    cp "$RUN/kf1.conf" "$WGS_DATA/tunnels/wg-KF-1.conf"
+    date +%s > "$STATE/fake_hs"; ctl status >/dev/null
+    check "file back: up, IPv6 through the tunnel again" "up tunnel wgs0" "$(st state) $(st ipv6) $(v6of)"
+    # the file becomes invalid while the tunnel is up (the error comes from tunnel_ensure)
+    sed -i 's#^Endpoint = .*#Endpoint = 999.1.1.1:51820#' "$WGS_DATA/tunnels/wg-KF-1.conf"; rm -f "$WGS_PROBELOG"
+    WGS_IP="$FAKES/ipe" ctl status >/dev/null
+    check "invalid file: error, IPv6 blocked" "error blocked blocked" "$(st state) $(v6of) $(v6of mark 0x10064)"
+    check "invalid file: nothing left on the Wi-Fi while the block was set up" "" "$(cat "$WGS_PROBELOG" 2>/dev/null)"
+    # another tunnel switched on, then off
+    ctl up wg-KF-2 >/dev/null
+    check "another tunnel: IPv6 through it" "up tunnel wgs0" "$(st state) $(st ipv6) $(v6of)"
+    ctl down >/dev/null
+    check "down: nothing of ours left in IPv6, direct" "0 0 wlan0" "$(ip -6 route show table 51820 2>/dev/null | grep -c .) $(ip -6 rule | grep -c '^50[0-9][0-9]:') $(v6of)"
+    ip -6 rule del pref 32000 unreachable; ip -6 rule del pref 31000; ip -6 rule del pref 16000
+    ip -6 route del default via fd11::1 dev wlan0 table 1028 2>/dev/null
+    ip -6 addr del fd11::50/64 dev wlan0 2>/dev/null
+    echo 1 > "$WGS_PROC6/all/disable_ipv6"
+    unset WGS_PROBELOG
+fi
+
 if want endpoint6; then
     echo "endpoint6: a literal IPv6 endpoint in brackets - import, rule 5000 in the IPv6 rules, switches, teardown"
     reset_state
