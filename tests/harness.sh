@@ -1753,6 +1753,22 @@ if want outside_names; then
     check "delfile: one line for the name, the file gone" "1 0 no" "$(echo "$out" | grep -c '^deleted=') $(echo "$out" | grep -c '^injected=') $([ -e "$WGS_DL/vpn\\ninjected=1.conf" ] && echo yes || echo no)"
 fi
 
+if want hand_names; then
+    echo "hand_names: tunnel files placed by hand under a name import refuses are not listed"
+    reset_state
+    mkdir -p "$WGS_DATA/tunnels"
+    conf "$WGS_DATA/tunnels/wg-HN-1.conf" 203.0.113.97:51820
+    conf "$WGS_DATA/tunnels/my vpn.conf" 203.0.113.98:51820
+    conf "$WGS_DATA/tunnels/.hidden.conf" 203.0.113.98:51820
+    conf "$WGS_DATA/tunnels/a*b.conf" 203.0.113.98:51820
+    conf "$WGS_DATA/tunnels/wg-01234567890123456789012345678901234567.conf" 203.0.113.98:51820
+    out=$(ctl list)
+    check "list: only the usable name" "1 1" "$(echo "$out" | grep -c '^tunnel=') $(echo "$out" | grep -c '^tunnel=wg-HN-1 ')"
+    out=$(ctl poll)
+    check "poll: only the usable name" "1 1" "$(echo "$out" | grep -c '^t=') $(echo "$out" | grep -c '^t=wg-HN-1|')"
+    check "the files stay" 5 "$(ls -A "$WGS_DATA/tunnels" | grep -c '\.conf$')"
+fi
+
 if want error_quiet; then
     echo "error_quiet: a tunnel in error is torn down once, not at every tick"
     reset_state
@@ -1947,8 +1963,8 @@ if want poll_sibling_text; then
     printf '%s\n' 'state=idle\nhijack=1' 'vpn_source=x\nhijack=1' > "$WGS_ADB/vpn-hotspot/state/status"
     out=$(ctl poll)
     check "poll: no line made of the text" 0 "$(echo "$out" | grep -c '^hijack=')"
-    check "poll: the values whole" "1 1 1" "$(echo "$out" | grep -cxF 'lancloak_wifi=a\nhijack=1') $(echo "$out" | grep -cxF 'vhs_state=idle\nhijack=1') $(echo "$out" | grep -c '^t=wg-ST\\nhijack=1|')"
-    check "list: the tunnel's row whole, no line made of its name" "1 0" "$(ctl list | grep -c '^tunnel=wg-ST\\nhijack=1 endpoint=') $(ctl list | grep -c '^hijack=')"
+    check "poll: the values whole, the hand-placed name not listed" "1 1 0" "$(echo "$out" | grep -cxF 'lancloak_wifi=a\nhijack=1') $(echo "$out" | grep -cxF 'vhs_state=idle\nhijack=1') $(echo "$out" | grep -c '^t=wg-ST\\')"
+    check "list: the hand-placed name not listed, no line made of it" "1 0 0" "$(ctl list | grep -c '^tunnel=wg-ST-1 endpoint=') $(ctl list | grep -c '^tunnel=wg-ST\\') $(ctl list | grep -c '^hijack=')"
     # updated= with a leading zero: poll goes on, the age a number
     printf '%s\n' 'state=on' 'updated=08' > "$WGS_ADB/lan-cloak/state/status"
     out=$(ctl poll); rc=$?
