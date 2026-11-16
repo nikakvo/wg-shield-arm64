@@ -1180,6 +1180,37 @@ if want dns6_bad; then
     export WGS_IP="$REALIP"
 fi
 
+if want build_fetch; then
+    echo "build_fetch: build.sh never builds a source tree that was not checked (stub curl / git, no network)"
+    BF="$RUN/build_fetch"; rm -rf "$BF"; mkdir -p "$BF/bin" "$BF/w"
+    sed -n '/^fetch() {/,/^}/p' "$REPO/build.sh" > "$BF/fetch.sh"
+    if [ ! -s "$BF/fetch.sh" ]; then
+        check "fetch() found in build.sh" yes no
+    else
+        printf '#!/bin/sh\nexit 22\n' > "$BF/bin/curl"     # no tarball: the git fallback
+        # git: clone makes the folder; checkout fails while $BF/co.fail is
+        # there; rev-parse prints the commit in $BF/head
+        cat > "$BF/bin/git" <<EOF
+#!/bin/sh
+case "\$1" in
+    clone) mkdir -p "\$4" && : > "\$4/source.c" ;;
+    -C) case "\$3" in
+            checkout) [ -f "$BF/co.fail" ] && exit 1; exit 0 ;;
+            rev-parse) cat "$BF/head" ;;
+        esac ;;
+esac
+EOF
+        chmod 755 "$BF/bin/curl" "$BF/bin/git"
+        fr() { ( cd "$BF/w" && PATH="$BF/bin:$PATH" bash -c 'set -euo pipefail; . "$1"; fetch src u g v1 sha 1111111111111111111111111111111111111111' sh "$BF/fetch.sh" >/dev/null 2>&1 ); echo $?; }
+        : > "$BF/co.fail"; echo 1111111111111111111111111111111111111111 > "$BF/head"
+        check "git checkout fails: the run stops, no source folder" "1 no" "$(fr) $([ -d "$BF/w/src" ] && echo yes || echo no)"
+        rm -f "$BF/co.fail"; echo 2222222222222222222222222222222222222222 > "$BF/head"
+        check "next run, another commit: refused, no source folder" "1 no" "$(fr) $([ -d "$BF/w/src" ] && echo yes || echo no)"
+        echo 1111111111111111111111111111111111111111 > "$BF/head"
+        check "the pinned commit: taken" "0 yes no" "$(fr) $([ -f "$BF/w/src/source.c" ] && echo yes || echo no) $([ -e "$BF/w/src.part" ] && echo yes || echo no)"
+    fi
+fi
+
 if want webui; then
     echo "webui: the page script, and tunnel names kept out of handler code (node)"
     if command -v node >/dev/null; then
