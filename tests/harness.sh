@@ -1667,7 +1667,7 @@ fi
 if want v6_prefix; then
     echo "v6_prefix: an IPv6 Address that ip refuses is ignored with a note; what ip takes stays"
     reset_state
-    for na in "wg-VP-1 fd00::2/129" "wg-VP-2 fd00::3/ff" "wg-VP-3 fd00::4/64/3" "wg-VP-4 fd00:::2/64" "wg-VP-5 1:2:3:4:5:6:7:8:9/64" "wg-VP-6 12345::1/64"; do
+    for na in "wg-VP-1 fd00::2/129" "wg-VP-2 fd00::3/ff" "wg-VP-3 fd00::4/64/3" "wg-VP-4 fd00:::2/64" "wg-VP-5 1:2:3:4:5:6:7:8:9/64" "wg-VP-6 12345::1/64" "wg-VP-7 ::/64" "wg-VP-8 0:0:0:0:0:0:0:0/64" "wg-VP-9 ::1/128" "wg-VP-A FF02::5/64"; do
         n=${na%% *}; a=${na#* }; conf "$WGS_DL/$n.conf" 203.0.113.97:51820
         sed -i "s#^Address = .*#Address = 10.2.0.2/32, $a#; s#^AllowedIPs = .*#AllowedIPs = 0.0.0.0/0, ::/0#" "$WGS_DL/$n.conf"
         check "import $a: a note, listed without IPv6" "1 1" "$(ctl import "$n.conf" | grep -c 'notes=.*bad-IPv6-address-ignored') $(ctl list | grep -c "^tunnel=$n .*ipv6=0 ")"

@@ -116,14 +116,13 @@ tun_parse() {
         _pl=${T_ADDR6##*/}
         case "$_pl" in 0?*) _pl=${_pl#"${_pl%%[!0]*}"}; T_ADDR6="${T_ADDR6%/*}/${_pl:-0}" ;; esac
         # what `ip -6 addr add` refuses (a prefix over 128 or not a number,
-        # a second /, a malformed address) is ignored with a note: else the
-        # tunnel was listed with IPv6 and came up without an IPv6 address
+        # a second /, a malformed address, ::, ::1, multicast) is ignored with
+        # a note: else the tunnel was listed with IPv6 and came up without an
+        # IPv6 address
         if [ -n "$T_ADDR6" ]; then
             _a6=${T_ADDR6%%/*}; _pl=${T_ADDR6#*/}
             case "$_pl" in ""|*[!0-9]*) _a6="" ;; *) [ "${#_pl}" -le 3 ] && [ "$_pl" -le 128 ] || _a6="" ;; esac
-            case "$_a6" in ""|*:::*|*::*::*|:[!:]*|*[!:]:) _a6="" ;; esac
-            if [ -z "$_a6" ] || ! printf '%s\n' "$_a6" | awk -F: '{ n = 0; for (i = 1; i <= NF; i++) { if ($i == "") continue; if (length($i) > 4) exit 1; n++ }
-                if (index($0, "::") ? n > 7 : n != 8) exit 1 }'; then
+            if ! ipv6_ok "$_a6" host; then
                 T_WARN="$T_WARN bad-IPv6-address-ignored"; T_ADDR6=""
             fi
             unset _a6

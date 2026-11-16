@@ -128,6 +128,27 @@ ipv4_ok() {
     unset _x
 }
 
+# ipv6_ok ADDRESS [host] - an IPv6 address as `ip` and ip6tables read it
+# (no prefix): hex groups of at most four digits, eight of them, or fewer
+# around one "::"; no zone, no dotted IPv4 part. With "host" also not the
+# unspecified (::) or the loopback (::1) address and not multicast (ff00::/8):
+# `ip -6 addr add` refuses those on an interface
+ipv6_ok() {
+    case "$1" in ""|*[!0-9A-Fa-f:]*|*:::*|*::*::*|:[!:]*|*[!:]:) return 1 ;; esac
+    [ "${#1}" -le 39 ] || return 1
+    printf '%s\n' "$1" | awk -F: -v h="$2" '{
+        n = 0; z = 1
+        for (i = 1; i <= NF; i++) {
+            if ($i == "") continue
+            if (length($i) > 4) exit 1
+            n++; g = $i; sub(/^0+/, "", g)
+            if (g != "" && !(i == NF && g == "1")) z = 0
+        }
+        if (index($0, "::") ? n > 7 : n != 8) exit 1
+        if (h != "" && (z || (length($1) == 4 && tolower(substr($1, 1, 2)) == "ff"))) exit 1
+    }'
+}
+
 # ipv6_canon ADDRESS - prints the address the way the kernel's tools list it
 # (`ip -6 rule` shows 2001:0DB8:0:0:0:0:0:1 as 2001:db8::1): lower case, no
 # leading zeros, the longest run of two or more zero groups as "::" (the
