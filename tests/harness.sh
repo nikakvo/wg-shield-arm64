@@ -1606,6 +1606,9 @@ if want backslash_out; then
     check "list: one line for the tunnel" "1 0" "$(ctl list | grep -c '^tunnel=wg-BS-1 invalid=1') $(ctl list | grep -c '^injected=')"
     check "log: no line made of the file's text" 0 "$(grep -c '^injected=' "$WGS_DATA/logs/wg-shield.log")"
     ctl down >/dev/null
+    # the manager's Action button (tunnel off: it turns the last one on, refused)
+    out=$($TSH "$MOD/action.sh" 2>&1)
+    check "action: the error on one line, its text whole" "2 1 0" "$(echo "$out" | grep -c .) $(echo "$out" | grep -cF "Error: tunnel wg-BS-1 is invalid: Endpoint must be an IPv4 address, an IPv6 address in brackets or a host name (got 'x\nupdateJson=u:1')") $(echo "$out" | grep -c '^updateJson=')"
 fi
 
 if want busybox_path; then

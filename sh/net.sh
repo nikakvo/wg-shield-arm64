@@ -433,7 +433,7 @@ resolve_host() {
             "$IP" rule add pref 5001 iif lo to "$srv/32" lookup "$DEFN" 2>/dev/null
         out=$("$BB" timeout 6 "$BB" nslookup "$1" "$srv" 2>/dev/null)
         while "$IP" rule del pref 5001 2>/dev/null; do :; done
-        a=$(echo "$out" | awk '
+        a=$(printf '%s\n' "$out" | awk '
             /^Name:/ { n = 1; next }
             n { for (i = 1; i <= NF; i++) { f = $i; sub(/:53$/, "", f)
                 if (f ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { print f; exit } } }')
