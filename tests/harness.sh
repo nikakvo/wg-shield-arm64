@@ -2294,6 +2294,22 @@ EOF
     ctl down >/dev/null
 fi
 
+if want import_write_fail; then
+    echo "import_write_fail: a tunnel copy that fails midway leaves no temp file with the key"
+    reset_state
+    conf "$WGS_DL/wg-WF-1.conf" 203.0.113.117:51820
+    # cp -f SRC DST that writes part of the file, then fails (storage full)
+    mkdir -p "$RUN/cpfail"
+    cat > "$RUN/cpfail/cp" <<'EOF'
+#!/bin/sh
+head -c 40 "$2" > "$3"; exit 1
+EOF
+    chmod 755 "$RUN/cpfail/cp"
+    out=$(PATH="$RUN/cpfail:$PATH" ctl import wg-WF-1.conf 2>&1)
+    check "import refused: cannot-write, no temp file left in tunnels/" "0 1 0" "$(echo "$out" | kv imported) $(echo "$out" | grep -c '^skipped=wg-WF-1 reason=cannot-write') $(find "$WGS_DATA/tunnels" -name '*.tmp.*' | grep -c .)"
+    rm -rf "$RUN/cpfail"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]

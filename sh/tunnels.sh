@@ -382,7 +382,8 @@ tun_import_one() {
     fi
     dst="$TUNDIR/$name.conf"
     what=imported; [ -f "$dst" ] && what=replaced
-    ( umask 077; cp -f "$src" "$dst.tmp.$$" ) && chmod 600 "$dst.tmp.$$" && mv -f "$dst.tmp.$$" "$dst" || { printf '%s\n' "skipped=$base reason=cannot-write"; return 1; }
+    # a copy that failed midway holds (part of) the private key: removed
+    ( umask 077; cp -f "$src" "$dst.tmp.$$" ) && chmod 600 "$dst.tmp.$$" && mv -f "$dst.tmp.$$" "$dst" || { rm -f "$dst.tmp.$$"; printf '%s\n' "skipped=$base reason=cannot-write"; return 1; }
     echo "$what=$name endpoint=$T_EP type=$T_TYPE${T_WARN:+ notes=$(echo "$T_WARN" | tr ' ' ';')}"
     wlog INFO "tunnel $name $what (endpoint $T_EP, $T_TYPE)${T_WARN:+ - notes: $T_WARN}"
     return 0
