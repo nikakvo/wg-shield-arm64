@@ -31,15 +31,22 @@ AWG_TAR_SHA256="${AWG_TAR_SHA256:-22438f231d39ea27e4bdc69707ec3103357f3cecc9ad3e
 # fetch <dir> <codeload url> <git url> <ref> <tarball sha256> <commit>
 # The source goes to <dir>.part and is renamed to <dir> only once it is
 # checked: a run that failed or was killed midway leaves no <dir> that the
-# next run would take unchecked.
+# next run would take unchecked. A checked folder holds .wgs-checked with the
+# pins it was checked against; an existing folder without it (left by an
+# older build.sh, or placed by hand) or with other pins stops the build.
 fetch() {
-    [ -d "$1" ] && return 0
+    if [ -d "$1" ]; then
+        [ "$(cat "$1/.wgs-checked" 2>/dev/null)" = "$5 $6" ] && return 0
+        echo "==> $1 exists but was not checked against the current pins (no or other .wgs-checked) - move it away and run again"
+        exit 1
+    fi
     rm -rf "$1.part"
     echo "==> downloading $1"
     if curl -fL -o "$1.tar.gz" "$2"; then
         got=$(sha256sum "$1.tar.gz" | cut -d' ' -f1)
         if [ "$got" = "$5" ]; then
-            if mkdir -p "$1.part" && tar xzf "$1.tar.gz" -C "$1.part" --strip-components=1; then
+            if mkdir -p "$1.part" && tar xzf "$1.tar.gz" -C "$1.part" --strip-components=1 &&
+               printf '%s\n' "$5 $6" > "$1.part/.wgs-checked"; then
                 mv "$1.part" "$1"; rm -f "$1.tar.gz"; return 0
             fi
         else
@@ -58,6 +65,7 @@ fetch() {
         rm -rf "$1.part"
         echo "==> $1: commit $got, expected $6 - not used"; exit 1
     fi
+    printf '%s\n' "$5 $6" > "$1.part/.wgs-checked"
     mv "$1.part" "$1"
 }
 

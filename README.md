@@ -297,7 +297,7 @@ Remove the module in your root manager and reboot. The tunnel and every rule are
 
 ## Build `wg` and `awg`
 
-`build.sh` (in this repo) downloads wireguard-tools v1.0.20260223 and amneziawg-tools (pinned to commit `ee0f0a9aa34ff0a0da4b3433b9512781cfe02843`, 3.1.20260812) and builds both as static arm64 binaries with [zig](https://ziglang.org). The downloaded sources are checked first - each tarball against its pinned SHA-256, the git fallback against its pinned commit. A tarball that does not match (GitHub may build its archives anew) is not used and the git fallback is taken; the build stops when the git commit does not match:
+`build.sh` (in this repo) downloads wireguard-tools v1.0.20260223 and amneziawg-tools (pinned to commit `ee0f0a9aa34ff0a0da4b3433b9512781cfe02843`, 3.1.20260812) and builds both as static arm64 binaries with [zig](https://ziglang.org). The downloaded sources are checked first - each tarball against its pinned SHA-256, the git fallback against its pinned commit. A tarball that does not match (GitHub may build its archives anew) is not used and the git fallback is taken; the build stops when the git commit does not match. A checked source folder keeps a `.wgs-checked` file with the pins it was checked against and is reused by the next run; a source folder without it (left by an older `build.sh`, or placed by hand) or with other pins stops the build until it is moved away:
 
 ```sh
 bash build.sh                 # → out/wg and out/awg, copy to system/bin/

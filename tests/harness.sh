@@ -1372,6 +1372,11 @@ EOF
         check "next run, another commit: refused, no source folder" "1 no" "$(fr) $([ -d "$BF/w/src" ] && echo yes || echo no)"
         echo 1111111111111111111111111111111111111111 > "$BF/head"
         check "the pinned commit: taken" "0 yes no" "$(fr) $([ -f "$BF/w/src/source.c" ] && echo yes || echo no) $([ -e "$BF/w/src.part" ] && echo yes || echo no)"
+        check "the checked folder: marked with its pins, reused by the next run" "sha 1111111111111111111111111111111111111111 0" "$(cat "$BF/w/src/.wgs-checked" 2>/dev/null) $(fr)"
+        echo "sha 2222222222222222222222222222222222222222" > "$BF/w/src/.wgs-checked"
+        check "a folder checked against other pins: refused, kept" "1 yes" "$(fr) $([ -f "$BF/w/src/source.c" ] && echo yes || echo no)"
+        rm -f "$BF/w/src/.wgs-checked"
+        check "a folder without the mark (older build.sh, by hand): refused, kept" "1 yes" "$(fr) $([ -f "$BF/w/src/source.c" ] && echo yes || echo no)"
     fi
 fi
 
