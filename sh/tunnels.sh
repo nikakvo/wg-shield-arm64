@@ -292,12 +292,23 @@ bk_favs() { _bk_unzip -p "$BKZIP" favorites.txt 2>/dev/null | grep -c .; }
 
 # bk_make - prints backed_up=N; returns 1 (with error=) when nothing was written
 bk_make() {
-    _bn=0; for _bf in "$TUNDIR"/*.conf; do [ -f "$_bf" ] && _bn=$((_bn + 1)); done
+    # the files whose name a zip entry carries (zip_store: [A-Za-z0-9._-]);
+    # one placed by hand under another name ("my vpn.conf") is left out -
+    # split into words in the list below, it failed the whole backup
+    _bl=""; _bn=0; _bsk=0
+    for _bf in "$TUNDIR"/*.conf; do
+        [ -f "$_bf" ] || continue
+        case "${_bf##*/}" in
+            *[!A-Za-z0-9._-]*) _bsk=$((_bsk + 1)) ;;
+            *) _bl="$_bl${_bl:+ }${_bf##*/}"; _bn=$((_bn + 1)) ;;
+        esac
+    done
     [ "$_bn" -gt 0 ] || { echo "error=no tunnels to back up"; return 1; }
+    [ "$_bsk" -gt 0 ] && wlog WARN "backup: $_bsk tunnel files skipped - their names hold characters other than A-Z a-z 0-9 . _ - (placed in tunnels/ by hand)"
     bk_fix
     mkdir -p "$BACKUP_ROOT" 2>/dev/null || { echo "error=cannot create $BACKUP_ROOT"; return 1; }
     _bs="$STATE/bk.$$"; rm -rf "$_bs"; mkdir -p "$_bs"; chmod 700 "$_bs"
-    for _bf in "$TUNDIR"/*.conf; do [ -f "$_bf" ] && cp -f "$_bf" "$_bs/"; done
+    for _bf in $_bl; do cp -f "$TUNDIR/$_bf" "$_bs/"; done
     fav_names > "$_bs/favorites.txt"
     _bnow=$(date +%s)
     { echo "WG Shield backup - $_bn tunnels, $(date '+%Y-%m-%d %H:%M')"
@@ -305,7 +316,6 @@ bk_make() {
       echo "or import this zip in the WireGuard / AmneziaWG app."
       echo "created_epoch=$_bnow"
       echo "tunnels=$_bn"; } > "$_bs/backup-info.txt"
-    _bl=""; for _bf in "$_bs"/*.conf; do [ -f "$_bf" ] && _bl="$_bl${_bl:+ }${_bf##*/}"; done   # not ls: a name may start with "-"
     [ -s "$_bs/favorites.txt" ] && _bl="$_bl favorites.txt"
     _bt="$BACKUP_ROOT/.wg-shield-backup.zip.tmp"
     if ! zip_store "$_bt" "$_bs" $_bl backup-info.txt; then

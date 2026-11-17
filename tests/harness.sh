@@ -2208,6 +2208,25 @@ EOF
     rm -rf "$WGS_MODULES/lan-cloak" "$WGS_ADB/lan-cloak" "$WGS_ADB/vpn-hotspot" "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
 fi
 
+if want backup_names; then
+    echo "backup_names: tunnel files placed by hand under a name a zip entry cannot carry do not stop the backup"
+    reset_state
+    mkdir -p "$WGS_DATA/tunnels"
+    conf "$WGS_DATA/tunnels/wg-BN-1.conf" 203.0.113.111:51820
+    conf "$WGS_DATA/tunnels/my vpn.conf" 203.0.113.112:51820
+    conf "$WGS_DATA/tunnels/a*b.conf" 203.0.113.113:51820
+    # over 40 characters: tunnel_name_ok refuses it, the zip carries it (as before)
+    conf "$WGS_DATA/tunnels/wg-BN-0123456789012345678901234567890123456.conf" 203.0.113.114:51820
+    out=$(ctl backup 2>&1)
+    check "backup written, the two names a zip entry carries" "1 2" "$(echo "$out" | kv ok) $(echo "$out" | kv backed_up)"
+    check "the zip holds exactly them" "wg-BN-0123456789012345678901234567890123456.conf wg-BN-1.conf" "$(unzip -l "$WGS_BACKUP_ROOT/wg-shield-backup.zip" 2>/dev/null | awk '$NF ~ /\.conf$/ { print $NF }' | sort | tr '\n' ' ' | sed 's/ $//')"
+    check "log: the skipped files counted" 1 "$(grep -c 'backup: 2 tunnel files skipped' "$WGS_DATA/logs/wg-shield.log")"
+    check "the files stay" 4 "$(find "$WGS_DATA/tunnels" -name '*.conf' | grep -c .)"
+    rm -f "$WGS_DATA/tunnels/wg-BN-1.conf" "$WGS_DATA/tunnels/wg-BN-0123456789012345678901234567890123456.conf"
+    check "only such names: nothing to back up, the old backup kept" "1 2" "$(ctl backup 2>&1 | grep -c '^error=no tunnels to back up') $(unzip -l "$WGS_BACKUP_ROOT/wg-shield-backup.zip" 2>/dev/null | grep -c '\.conf$')"
+    rm -rf "$WGS_DATA/tunnels" "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
