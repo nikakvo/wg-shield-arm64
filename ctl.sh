@@ -474,6 +474,10 @@ case "$cmd" in
         echo "dir=$DL"
         for f in "$DL"/*.zip "$DL"/*.ZIP "$DL"/*.conf "$DL"/*.CONF; do
             [ -f "$f" ] || continue
+            # a line break in the name would add lines of its own to this
+            # key=value output (another app can put such a file there)
+            case "$f" in *"
+"*) continue ;; esac
             is_export "$f" || continue
             set -- $(stat -c '%s %Y' "$f" 2>/dev/null)
             n=0; case "$f" in *.zip|*.ZIP) n=$(zip_list "$f" | grep -ciE '\.conf$') ;; *) n=1 ;; esac

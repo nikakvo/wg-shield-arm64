@@ -2227,6 +2227,22 @@ if want backup_names; then
     rm -rf "$WGS_DATA/tunnels" "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
 fi
 
+if want files_newline; then
+    echo "files_newline: a Download file name with a line break adds no line to ctl.sh files"
+    reset_state
+    conf "$RUN/inner.conf" 203.0.113.115:51820
+    python3 -I - "$WGS_DL" "$RUN/inner.conf" <<'EOF'
+import os, sys, zipfile
+for n in ("export.zip", "x\nok=0.zip"):
+    with zipfile.ZipFile(os.path.join(sys.argv[1], n), "w") as z:
+        z.write(sys.argv[2], "wg-FN-1.conf")
+EOF
+    out=$(ctl files)
+    check "ok=1 only, the usual export listed, no line made of the name" "1 1 0" "$(echo "$out" | grep -c '^ok=') $(echo "$out" | grep -c '^file=.*|1|export\.zip$') $(echo "$out" | grep -c '^ok=0')"
+    rm -f "$WGS_DL/export.zip" "$WGS_DL/x
+ok=0.zip"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
