@@ -2259,6 +2259,27 @@ EOF
     rm -f "$WGS_DL/upper.zip"
 fi
 
+if want resolve_backslash; then
+    echo "resolve_backslash: a backslash in nslookup's answer does not make an address of its own (mksh's echo reads backslashes)"
+    reset_state
+    # the answer: "\n" in the Name line, then the real address
+    cat > "$FAKES/bbs" <<'EOF'
+#!/bin/sh
+case "$1" in
+    timeout) shift 2; exec "$@" ;;
+    nslookup) printf 'Server:\t\t%s\nAddress:\t%s:53\n\nName:\t%s\\nAddress: 198.51.100.66\nAddress: 203.0.113.81\n' "$3" "$3" "$2" ;;
+    *) exit 127 ;;
+esac
+EOF
+    chmod 755 "$FAKES/bbs"
+    conf "$WGS_DL/wg-RB-1.conf" vpn.example.com:51820
+    ctl import wg-RB-1.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    WGS_BB="$FAKES/bbs" ctl up wg-RB-1 >/dev/null
+    check "the address of the answer's own line" "up 203.0.113.81:51820" "$(st state) $(st endpoint)"
+    ctl down >/dev/null
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
