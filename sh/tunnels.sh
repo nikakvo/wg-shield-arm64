@@ -342,11 +342,13 @@ bk_restore() {
     _br="$STATE/restore.$$"; rm -rf "$_br"; mkdir -p "$_br"; chmod 700 "$_br"
     _bk_unzip -o -q "$BKZIP" -d "$_br" >/dev/null 2>&1
     _br_ok=0; _br_bad=0; _br_names=""
-    # one file per line: names with spaces stay whole, nothing is globbed
+    # one file per line: names with spaces stay whole, nothing is globbed;
+    # a path with a line break is left out (see tun_import)
     _br_ifs=$IFS; IFS='
 '
     set -f
-    for _bf in $(find "$_br" -type f -name '*.conf' 2>/dev/null | sort); do
+    for _bf in $(find "$_br" -type f -name '*.conf' ! -path '*
+*' 2>/dev/null | sort); do
         IFS=$_br_ifs; set +f
         if tun_import_one "$_bf"; then _br_ok=$((_br_ok + 1)); _br_names="$_br_names $name"; else _br_bad=$((_br_bad + 1)); fi
     done
@@ -400,11 +402,15 @@ tun_import() {
             if [ -x "$BB" ]; then "$BB" unzip -o -q "$p" -d "$tmp" >/dev/null 2>&1; else unzip -o -q "$p" -d "$tmp" >/dev/null 2>&1; fi
             found=0
             # one file per line: names with spaces stay whole, nothing is globbed.
-            # .conf in any case (.CONF): the file list counts them (is_export)
+            # .conf in any case (.CONF): the file list counts them (is_export).
+            # A path with a line break is left out: busybox unzip keeps one in
+            # an entry's name, and "a<LF>/some/file.conf" split into lines
+            # would make root read /some/file.conf, outside the zip
             _ti_ifs=$IFS; IFS='
 '
             set -f
-            for f in $(find "$tmp" -type f -iname '*.conf' 2>/dev/null | sort); do
+            for f in $(find "$tmp" -type f -iname '*.conf' ! -path '*
+*' 2>/dev/null | sort); do
                 IFS=$_ti_ifs; set +f
                 found=1
                 if tun_import_one "$f"; then ok=$((ok + 1)); else bad=$((bad + 1)); fi

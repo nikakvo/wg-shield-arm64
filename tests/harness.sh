@@ -2310,6 +2310,25 @@ EOF
     rm -rf "$RUN/cpfail"
 fi
 
+if want zip_newline; then
+    echo "zip_newline: a zip entry whose name holds a line break and a path makes root read no file outside the zip"
+    reset_state
+    # a usable tunnel file outside the zip; the entry's name ends in its path
+    conf "$RUN/outside.conf" 203.0.113.118:51820
+    python3 -I - "$WGS_DL/nl.zip" "$RUN/outside.conf" <<'EOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    z.writestr("a\n" + sys.argv[2], "not a tunnel\n")
+EOF
+    out=$(ctl import nl.zip 2>&1)
+    check "import: the outside file not imported" "0 0" "$(echo "$out" | grep -c '^imported=outside') $(ctl list | grep -c '203\.0\.113\.118')"
+    ctl removeall >/dev/null
+    mkdir -p "$WGS_BACKUP_ROOT"; cp "$WGS_DL/nl.zip" "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
+    out=$(ctl restore 2>&1)
+    check "restore: the outside file not imported" "0 0" "$(echo "$out" | grep -c '^imported=outside') $(ctl list | grep -c '203\.0\.113\.118')"
+    rm -f "$WGS_DL/nl.zip" "$WGS_BACKUP_ROOT/wg-shield-backup.zip" "$RUN/outside.conf"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
