@@ -2243,6 +2243,22 @@ EOF
 ok=0.zip"
 fi
 
+if want import_case; then
+    echo "import_case: a zip whose entries end in .CONF is imported, as ctl.sh files counts them"
+    reset_state
+    conf "$RUN/inner.conf" 203.0.113.116:51820
+    python3 -I - "$WGS_DL/upper.zip" "$RUN/inner.conf" <<'EOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    z.write(sys.argv[2], "wg-UC-1.CONF")
+    z.write(sys.argv[2], "wg-UC-2.Conf")
+EOF
+    check "files: listed with two configs" 1 "$(ctl files | grep -c '^file=.*|2|upper\.zip$')"
+    out=$(ctl import upper.zip 2>&1)
+    check "import: both, under their names as in the zip" "2 1 1" "$(echo "$out" | kv imported) $(ctl list | grep -c '^tunnel=wg-UC-1\.CONF ') $(ctl list | grep -c '^tunnel=wg-UC-2\.Conf ')"
+    rm -f "$WGS_DL/upper.zip"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]

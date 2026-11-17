@@ -398,11 +398,12 @@ tun_import() {
             tmp="$STATE/import.$$"; rm -rf "$tmp"; mkdir -p "$tmp"; chmod 700 "$tmp"
             if [ -x "$BB" ]; then "$BB" unzip -o -q "$p" -d "$tmp" >/dev/null 2>&1; else unzip -o -q "$p" -d "$tmp" >/dev/null 2>&1; fi
             found=0
-            # one file per line: names with spaces stay whole, nothing is globbed
+            # one file per line: names with spaces stay whole, nothing is globbed.
+            # .conf in any case (.CONF): the file list counts them (is_export)
             _ti_ifs=$IFS; IFS='
 '
             set -f
-            for f in $(find "$tmp" -type f -name '*.conf' 2>/dev/null | sort); do
+            for f in $(find "$tmp" -type f -iname '*.conf' 2>/dev/null | sort); do
                 IFS=$_ti_ifs; set +f
                 found=1
                 if tun_import_one "$f"; then ok=$((ok + 1)); else bad=$((bad + 1)); fi
