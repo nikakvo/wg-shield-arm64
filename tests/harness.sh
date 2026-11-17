@@ -1265,7 +1265,10 @@ if want dns_killed; then
         cat > "$FAKES/$f-k" <<EOF
 #!/bin/sh
 "$FAKES/$f" "\$@"; rc=\$?
-case "\$*" in *"-t nat -A OUTPUT -j wgs_dns") [ -f "$RUN/kill.$f" ] && { rm -f "$RUN/kill.$f"; kill -9 \$PPID; } ;; esac
+case "\$*" in
+    *"-t nat -A OUTPUT -j wgs_dns") [ -f "$RUN/kill.$f" ] && { rm -f "$RUN/kill.$f"; kill -9 \$PPID; } ;;
+    *"-t filter -I OUTPUT -j wgs_dnsb") [ -f "$RUN/kill.dnsb" ] && { rm -f "$RUN/kill.dnsb"; kill -9 \$PPID; } ;;
+esac
 exit \$rc
 EOF
         chmod 755 "$FAKES/$f-k"
@@ -1309,6 +1312,17 @@ EOF
     check "IPv4, kill switch on error: blocked, nothing of ours left in iptables" "error blocked 0" "$(st state) $(route_of) $(nat | grep -c -- 'wgs_dns')"
     ctl set ks_error 0 >/dev/null
     ctl down >/dev/null
+    # LAN DNS through the tunnel: the first IPv6 DNS refusal chain killed
+    # right after its jump went in (dns6b.want does not name it yet)
+    conf "$WGS_DL/wg-KD-5.conf" 203.0.113.72:51820
+    ctl import wg-KD-5.conf >/dev/null
+    ctl set landns 1 >/dev/null
+    rm -rf "$WGS_IPT_DIR"; date +%s > "$STATE/fake_hs"; : > "$RUN/kill.dnsb"
+    WGS_IPT6="$FAKES/ip6tables-k" ctl up wg-KD-5 >/dev/null 2>&1
+    check "IPv6 DNS refusal: killed after its first jump (jump there)" "no 1" "$([ -f "$RUN/kill.dnsb" ] && echo yes || echo no) $(grep -cx -- '-A OUTPUT -j wgs_dnsb' "$WGS_IPT_DIR/v6/filter" 2>/dev/null)"
+    ctl down >/dev/null
+    check "IPv6 DNS refusal: off - nothing of ours left in ip6tables, no state" "0 no" "$(grep -c -- 'wgs_dnsb' "$WGS_IPT_DIR/v6/filter" 2>/dev/null) $([ -f "$STATE/dns6b.want" ] && echo yes || echo no)"
+    ctl set landns 0 >/dev/null
     export WGS_IP="$REALIP"
 fi
 
