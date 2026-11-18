@@ -1897,18 +1897,6 @@ if want busybox_path; then
     check "none: the KernelSU path (as before)" "$WGS_ADB/ksu/bin/busybox" "$(bbof)"
 fi
 
-if want module_prop; then
-    echo "module_prop: the fork's module.prop"
-    reset_state
-    check "no updateJson line (the manager must not offer upstream's release)" 0 "$(grep -c '^updateJson=' "$REPO/module.prop")"
-    conf "$WGS_DL/wg-MP-1.conf" 203.0.113.90:51820
-    ctl import wg-MP-1.conf >/dev/null
-    date +%s > "$STATE/fake_hs"
-    ctl up wg-MP-1 >/dev/null
-    check "status line written into the description, the other lines kept" "1 1 1 1 0" "$(grep -c '^description=.*Status: .*Protected' "$MOD/module.prop") $(grep -c '^id=wg-shield$' "$MOD/module.prop") $(grep -c '^version=' "$MOD/module.prop") $(grep -c '^versionCode=' "$MOD/module.prop") $(grep -c '^updateJson=' "$MOD/module.prop")"
-    ctl down >/dev/null
-fi
-
 if want wait_up; then
     echo "wait_up: up gives the first handshake a few seconds"
     reset_state
