@@ -10,7 +10,7 @@ MODDIR=${0%/*}
 layout_migrate
 mkdir -p "$STATE" "$TUNDIR" "$LOGDIR"
 chmod 700 "$DATA" "$TUNDIR"
-# files written with the root manager's umask 0000 before 2.9.1-fork1 (666):
+# files written with the root manager's umask 0000 by older versions (666):
 # no write for group / other (600 files stay 600)
 chmod go-w "$MODDIR/module.prop" 2>/dev/null
 chmod -R go-w "$STATE" "$LOGDIR" 2>/dev/null
