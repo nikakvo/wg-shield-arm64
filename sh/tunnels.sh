@@ -372,7 +372,8 @@ bk_restore() {
 # tun_import_one FILE -> prints result line, returns 0 imported / 1 skipped
 tun_import_one() {
     src=$1
-    base=${src##*/}; base=${base%.conf}
+    base=${src##*/}
+    case "$base" in *.[cC][oO][nN][fF]) base=${base%.*} ;; esac   # .CONF too: the zip search takes any case
     name=$(printf '%s' "$base" | sed 's/[^A-Za-z0-9._-]/_/g')
     case "$name" in .*|"") name="tunnel_$name" ;; esac
     # cut after the prefix: tunnel_name_ok takes at most 40 characters

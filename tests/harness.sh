@@ -2274,7 +2274,7 @@ with zipfile.ZipFile(sys.argv[1], "w") as z:
 EOF
     check "files: listed with two configs" 1 "$(ctl files | grep -c '^file=.*|2|upper\.zip$')"
     out=$(ctl import upper.zip 2>&1)
-    check "import: both, under their names as in the zip" "2 1 1" "$(echo "$out" | kv imported) $(ctl list | grep -c '^tunnel=wg-UC-1\.CONF ') $(ctl list | grep -c '^tunnel=wg-UC-2\.Conf ')"
+    check "import: both, the ending cut in any case" "2 1 1" "$(echo "$out" | kv imported) $(ctl list | grep -c '^tunnel=wg-UC-1 ') $(ctl list | grep -c '^tunnel=wg-UC-2 ')"
     rm -f "$WGS_DL/upper.zip"
 fi
 
