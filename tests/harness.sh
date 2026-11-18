@@ -1880,7 +1880,7 @@ if want backslash_out; then
     ctl down >/dev/null
     # the manager's Action button (tunnel off: it turns the last one on, refused)
     out=$($TSH "$MOD/action.sh" 2>&1)
-    check "action: the error on one line, its text whole" "2 1 0" "$(echo "$out" | grep -c .) $(echo "$out" | grep -cF "Error: tunnel wg-BS-1 is invalid: Endpoint must be an IPv4 address, an IPv6 address in brackets or a host name (got 'x\nupdateJson=u:1')") $(echo "$out" | grep -c '^updateJson=')"
+    check "action: the error on one line, its text whole" "2 1 0" "$(echo "$out" | grep -c .) $(echo "$out" | grep -cF "Error: tunnel wg-BS-1 is invalid: Endpoint must be an IPv4 address, an IPv6 address in brackets or a host name (got 'x\ninjected=u:1')") $(echo "$out" | grep -c '^injected=')"
 fi
 
 if want busybox_path; then
