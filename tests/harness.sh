@@ -2368,6 +2368,45 @@ EOF
     ctl down >/dev/null
 fi
 
+if want write_fail_tick; then
+    echo "write_fail_tick: the recovery state, the DNS failover choice and the speed test results leave no temp file when their rename fails"
+    reset_state
+    conf "$WGS_DL/wg-WS-1.conf" 203.0.113.125:51820
+    sed -i 's#^DNS = .*#DNS = 10.2.0.1, 10.2.0.9#' "$WGS_DL/wg-WS-1.conf"
+    ctl import wg-WS-1.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-WS-1 >/dev/null
+    mkdir -p "$RUN/mvfail" "$WGS_SYSNET/wgs0"
+    cat > "$RUN/mvfail/mv" <<EOF
+#!/bin/sh
+case "\$*" in *.tmp.*) exit 1 ;; esac
+exec "$(command -v mv)" "\$@"
+EOF
+    # busybox as the DNS check uses it: no server answers
+    cat > "$RUN/mvfail/bbnoans" <<'EOF'
+#!/bin/sh
+case "$1" in --list) printf 'nslookup\ntimeout\n' ;; timeout) exit 143 ;; *) exit 127 ;; esac
+EOF
+    printf '#!/bin/sh\nexit 0\n' > "$RUN/mvfail/ping-ok"
+    # one liveness check as the watchdog runs it between ticks
+    cat > "$RUN/mvfail/lc.sh" <<'EOF'
+. "$WGS_MODDIR/sh/common.sh"; . "$WGS_MODDIR/sh/tunnels.sh"; . "$WGS_MODDIR/sh/net.sh"
+settings_load; live_check
+EOF
+    chmod 755 "$RUN/mvfail/mv" "$RUN/mvfail/bbnoans" "$RUN/mvfail/ping-ok"
+    for i in 1 2; do
+        rm -f "$STATE/live_probe_at"
+        PATH="$RUN/mvfail:$PATH" WGS_PING="$RUN/mvfail/ping-ok" WGS_BB="$RUN/mvfail/bbnoans" WGS_DNS_FO_EVERY=0 $TSH "$RUN/mvfail/lc.sh" >/dev/null 2>&1
+    done
+    echo $(( $(date +%s) - 300 )) > "$STATE/fake_hs"
+    PATH="$RUN/mvfail:$PATH" ctl status >/dev/null 2>&1
+    ctl down >/dev/null
+    out=$(PATH="$RUN/mvfail:$PATH" WGS_TEST_HS_MAX=2 ctl test WS 2>&1)
+    check "each writer reached: DNS switch, recovery step, speed test result" "1 1 1" "$(grep -c 'switching to 10.2.0.9' "$WGS_DATA/logs/wg-shield.log") $(grep -c 'recovery: wg-WS-1 does not answer - restart 1' "$WGS_DATA/logs/wg-shield.log") $(echo "$out" | grep -c '^r=203.0.113.125|')"
+    check "no temp file left (heal, dns_srv, speedtest)" "" "$(find "$WGS_DATA" -name '*.tmp.*' 2>/dev/null | sed "s#^$RUN/##" | sort | tr '\n' ' ')"
+    rm -rf "$RUN/mvfail" "$WGS_SYSNET/wgs0"
+fi
+
 if want last_line; then
     echo "last_line: settings, favorites and a backup's favorites without a final line break keep their last line"
     reset_state
