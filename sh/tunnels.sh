@@ -68,9 +68,13 @@ tun_parse() {
     [ "$_psk" = 2 ] && { T_ERR="PresharedKey is not a valid WireGuard key"; return 1; }
     [ "$_hpk" = 2 ] && { T_ERR="HeaderProtectionKey is not a valid key (44 characters ending in =)"; return 1; }
     [ "$_awg" = 1 ] && T_TYPE=amneziawg
+    # set -f: an entry like 10.2.0.? is checked as written, not matched
+    # against the files of the current folder (also in the DNS loop below)
+    set -f
     for _a in $(echo "$_addr" | tr ',' ' '); do
         case "$_a" in *:*) [ -z "$T_ADDR6" ] && T_ADDR6=$_a ;; *) [ -z "$T_ADDR" ] && T_ADDR=$_a ;; esac
     done
+    set +f
     case "$T_ADDR" in
         "") T_ERR="no IPv4 Address"; return 1 ;;
         *[!0-9./]*) T_ERR="bad Address '$T_ADDR'"; return 1 ;;
@@ -139,6 +143,7 @@ tun_parse() {
     # domains are not used. T_DNSALL: every IPv4 server in the line's order -
     # the next one takes over when the active one stops answering (sh/recover.sh
     # dns_fo_check)
+    set -f
     for _d in $(echo "$_dns" | tr ',' ' '); do
         if ipv4_ok "$_d"; then
             [ -z "$T_DNS" ] && T_DNS=$_d
@@ -149,6 +154,7 @@ tun_parse() {
             ipv6_ok "$_d" && [ -z "$T_DNS6" ] && T_DNS6=$_d
         fi
     done
+    set +f
     [ -n "$_dns" ] && [ -z "$T_DNS" ] && T_WARN="$T_WARN DNS-without-IPv4-ignored"
     [ -n "$T_EPHOST" ] && T_WARN="$T_WARN host-name-endpoint(resolved-at-connect)"
     case "$T_EPIP" in *:*) T_WARN="$T_WARN IPv6-endpoint(the-network-needs-IPv6)" ;; esac

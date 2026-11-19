@@ -2322,6 +2322,22 @@ EOF
     rm -f "$WGS_DL/nl.zip" "$WGS_BACKUP_ROOT/wg-shield-backup.zip" "$RUN/outside.conf"
 fi
 
+if want parse_glob; then
+    echo "parse_glob: Address and DNS entries with glob characters are not matched against the current folder"
+    reset_state
+    mkdir -p "$RUN/globcwd/10.2.0.7"; : > "$RUN/globcwd/10.2.0.7/32"; : > "$RUN/globcwd/10.2.0.9"
+    conf "$WGS_DL/wg-GL-1.conf" 203.0.113.119:51820
+    sed -i 's#^Address = .*#Address = 10.2.0.?/32#' "$WGS_DL/wg-GL-1.conf"
+    out=$(cd "$RUN/globcwd" && ctl import wg-GL-1.conf 2>&1)
+    check "Address 10.2.0.?/32: refused as written" "0 1" "$(echo "$out" | kv imported) $(echo "$out" | grep -cF "reason=bad Address '10.2.0.?/32'")"
+    conf "$WGS_DL/wg-GL-2.conf" 203.0.113.120:51820
+    sed -i 's#^DNS = .*#DNS = 10.2.0.?, 10.2.0.1#' "$WGS_DL/wg-GL-2.conf"
+    ( cd "$RUN/globcwd" && ctl import wg-GL-2.conf >/dev/null && ctl up wg-GL-2 >/dev/null )
+    check "DNS 10.2.0.?: skipped, the next server used" "10.2.0.1 10.2.0.1" "$(sed -n 10p "$STATE/tunnel.info") $(sed -n 12p "$STATE/tunnel.info")"
+    ctl down >/dev/null
+    rm -rf "$RUN/globcwd"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
