@@ -423,7 +423,7 @@ case "$cmd" in
         wlog INFO "ctl: restart"
         "$IP" link del "$IFACE" 2>/dev/null
         rm -f "$STATE/loaded" "$STATE/heal" "$STATE/rules.key" "$STATE/resolved_at" \
-              "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused"
+              "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused"
         lock_release
         # 3. a new watchdog, in its own session: it keeps running after the
         #    WebUI / terminal that started it is gone

@@ -86,7 +86,7 @@ screen_on() {
 tun_pingable() { [ "$S_CHECKS" != off ] && grep -qxF -e "$1" "$STATE/pingable" 2>/dev/null; }
 heal_active() { [ -f "$STATE/heal" ] && ! grep -q '^done=1' "$STATE/heal" 2>/dev/null; }
 
-live_reset() { rm -f "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at"; }
+live_reset() { rm -f "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at"; }
 
 # dns_fo_check DNS - called by live_check when the tunnel answered its ping;
 # DNS = the status key dns. 0 when the active DNS server was changed (tick

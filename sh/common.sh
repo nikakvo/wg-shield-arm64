@@ -6,7 +6,6 @@
 # sources this file: new files are 644 / dirs 755 unless chmod says otherwise
 umask 022
 
-MODID=wg-shield
 MODDIR="${WGS_MODDIR:-/data/adb/modules/wg-shield}"
 # 1.0-r4: everything in ONE folder (up to r3: /data/adb/wg-shield.conf and
 # /data/adb/wg-shield-state/ next to it - see LEGACY_* and layout_migrate):

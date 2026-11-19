@@ -905,7 +905,7 @@ teardown() {
     "$IP" -6 route flush table "$TABLE" 2>/dev/null
     "$IP" link del "$IFACE" 2>/dev/null
     rm -f "$STATE/dns.bad" "$STATE/dns6.bad" "$STATE/dns6b.bad"
-    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
+    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
 }
 
 # error_blocks - state error, and the user wants the kill switch to hold
@@ -930,7 +930,7 @@ error_block() {
         # rules_sync below makes 5020-5022 unreachable, IPv6 they take into
         # table 51820 would otherwise find it empty and go around (netd's rules)
         "$IP" link del "$IFACE" 2>/dev/null
-        rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
+        rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
     fi
     dns_present && dns_del
     rm -f "$STATE/dns.bad" "$STATE/dns6.bad" "$STATE/dns6b.bad"
