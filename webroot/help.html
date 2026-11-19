@@ -351,7 +351,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
     <tr><td>favorites</td><td>Favorite tunnel names, one per line (kept on update)</td></tr>
     <tr><td>speedtest</td><td>Last speed test result per server address (kept on update and reboot)</td></tr>
     <tr><td>logs/wg-shield.log</td><td>Log (<strong>Clear</strong> in the Log tab empties it)</td></tr>
-    <tr><td>state/</td><td>Runtime state, cleared at boot; <code>state/status</code> is read by the sibling modules</td></tr>
+    <tr><td>state/</td><td>Runtime state, reset at boot (the cached tunnel list <code>tunrows</code> is kept); <code>state/status</code> is read by the sibling modules</td></tr>
     <tr><td>/storage/emulated/0/wg-shield/wg-shield-backup.zip</td><td>The backup (see 6): one .conf per tunnel, favorites.txt, backup-info.txt. Kept when the module is removed</td></tr>
   </table></div>
   <p><strong>Update:</strong> flash the new zip, reboot. Tunnels and settings stay.</p>

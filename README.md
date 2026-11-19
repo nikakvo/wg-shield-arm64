@@ -196,7 +196,7 @@ internet
 | `  favorites` | Favorite tunnel names, one per line |
 | `  speedtest` | Last speed test result per server address (the auto-switch order uses it) |
 | `  logs/wg-shield.log` | Log |
-| `  state/` | Runtime state, cleared at boot; `status` is read by the sibling modules |
+| `  state/` | Runtime state, reset at boot (the cached tunnel list `tunrows` is kept); `status` is read by the sibling modules |
 | `/storage/emulated/0/wg-shield/wg-shield-backup.zip` | The backup (WebUI **Backup**): one `.conf` per tunnel, `favorites.txt`, `backup-info.txt`. Kept when the module is removed. Holds private keys, like an export in Download |
 | `system/bin/wg` | `wg` from [wireguard-tools](https://git.zx2c4.com/wireguard-tools/) v1.0.20260223, static arm64 - also on the path: `su -c '/system/bin/wg show wgs0'` |
 | `system/bin/awg` | `awg` from [amneziawg-tools](https://github.com/amnezia-vpn/amneziawg-tools) 3.1.20260812, static arm64 - for an AmneziaWG tunnel: `su -c '/system/bin/awg show wgs0'` (that output includes the header protection key - do not share it; `ctl.sh diag` hides it) |
