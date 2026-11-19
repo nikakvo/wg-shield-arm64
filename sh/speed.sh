@@ -227,6 +227,7 @@ test_run() {
         wlog INFO "speed test: $_sa ($_slist) - $R_ST${R_PING:+, ping $R_PING ms}${R_HS:+, handshake $R_HS ms}"
     done
     # merge: this run replaces the lines of its addresses and of its tunnels
+    _ssaved=0
     _snew=$(printf '%s' "$_sres" | cut -d'|' -f1)
     _stun=$(printf '%s' "$_spairs" | awk 'NF { print $2 }')
     {
@@ -239,10 +240,10 @@ test_run() {
                 if (keep != "") { $6 = keep; print }
             }' "$TEST_FILE"
         printf '%s' "$_sres"
-    } > "$TEST_FILE.tmp.$$" && chmod 600 "$TEST_FILE.tmp.$$" && mv -f "$TEST_FILE.tmp.$$" "$TEST_FILE"
-    [ ! -e "$TEST_FILE.tmp.$$" ] || rm -f "$TEST_FILE.tmp.$$"
+    } > "$TEST_FILE.tmp.$$" && chmod 600 "$TEST_FILE.tmp.$$" && mv -f "$TEST_FILE.tmp.$$" "$TEST_FILE" && _ssaved=1
+    [ "$_ssaved" = 1 ] || { rm -f "$TEST_FILE.tmp.$$"; wlog WARN "speed test: the results could not be saved"; }
     echo "ok=1"; echo "box=$_sbox"; echo "epoch=$_snow"; echo "addresses=$_stot"; echo "tunnels=$_scnt"
-    unset _sbox _sst _saa _sak _spairs _scnt _sa _sas _stot _snow _si _sres _snames _slist _spick _snew _stun _stn
+    unset _sbox _sst _saa _sak _spairs _scnt _sa _sas _stot _snow _si _sres _snames _slist _spick _snew _stun _stn _ssaved
 }
 
 # poll rows: s=address|handshake ms|ping ms|status|age s|names
