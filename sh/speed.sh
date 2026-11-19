@@ -240,6 +240,7 @@ test_run() {
             }' "$TEST_FILE"
         printf '%s' "$_sres"
     } > "$TEST_FILE.tmp.$$" && chmod 600 "$TEST_FILE.tmp.$$" && mv -f "$TEST_FILE.tmp.$$" "$TEST_FILE"
+    [ ! -e "$TEST_FILE.tmp.$$" ] || rm -f "$TEST_FILE.tmp.$$"
     echo "ok=1"; echo "box=$_sbox"; echo "epoch=$_snow"; echo "addresses=$_stot"; echo "tunnels=$_scnt"
     unset _sbox _sst _saa _sak _spairs _scnt _sa _sas _stot _snow _si _sres _snames _slist _spick _snew _stun _stn
 }

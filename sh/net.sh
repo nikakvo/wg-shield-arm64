@@ -145,6 +145,7 @@ nets_classify() {
         done
         IFS=$_oifs
         { echo "$_key"; mono_now; printf '%s' "$_body"; } > "$_c.tmp.$$" && mv -f "$_c.tmp.$$" "$_c"
+        [ ! -e "$_c.tmp.$$" ] || rm -f "$_c.tmp.$$"
     fi
     _oifs=$IFS; IFS='
 '
@@ -232,6 +233,7 @@ exempt_uids() {
         if [ -n "$_p" ]; then
             _u=$(echo "$_p" | grep -i captiveportal | sed -n 's/.*uid:\([0-9][0-9]*\).*/\1/p' | sort -un | tr '\n' ' ')
             echo "$NETSTACK_UID $_u" > "$_f.tmp.$$" && mv -f "$_f.tmp.$$" "$_f"
+            [ ! -e "$_f.tmp.$$" ] || rm -f "$_f.tmp.$$"
             wlog INFO "kept on their own network: Android's network check (uid $NETSTACK_UID)${_u:+, captive portal login (uid ${_u% })}"
         fi
     fi

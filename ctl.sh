@@ -158,6 +158,7 @@ tun_rows() {
                 if tun_parse "$(tun_file "$n")"; then printf '%s\n' "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE|$_f"; else printf '%s\n' "t=$n|-|-|0|0|-|$_f"; fi
             done
         } > "$_c.tmp.$$" && mv -f "$_c.tmp.$$" "$_c"
+        [ ! -e "$_c.tmp.$$" ] || rm -f "$_c.tmp.$$"
     fi
     tail -n +2 "$_c" 2>/dev/null
 }

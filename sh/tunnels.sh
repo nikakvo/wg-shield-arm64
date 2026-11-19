@@ -219,7 +219,7 @@ fav_has() { fav_names | grep -qxF -e "$1"; }
 _fav_write() {  # names on stdin -> $FAVS (removed when empty)
     _ft="$FAVS.tmp.$$"
     sort -u > "$_ft" && chmod 600 "$_ft" || { rm -f "$_ft"; return 1; }
-    if [ -s "$_ft" ]; then mv -f "$_ft" "$FAVS"; else rm -f "$_ft" "$FAVS"; fi
+    if [ -s "$_ft" ]; then mv -f "$_ft" "$FAVS" || { rm -f "$_ft"; return 1; }; else rm -f "$_ft" "$FAVS"; fi
 }
 fav_add() { { fav_names; printf '%s\n' "$1"; } | _fav_write; }
 fav_del() { fav_names | grep -vxF -e "$1" | _fav_write; }

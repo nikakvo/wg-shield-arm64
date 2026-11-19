@@ -2338,6 +2338,36 @@ if want parse_glob; then
     rm -rf "$RUN/globcwd"
 fi
 
+if want write_fail; then
+    echo "write_fail: a file write whose temp file cannot be renamed leaves no temp file"
+    reset_state
+    conf "$WGS_DL/wg-WR-1.conf" 203.0.113.121:51820
+    conf "$WGS_DL/wg-WR-2.conf" 203.0.113.122:51820
+    ctl import wg-WR-1.conf >/dev/null; ctl import wg-WR-2.conf >/dev/null
+    date +%s > "$STATE/fake_hs"
+    ctl up wg-WR-1 >/dev/null
+    ctl fav add wg-WR-1 >/dev/null; ctl fav add wg-WR-2 >/dev/null
+    # an old VPN Hotspot: the compatibility copy of the status file is written too
+    mkdir -p "$WGS_MODULES/vpn-hotspot"; printf '%s\n' id=vpn-hotspot versionCode=10 > "$WGS_MODULES/vpn-hotspot/module.prop"
+    # mv that cannot rename a temp file (<file>.tmp.<pid>); every other mv works
+    mkdir -p "$RUN/mvfail"
+    cat > "$RUN/mvfail/mv" <<EOF
+#!/bin/sh
+case "\$*" in *.tmp.*) exit 1 ;; esac
+exec "$(command -v mv)" "\$@"
+EOF
+    chmod 755 "$RUN/mvfail/mv"
+    # the next tick rewrites these, and the description line changes (connecting)
+    rm -f "$STATE/nets" "$STATE/exempt_uids" "$STATE/tunrows" "$STATE/fake_hs"
+    out=$(PATH="$RUN/mvfail:$PATH" ctl set notify 0 2>&1)
+    PATH="$RUN/mvfail:$PATH" ctl fav del wg-WR-1 >/dev/null 2>&1
+    PATH="$RUN/mvfail:$PATH" ctl poll >/dev/null 2>&1
+    check "set and star: refused, the setting and the stars as they were" "0 1 2" "$(echo "$out" | kv ok) $(setting NOTIFY) $(grep -c . "$WGS_DATA/favorites")"
+    check "no temp file left (settings, favorites, status and its old copy, module.prop, state)" "" "$(find "$WGS_DATA" "$MOD" "$WGS_ADB" -name '*.tmp.*' 2>/dev/null | sed "s#^$RUN/##" | sort | tr '\n' ' ')"
+    rm -rf "$RUN/mvfail" "$WGS_MODULES/vpn-hotspot" "$WGS_ADB/wg-shield-state"
+    ctl down >/dev/null
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]

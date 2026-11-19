@@ -122,6 +122,7 @@ dns_fo_check() {
         _fx=$(echo "$_fa" | awk -v s="$_fs" '{ for (i = 1; i <= NF; i++) if ($i == s) { print $(i % NF + 1); exit } }')
         if [ -n "$_fx" ] && [ "$_fx" != "$_fs" ]; then
             printf '%s\n%s\n' "$_fx" "$_fl" > "$STATE/dns_srv.tmp.$$" && mv -f "$STATE/dns_srv.tmp.$$" "$STATE/dns_srv"
+            [ ! -e "$STATE/dns_srv.tmp.$$" ] || rm -f "$STATE/dns_srv.tmp.$$"
             rm -f "$STATE/dns_fo_fail"
             wlog WARN "DNS: $_fs does not answer through the tunnel (asked twice, $DNS_FO_NAME) - switching to $_fx"
             _fr=0
@@ -238,6 +239,7 @@ heal_save() {
         echo "orig=$H_ORIG"; echo "cur=$H_CUR"; echo "step=$H_STEP"; echo "at=$H_AT"
         echo "tried=$H_TRIED"; echo "done=$H_DONE"; echo "notified=$H_NOTIFIED"; echo "def=$H_DEF"
     } > "$STATE/heal.tmp.$$" && mv -f "$STATE/heal.tmp.$$" "$STATE/heal"
+    [ ! -e "$STATE/heal.tmp.$$" ] || rm -f "$STATE/heal.tmp.$$"
 }
 
 heal_clear() { rm -f "$STATE/heal"; H_ORIG=""; H_CUR=""; H_STEP=0; H_DONE=0; H_NOTIFIED=0; H_TRIED=""; }

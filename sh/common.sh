@@ -224,7 +224,8 @@ settings_save() {
         echo "CHECKS=$S_CHECKS"
         echo "LANDNS=$S_LANDNS"
         echo "KS_ERROR=$S_KS_ERROR"
-    } > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$CONF"
+    } > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$CONF" && return 0
+    rm -f "$tmp"; return 1
 }
 
 # ---- lock (mkdir + pid, stale takeover) ---------------------------------------
@@ -301,6 +302,7 @@ status_compat() {
         mkdir -p "$LEGACY_STATE" 2>/dev/null
         cp -f "$STATE/status" "$LEGACY_STATE/status.tmp.$$" 2>/dev/null &&
             mv -f "$LEGACY_STATE/status.tmp.$$" "$LEGACY_STATE/status"
+        [ ! -e "$LEGACY_STATE/status.tmp.$$" ] || rm -f "$LEGACY_STATE/status.tmp.$$"
     elif [ -d "$LEGACY_STATE" ]; then
         rm -rf "$LEGACY_STATE"
     fi
@@ -340,6 +342,8 @@ status_write() {
             "dns_lan=$ST_DNS_LAN" \
             "ks_error=$S_KS_ERROR"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
+    # a write that failed: its temp file goes (no process when it did not)
+    [ ! -e "$tmp" ] || rm -f "$tmp"
     status_compat
 }
 
@@ -387,4 +391,5 @@ module_desc() {  # keep the manager's description line in sync with the state
     grep -qxF "$line" "$prop" 2>/dev/null && return 0
     tmp="$prop.tmp.$$"
     { grep -v '^description=' "$prop"; printf '%s\n' "$line"; } > "$tmp" 2>/dev/null && mv -f "$tmp" "$prop"
+    [ ! -e "$tmp" ] || rm -f "$tmp"
 }
