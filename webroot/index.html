@@ -264,8 +264,8 @@
     <div id="clock">--:--:--</div>
   </div>
   <div class="btn-grid">
-    <a class="button clip" href="https://www.dnsleaktest.com/" target="_blank">DNS Test</a>
-    <a class="button clip" href="https://ipleak.net/" target="_blank">Leak Test</a>
+    <a class="button clip" href="#" data-ext="https://www.dnsleaktest.com/">DNS Test</a>
+    <a class="button clip" href="#" data-ext="https://ipleak.net/">Leak Test</a>
     <a class="button alt clip" href="help.html">Help</a>
   </div>
 </header>
@@ -470,6 +470,20 @@ function callbackExec(cmd, timeoutMs) {
   });
 }
 function legacyExec(cmd) { const r = ksu.exec(cmd); return { errno: 0, stdout: typeof r === 'string' ? r : (r && r.stdout) || '', stderr: '' }; }
+// Outside sites open in the phone's browser. The root manager would load a
+// link in this WebView, where the site's scripts could reach ksu.exec.
+function openExt(url) {
+  if (!/^https:\/\/[a-z0-9.-]+\/[a-z0-9._\/-]*$/i.test(url) || !hasBridge()) return;
+  const cmd = `am start -a android.intent.action.VIEW -d '${url}'`;
+  try { ksu.exec(cmd, '{}', '__wgs_ext'); } catch (e) { try { ksu.exec(cmd); } catch (_) {} }
+}
+window.__wgs_ext = () => {};
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('a[data-ext]');
+  if (!a) return;
+  e.preventDefault();
+  openExt(a.getAttribute('data-ext'));
+});
 // The callback form runs off the page's thread; the legacy one blocks the
 // whole page until the command ends. A slow first root shell (cold start)
 // must not push the page into legacy mode for good, so the callback form

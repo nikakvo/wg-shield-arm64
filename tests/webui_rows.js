@@ -27,6 +27,21 @@ for (const fav of [false, true]) {
   check(`fav=${fav}: the name reaches each handler whole`, h.every(e => e['data-n'] === name));
   check(`fav=${fav}: handler code is valid JS`, h.every(e => { try { new Function(e.onclick || e.onchange); return true; } catch (x) { return false; } }));
 }
+// outside sites: never loaded in this WebView, which carries the root bridge
+check('no link navigates the WebUI to an outside site', !/<a\b[^>]*\bhref="(https?:)?\/\//i.test(html));
+const oe = vm.runInContext('typeof openExt === "function" ? openExt : null', ctx);
+check('openExt exists', !!oe);
+if (oe) {
+  let cmd = null;
+  ctx.ksu = { exec: (c) => { cmd = c; } };
+  oe('https://www.example.org/');
+  check('an outside site opens in the browser (am start VIEW)', cmd === "am start -a android.intent.action.VIEW -d 'https://www.example.org/'");
+  cmd = null; oe("https://x.example.org/'; reboot; '");
+  check('a URL with a quote is refused', cmd === null);
+  cmd = null; oe('javascript:alert(1)');
+  check('a URL that is not https is refused', cmd === null);
+  delete ctx.ksu;
+}
 if (process.argv[3]) {
   const want = process.argv.slice(4).sort();
   const r = vm.runInContext('parseKV', ctx)(fs.readFileSync(process.argv[3], 'utf8'));
