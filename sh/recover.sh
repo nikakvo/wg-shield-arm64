@@ -121,11 +121,15 @@ dns_fo_check() {
         # no reply twice in a row: the next server of the line, the first after the last
         _fx=$(echo "$_fa" | awk -v s="$_fs" '{ for (i = 1; i <= NF; i++) if ($i == s) { print $(i % NF + 1); exit } }')
         if [ -n "$_fx" ] && [ "$_fx" != "$_fs" ]; then
-            printf '%s\n%s\n' "$_fx" "$_fl" > "$STATE/dns_srv.tmp.$$" && mv -f "$STATE/dns_srv.tmp.$$" "$STATE/dns_srv"
-            [ ! -e "$STATE/dns_srv.tmp.$$" ] || rm -f "$STATE/dns_srv.tmp.$$"
-            rm -f "$STATE/dns_fo_fail"
-            wlog WARN "DNS: $_fs does not answer through the tunnel (asked twice, $DNS_FO_NAME) - switching to $_fx"
-            _fr=0
+            if printf '%s\n%s\n' "$_fx" "$_fl" > "$STATE/dns_srv.tmp.$$" && mv -f "$STATE/dns_srv.tmp.$$" "$STATE/dns_srv"; then
+                rm -f "$STATE/dns_fo_fail"
+                wlog WARN "DNS: $_fs does not answer through the tunnel (asked twice, $DNS_FO_NAME) - switching to $_fx"
+                _fr=0
+            else
+                # not saved: dns_active still names $_fs, so no switch and no rebuild
+                rm -f "$STATE/dns_srv.tmp.$$"
+                wlog WARN "DNS: $_fs does not answer through the tunnel (asked twice, $DNS_FO_NAME) - could not save the switch to $_fx"
+            fi
         fi
     fi
     unset _fa _fn _fl _fs _fx

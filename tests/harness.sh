@@ -2402,7 +2402,7 @@ EOF
     PATH="$RUN/mvfail:$PATH" ctl status >/dev/null 2>&1
     ctl down >/dev/null
     out=$(PATH="$RUN/mvfail:$PATH" WGS_TEST_HS_MAX=2 ctl test WS 2>&1)
-    check "each writer reached: DNS switch, recovery step, speed test result" "1 1 1" "$(grep -c 'switching to 10.2.0.9' "$WGS_DATA/logs/wg-shield.log") $(grep -c 'recovery: wg-WS-1 does not answer - restart 1' "$WGS_DATA/logs/wg-shield.log") $(echo "$out" | grep -c '^r=203.0.113.125|')"
+    check "each writer reached: DNS switch (logged as not saved), recovery step, speed test result" "1 1 1" "$(grep -c 'could not save the switch to 10.2.0.9' "$WGS_DATA/logs/wg-shield.log") $(grep -c 'recovery: wg-WS-1 does not answer - restart 1' "$WGS_DATA/logs/wg-shield.log") $(echo "$out" | grep -c '^r=203.0.113.125|')"
     check "no temp file left (heal, dns_srv, speedtest)" "" "$(find "$WGS_DATA" -name '*.tmp.*' 2>/dev/null | sed "s#^$RUN/##" | sort | tr '\n' ' ')"
     rm -rf "$RUN/mvfail" "$WGS_SYSNET/wgs0"
 fi
