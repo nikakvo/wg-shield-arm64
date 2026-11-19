@@ -209,7 +209,7 @@ tun_names() {
 # file can not inject anything into the poll rows), 0600 like the settings.
 fav_names() {
     [ -f "$FAVS" ] || return 0
-    while IFS= read -r _fn; do
+    while IFS= read -r _fn || [ -n "$_fn" ]; do      # also a last line without a line break
         _fn=$(printf '%s' "$_fn" | tr -d '\r')
         tunnel_name_ok "$_fn" && printf '%s\n' "$_fn"
     done < "$FAVS" 2>/dev/null | sort -u
@@ -361,7 +361,7 @@ bk_restore() {
     IFS=$_br_ifs; set +f
     _br_fav=0
     if [ -f "$_br/favorites.txt" ]; then
-        _br_list=$(tr -d '\r' < "$_br/favorites.txt" | while IFS= read -r _fn; do
+        _br_list=$(tr -d '\r' < "$_br/favorites.txt" | while IFS= read -r _fn || [ -n "$_fn" ]; do
             tunnel_name_ok "$_fn" || continue
             case " $_br_names " in *" $_fn "*) printf '%s\n' "$_fn" ;; esac
         done)

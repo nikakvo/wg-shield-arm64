@@ -2368,6 +2368,31 @@ EOF
     ctl down >/dev/null
 fi
 
+if want last_line; then
+    echo "last_line: settings, favorites and a backup's favorites without a final line break keep their last line"
+    reset_state
+    conf "$WGS_DL/wg-LL-1.conf" 203.0.113.123:51820
+    conf "$WGS_DL/wg-LL-2.conf" 203.0.113.124:51820
+    ctl import wg-LL-1.conf >/dev/null; ctl import wg-LL-2.conf >/dev/null
+    printf 'wg-LL-1\nwg-LL-2' > "$WGS_DATA/favorites"
+    check "favorites edited by hand: both starred" "1 1" "$(ctl list | grep -c '^tunnel=wg-LL-1 .* fav=1$') $(ctl list | grep -c '^tunnel=wg-LL-2 .* fav=1$')"
+    printf '# WG Shield Arm64 settings - edit with ctl.sh\nACTIVE=wg-LL-1\nLAST=wg-LL-1\nKILLSWITCH=0' > "$WGS_DATA/settings.conf"
+    rm -f "$STATE/fake_hs"; ctl status >/dev/null
+    check "settings edited by hand: KILLSWITCH=0 on the last line counts" "0 wlan0" "$(st killswitch) $(route_of)"
+    ctl down >/dev/null
+    mkdir -p "$WGS_BACKUP_ROOT"
+    python3 -I - "$WGS_BACKUP_ROOT/wg-shield-backup.zip" "$WGS_DATA/tunnels" <<'EOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    for n in ("wg-LL-1", "wg-LL-2"):
+        z.write(sys.argv[2] + "/" + n + ".conf", n + ".conf")
+    z.writestr("favorites.txt", "wg-LL-1\nwg-LL-2")
+EOF
+    ctl removeall >/dev/null
+    check "restore: both favorites of the backup" 2 "$(ctl restore | kv favorites)"
+    rm -f "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]

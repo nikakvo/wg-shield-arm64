@@ -195,7 +195,8 @@ ipv6_canon() {
 settings_load() {
     S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30; S_LANDNS=0; S_KS_ERROR=0
     [ -f "$CONF" ] || return 0
-    while IFS='=' read -r k v; do
+    # "|| [ -n ]": a last line without a line break (edited by hand) counts too
+    while IFS='=' read -r k v || [ -n "$k" ]; do
         v=$(printf '%s' "$v" | tr -d '\r')
         case "$k" in
             ACTIVE) tunnel_name_ok "$v" && S_ACTIVE=$v ;;
