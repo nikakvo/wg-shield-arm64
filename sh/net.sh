@@ -318,7 +318,7 @@ rules_apply() {
         ip_batch "$_b.del"
         ip_batch "$_b.new"
     fi
-    mv -f "$_b.new" "$STATE/rules.want"
+    mv -f "$_b.new" "$STATE/rules.want" || rm -f "$_b.new"
     rm -f "$_b.fast" "$_b.old" "$_b.sorted" "$_b.del"
     rules_check || {
         # an ip without -batch? one by one, then look again

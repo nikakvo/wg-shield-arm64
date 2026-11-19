@@ -2438,6 +2438,25 @@ if want no_remote_assets; then
     check "no stylesheet, script or font from a remote host in webroot/*.html" "" "$(grep -n -i -E '<(link|script)[^>]*(href|src)="(https?:)?//' "$REPO"/webroot/*.html | sed "s#^$REPO/##" | cut -d: -f1,2 | tr '\n' ' ')"
 fi
 
+if want rules_batch_fail; then
+    echo "rules_batch_fail: a rule batch whose rename fails leaves no batch file in state/"
+    reset_state
+    conf "$WGS_DL/wg-RB-1.conf" 203.0.113.126:51820
+    ctl import wg-RB-1.conf >/dev/null
+    mkdir -p "$RUN/rbfail"
+    cat > "$RUN/rbfail/mv" <<EOF
+#!/bin/sh
+case "\$*" in *rules.batch.*.new*) exit 1 ;; esac
+exec "$(command -v mv)" "\$@"
+EOF
+    chmod 755 "$RUN/rbfail/mv"
+    date +%s > "$STATE/fake_hs"
+    PATH="$RUN/rbfail:$PATH" ctl up wg-RB-1 >/dev/null 2>&1
+    check "no rules.batch file left" "" "$(find "$STATE" -name 'rules.batch.*' 2>/dev/null | sed "s#^$STATE/##" | tr '\n' ' ')"
+    rm -rf "$RUN/rbfail"
+    ctl down >/dev/null
+fi
+
 echo
 echo "passed $PASS, failed $FAILN"
 [ "$FAILN" = 0 ]
