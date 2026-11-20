@@ -2466,8 +2466,60 @@ EOF
 fi
 
 if want no_remote_assets; then
-    echo "no_remote_assets: the WebUI pages load nothing from another host"
-    check "no stylesheet, script or font from a remote host in webroot/*.html" "" "$(grep -n -i -E '<(link|script)[^>]*(href|src)="(https?:)?//' "$REPO"/webroot/*.html | sed "s#^$REPO/##" | cut -d: -f1,2 | tr '\n' ' ')"
+    echo "no_remote_assets: the WebUI files load nothing from another host"
+    # remote_loads DIR - "<file>:<line>" of every file under DIR that would
+    # load something from another host: an attribute (src, href, srcset,
+    # action, poster, data, background, formaction) or CSS url() / @import
+    # to http(s): or //host, a script load (fetch, XMLHttpRequest open,
+    # WebSocket, EventSource, import, Worker, sendBeacon, .src =), and any
+    # other absolute URL. Allowed: the two outside sites the page hands to
+    # the phone's browser (openExt: data-ext="..." only) and the SVG
+    # namespace of an inline data: image
+    remote_loads() {
+        find "$1" -type f | LC_ALL=C sort | while IFS= read -r f; do
+            sed -e 's#data-ext="https://www\.dnsleaktest\.com/"##g; s#data-ext="https://ipleak\.net/"##g' \
+                -e "s#xmlns='http://www\\.w3\\.org/2000/svg'##g" "$f" |
+                grep -n -i -I -E \
+                    -e '(^|[^a-z-])(src|href|srcset|action|poster|data|background|formaction)[[:space:]]*=[[:space:]]*["'"'"']?[[:space:]]*([a-z]+:)?//' \
+                    -e 'url[[:space:]]*\([[:space:]]*["'"'"']?[[:space:]]*([a-z]+:)?//' \
+                    -e '@import[[:space:]]+["'"'"']?[[:space:]]*([a-z]+:)?//' \
+                    -e '(fetch|sendbeacon|websocket|eventsource|import|importscripts|worker)[[:space:]]*\([[:space:]]*["'"'"'`][[:space:]]*([a-z]+:)?//' \
+                    -e '\.open[[:space:]]*\([[:space:]]*["'"'"'`][a-z]+["'"'"'`][[:space:]]*,[[:space:]]*["'"'"'`][[:space:]]*([a-z]+:)?//' \
+                    -e '\.src[[:space:]]*=[[:space:]]*["'"'"'`][[:space:]]*([a-z]+:)?//' \
+                    -e '[a-z]+://' | cut -d: -f1 | sed "s#^#${f#"$1"/}:#"
+        done
+    }
+    # the scanner itself: one file per shape is flagged, the allowed ones are not
+    RA="$RUN/remote"; rm -rf "$RA"; mkdir -p "$RA/bad" "$RA/good"
+    printf '%s\n' \
+        '<script src="https://cdn.example.org/x.js"></script>' \
+        "<link rel=stylesheet href='//cdn.example.org/x.css'>" \
+        '<img src=//cdn.example.org/x.png>' \
+        '<img srcset="https://cdn.example.org/x.png 2x">' \
+        '<iframe src="https://www.dnsleaktest.com/"></iframe>' \
+        '<a href="https://ipleak.net/">x</a>' \
+        'body { background: url(https://cdn.example.org/x.png); }' \
+        "div { background: url('//cdn.example.org/x.png'); }" \
+        '@import url("https://cdn.example.org/x.css");' \
+        "@import '//cdn.example.org/x.css';" \
+        "fetch('https://ipleak.net/');" \
+        "fetch(\`//cdn.example.org/x\`);" \
+        "x.open('GET', 'https://cdn.example.org/x');" \
+        "new WebSocket('wss://cdn.example.org/x');" \
+        "img.src = '//cdn.example.org/x.png';" \
+        "const u = 'https://cdn.example.org/x'; fetch(u);" > "$RA/shapes"
+    n=0; while IFS= read -r l; do n=$((n + 1)); printf '%s\n' "$l" > "$RA/bad/$n.html"; done < "$RA/shapes"
+    printf '%s\n' \
+        '<a class="button clip" href="#" data-ext="https://www.dnsleaktest.com/">DNS Test</a>' \
+        '<a class="button clip" href="#" data-ext="https://ipleak.net/">Leak Test</a>' \
+        '<a href="help.html">Help</a> <a href="#what">1</a>' \
+        ".sel { background: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E\"); }" \
+        "function goBack() { location.href = 'index.html'; }" \
+        'if (!/^https:\/\/[a-z0-9.-]+\/$/i.test(url)) return;' > "$RA/good/page.html"
+    check "scanner: each of the $n shapes is flagged" "$n" "$(remote_loads "$RA/bad" | cut -d: -f1 | sort -u | grep -c .)"
+    check "scanner: the allowed outside sites (data-ext), the SVG namespace and local links are not" "" "$(remote_loads "$RA/good")"
+    check "nothing under webroot/ loads from another host" "" "$(remote_loads "$REPO/webroot" | tr '\n' ' ')"
+    rm -rf "$RA"
 fi
 
 if want rules_batch_fail; then
