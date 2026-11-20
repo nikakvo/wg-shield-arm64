@@ -472,12 +472,32 @@ function callbackExec(cmd, timeoutMs) {
 function legacyExec(cmd) { const r = ksu.exec(cmd); return { errno: 0, stdout: typeof r === 'string' ? r : (r && r.stdout) || '', stderr: '' }; }
 // Outside sites open in the phone's browser. The root manager would load a
 // link in this WebView, where the site's scripts could reach ksu.exec.
-function openExt(url) {
-  if (!/^https:\/\/[a-z0-9.-]+\/[a-z0-9._\/-]*$/i.test(url) || !hasBridge()) return;
-  const cmd = `am start -a android.intent.action.VIEW -d '${url}'`;
-  try { ksu.exec(cmd, '{}', '__wgs_ext'); } catch (e) { try { ksu.exec(cmd); } catch (_) {} }
+// When the browser does not open (no root bridge, an exception, am start
+// ending non-zero or printing its "Error:" line) a toast says so. No answer
+// in time is not reported: the browser takes the screen, the answer may
+// come late. Never rejects (the click handler does not wait for it).
+async function openExt(url) {
+  if (!/^https:\/\/[a-z0-9.-]+\/[a-z0-9._\/-]*$/i.test(url)) { toast('Not opened: not an https address', 'err'); return false; }
+  const cmd = `am start -a android.intent.action.VIEW -d '${url}' 2>&1`;
+  const fail = m => { toast('Could not open the browser: ' + m, 'err'); return false; };
+  let r;
+  try {
+    if (!hasBridge()) return fail('no root bridge');
+    if (EXEC_MODE === 'legacy') r = legacyExec(cmd);
+    else {
+      try { r = await callbackExec(cmd, 15000); }
+      catch (e) {
+        if (/timeout/.test(String(e && e.message))) return true;
+        if (EXEC_MODE === 'callback') throw e;
+        r = legacyExec(cmd);     // the bridge's form is not known yet: the other one
+      }
+    }
+  } catch (e) { return fail(String((e && e.message) || e)); }
+  const out = (r.stdout || '') + (r.stderr || '');
+  const err = out.split('\n').find(l => /^Error/.test(l));
+  if (r.errno !== 0 || err) return fail(err || 'am start ended with ' + r.errno);
+  return true;
 }
-window.__wgs_ext = () => {};
 document.addEventListener('click', e => {
   const a = e.target.closest && e.target.closest('a[data-ext]');
   if (!a) return;
