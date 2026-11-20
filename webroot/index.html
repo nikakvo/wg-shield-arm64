@@ -1172,7 +1172,8 @@ function fallbackCopy(t, done) {
 const EXIT = {};
 async function checkExit() {
   $('exit-sub').textContent = 'Asking…';
-  const r = parseKV(await ctl('exitip', 60000));
+  // no answer from the module: shown below like the services' own error
+  const r = parseKV(await ctl('exitip', 60000).catch(e => 'error=No answer from the module: ' + ((e && e.message) || e)));
   if (r.ok !== '1') {
     $('exit-ip').textContent = 'no answer'; $('exit-ip').className = 'v r';
     $('exit-sub').textContent = (r.error || 'The IP service did not answer.') + (ST.state === 'down' && ks(ST) ? ' The tunnel is down (kill switch).' : '');

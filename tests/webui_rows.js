@@ -130,6 +130,12 @@ process.on('exit', () => { if (!asyncDone) { console.log('  FAIL the openExt che
     try { await vm.runInContext(fn, ctx)(); } catch (e) { threw = true; }
     check(`${fn}: a read that fails shows "${txt}", no rejection`, !threw && (els[id] || {}).innerHTML.includes(txt));
   }
+  // Check (exit address): a command that gets no answer ends "Asking..." with a message
+  vm.runInContext('EXEC_MODE = "legacy"', ctx);
+  ctx.ksu = { exec: () => { throw new Error('bridge gone'); } };
+  let exThrew = false;
+  try { await vm.runInContext('checkExit', ctx)(); } catch (e) { exThrew = true; }
+  check('checkExit: no answer ends "Asking..." with a message, no rejection', !exThrew && /no answer/i.test((els['exit-sub'] || {}).textContent || '') && !/Asking/.test(els['exit-sub'].textContent));
   ctx.document = doc; delete ctx.ksu;
 })().catch(e => check(`openExt checks: no exception (${e && e.message})`, false))
   .finally(() => { asyncDone = true; process.exit(fail ? 1 : 0); });
