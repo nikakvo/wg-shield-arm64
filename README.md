@@ -80,7 +80,7 @@ your Wi-Fi or mobile network → VPN server → internet
 
 During a speed test two more rules exist for a few seconds per server: 4990 (the test interface's own packets to that server go out through your network) and 4991 (pings bound to the test interface use its table 51821). Both, the interface `wgt0` and the table are removed right after each server.
 
-Carrier service networks keep Android's routing - that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working. Which network is which comes from Android itself: restricted networks (IMS and the like) are never touched, networks without internet (MMS only) are left alone after one look at `dumpsys connectivity`. No firewall (iptables) rules at all: nothing can conflict with Android's firewall lock or with the other modules' chains.
+Carrier service networks keep Android's routing - that is how IMS (VoLTE, Wi-Fi calling) and MMS keep working. Which network is which comes from Android itself: restricted networks (IMS and the like) are never touched, networks without internet (MMS only) are left alone after one look at `dumpsys connectivity`. The routing needs no firewall (iptables) rules. Only the DNS redirect uses iptables, in chains of its own (nat `wgs_dns`, with LAN DNS through the tunnel also `wgs_dnss` and the IPv6 filter chain `wgs_dnsb`); they are read with `iptables-save`, so no check holds Android's firewall lock, and the other modules' chains are never touched.
 
 `wgs0` is created with the type of the tunnel that is on (`wireguard` or `amneziawg`) and set up with the matching tool (`wg` or `awg`). Switching between the two types creates `wgs0` again; the `unreachable` route keeps the kill switch closed meanwhile.
 
@@ -182,7 +182,7 @@ internet
 - **Hotspot devices follow the tunnel** - WireGuard or AmneziaWG alike: VPN Hotspot (1.0-r13 or newer) reads WG Shield's status: through the tunnel when it is up, direct when you turn it off or pause it, blocked when it fails
 - **ipset** blocks as always; a tunnel server must never be in its lists (check it with its *Check* tool)
 - **LAN Cloak** - hides what the Wi-Fi network itself sees of the phone (DHCP, announcements); the tunnel covers the rest. WG Shield's Dashboard shows its state
-- **No firewall conflicts** - WG Shield uses routing only; the others read the firewall without taking Android's lock
+- **No firewall conflicts** - WG Shield routes with rules, not the firewall; its only iptables chains are the DNS redirect's own, read without taking Android's lock, as the others read the firewall
 
 ---
 
