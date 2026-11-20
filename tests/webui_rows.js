@@ -67,12 +67,14 @@ process.on('exit', () => { if (!asyncDone) { console.log('  FAIL the openExt che
   check('the toast hook sees the page\'s toasts', toasts.length === 1 && toasts[0][1] === 'err');
   ctx.window = {};                       // callbackExec keeps its callback here
   let cmd = null, ans = null;
-  // ans: [errno, stdout, stderr] for the callback form, a string for the legacy one
+  // ans: [errno, stdout, stderr] for the callback form; for the legacy one a
+  // string, or [stdout, stderr]: that form hands back stdout only, so am's
+  // stderr comes back only when the command sends it there (2>&1)
   ctx.ksu = { exec: (c, o, cb) => {
     cmd = c;
     if (ans instanceof Error) throw ans;
     if (cb) { Promise.resolve().then(() => ctx.window[cb](...ans)); return; }
-    return ans;
+    return Array.isArray(ans) ? ans[0] + (/ 2>&1$/.test(c) ? ans[1] : '') : ans;
   } };
   const run = async (url, a, mode) => {
     vm.runInContext(`EXEC_MODE = ${JSON.stringify(mode || 'callback')}`, ctx);
@@ -84,7 +86,7 @@ process.on('exit', () => { if (!asyncDone) { console.log('  FAIL the openExt che
   const ok = 'Starting: Intent { act=android.intent.action.VIEW dat=https://www.example.org/... }\n';
   const nf = 'Error: Activity not started, unable to resolve Intent { act=android.intent.action.VIEW }\n';
   let x = await run('https://www.example.org/', [0, ok, '']);
-  check('an outside site opens in the browser (am start VIEW)', /^am start -a android\.intent\.action\.VIEW -d 'https:\/\/www\.example\.org\/'( 2>&1)?$/.test(x.cmd) && x.err.length === 0);
+  check('an outside site opens in the browser (am start VIEW)', /^am start -a android\.intent\.action\.VIEW -d 'https:\/\/www\.example\.org\/' 2>&1$/.test(x.cmd) && x.err.length === 0);
   x = await run("https://x.example.org/'; reboot; '", [0, ok, '']);
   check('a URL with a quote is refused', x.cmd === null);
   x = await run('javascript:alert(1)', [0, ok, '']);
@@ -95,9 +97,9 @@ process.on('exit', () => { if (!asyncDone) { console.log('  FAIL the openExt che
   check('am start prints "Error: Activity not started": an error toast naming it', x.err.length === 1 && /Activity not started/.test(x.err[0]));
   x = await run('https://www.example.org/', new Error('bridge gone'));
   check('ksu.exec throws: an error toast, no exception out of openExt', x.err.length === 1 && !x.threw);
-  x = await run('https://www.example.org/', nf, 'legacy');
-  check('legacy form, "Error:" in the output: an error toast', x.err.length === 1 && /Activity not started/.test(x.err[0]));
-  x = await run('https://www.example.org/', ok, 'legacy');
+  x = await run('https://www.example.org/', ['', nf], 'legacy');
+  check('legacy form, "Error:" on stderr: an error toast', x.err.length === 1 && /Activity not started/.test(x.err[0]));
+  x = await run('https://www.example.org/', [ok, ''], 'legacy');
   check('legacy form, the browser opens: no toast', x.cmd !== null && x.err.length === 0);
   delete ctx.ksu;
   x = await run('https://www.example.org/', [0, ok, '']);
