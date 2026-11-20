@@ -2116,6 +2116,30 @@ if want boot_leftovers; then
     rm -f "$WGS_DATA/tunnels/wg-BL.conf.tmp.7.conf"
 fi
 
+if want migrate_fail; then
+    echo "migrate_fail: the r3 -> r4 move of the settings keeps them when the rename fails"
+    # mv that cannot rename the old settings file; every other mv works
+    mkdir -p "$RUN/mvconf"
+    cat > "$RUN/mvconf/mv" <<EOF
+#!/bin/sh
+case "\$*" in *wg-shield.conf*) exit 1 ;; esac
+exec "$(command -v mv)" "\$@"
+EOF
+    chmod 755 "$RUN/mvconf/mv"
+    newer() { grep -lx 'KILLSWITCH=0' "$WGS_DATA/settings.conf" "$WGS_ADB/wg-shield.conf" 2>/dev/null | grep -c .; }
+    for c in none older; do
+        reset_state; mkdir -p "$WGS_DATA/state" "$WGS_ADB"
+        if [ "$c" = older ]; then
+            printf '%s\n' ACTIVE= LAST= KILLSWITCH=1 > "$WGS_DATA/settings.conf"
+            touch -d '@'"$(( $(date +%s) - 600 ))" "$WGS_DATA/settings.conf"
+        fi
+        printf '%s\n' ACTIVE= LAST=wg-MF-1 KILLSWITCH=0 > "$WGS_ADB/wg-shield.conf"
+        PATH="$RUN/mvconf:$PATH" $TSH "$MOD/post-fs-data.sh" >/dev/null 2>&1
+        check "rename fails ($c settings in the new place): the newer settings are still there" 1 "$(newer)"
+    done
+    rm -rf "$RUN/mvconf" "$WGS_ADB/wg-shield.conf"
+fi
+
 if want device_umask; then
     echo "device_umask: started with umask 0000 (as the root manager does), files get sane modes"
     reset_state

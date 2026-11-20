@@ -354,8 +354,11 @@ status_write() {
 _lm_take() { # <old> <new> -> 0 if the old one was taken
     [ -e "$1" ] || return 1
     if [ ! -e "$2" ] || [ "$(stat -c %Y "$1" 2>/dev/null || echo 0)" -gt "$(stat -c %Y "$2" 2>/dev/null || echo 0)" ]; then
-        rm -rf "$2" 2>/dev/null
+        # the rename replaces a file; only a folder or a link is removed
+        # first. A rename that fails keeps both (the next boot tries again)
+        if [ -d "$2" ] || [ -L "$2" ]; then rm -rf "$2" 2>/dev/null; fi
         mv -f "$1" "$2" 2>/dev/null && return 0
+        return 1
     fi
     rm -rf "$1" 2>/dev/null
     return 1
