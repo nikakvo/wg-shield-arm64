@@ -2322,6 +2322,38 @@ EOF
     rm -f "$WGS_DL/nl.zip" "$WGS_BACKUP_ROOT/wg-shield-backup.zip" "$RUN/outside.conf"
 fi
 
+if want zip_links; then
+    echo "zip_links: symlink entries in an export zip or the backup make root neither write nor import a file outside it"
+    reset_state
+    # a usable tunnel file outside the zip, in a folder of its own
+    LO="$RUN/linkout"; rm -rf "$LO"; mkdir -p "$LO"
+    conf "$LO/outside.conf" 203.0.113.127:51820
+    # one zip per shape: a link to the folder (absolute, relative) with a
+    # file written through it, a .conf entry that is a link to the outside file
+    for shape in abs rel file; do
+        python3 -I - "$WGS_DL/link-$shape.zip" "$LO" "$shape" <<'EOF'
+import sys, zipfile, stat
+p, out, shape = sys.argv[1:]
+def link(z, name, target):
+    zi = zipfile.ZipInfo(name); zi.create_system = 3; zi.external_attr = (stat.S_IFLNK | 0o777) << 16
+    z.writestr(zi, target)
+with zipfile.ZipFile(p, "w") as z:
+    if shape == "abs": link(z, "lnk", out); z.writestr("lnk/planted.conf", "x\n")
+    if shape == "rel": link(z, "lnk", "../../../linkout"); z.writestr("lnk/planted.conf", "x\n")
+    if shape == "file": link(z, "x.conf", out + "/outside.conf")
+EOF
+    done
+    for shape in abs rel file; do ctl import "link-$shape.zip" >/dev/null 2>&1; done
+    check "import: nothing written outside, the outside file not imported" "outside.conf 0" "$(find "$LO" -mindepth 1 -printf '%f\n' | sort | tr '\n' ' ' | sed 's/ $//') $(ctl list | grep -c '203\.0\.113\.127')"
+    mkdir -p "$WGS_BACKUP_ROOT"
+    for shape in abs rel file; do
+        cp "$WGS_DL/link-$shape.zip" "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
+        ctl restore >/dev/null 2>&1
+    done
+    check "restore: nothing written outside, the outside file not imported" "outside.conf 0" "$(find "$LO" -mindepth 1 -printf '%f\n' | sort | tr '\n' ' ' | sed 's/ $//') $(ctl list | grep -c '203\.0\.113\.127')"
+    rm -rf "$LO" "$WGS_DL"/link-*.zip "$WGS_BACKUP_ROOT/wg-shield-backup.zip"
+fi
+
 if want parse_glob; then
     echo "parse_glob: Address and DNS entries with glob characters are not matched against the current folder"
     reset_state
