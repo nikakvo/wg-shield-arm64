@@ -4,8 +4,9 @@
 // With the output of `ctl.sh files` and the file names in it, the page's own
 // parser (parseKV + fileRow) is checked on it as well:
 //   node tests/webui_rows.js webroot/index.html FILES_OUTPUT NAME...
+// The outside-link check reads every page next to index.html (help.html too).
 // Prints one "ok"/"FAIL" line per check; exit 1 on a failure.
-const fs = require('fs'), vm = require('vm');
+const fs = require('fs'), path = require('path'), vm = require('vm');
 const html = fs.readFileSync(process.argv[2], 'utf8');
 const js = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
 // the page script runs against a do-nothing DOM; only its functions are used
@@ -27,8 +28,20 @@ for (const fav of [false, true]) {
   check(`fav=${fav}: the name reaches each handler whole`, h.every(e => e['data-n'] === name));
   check(`fav=${fav}: handler code is valid JS`, h.every(e => { try { new Function(e.onclick || e.onchange); return true; } catch (x) { return false; } }));
 }
-// outside sites: never loaded in this WebView, which carries the root bridge
-check('no link navigates the WebUI to an outside site', !/<a\b[^>]*\bhref="(https?:)?\/\//i.test(html));
+// outside sites: never loaded in this WebView, which carries the root bridge -
+// no link to one (any quoting), no new window, no script navigation, on any page
+const dir = path.dirname(process.argv[2]), far = '(?:https?:)?//';
+const nav = [
+  new RegExp(`<a\\b[^>]*\\bhref\\s*=\\s*["']?${far}`, 'i'),
+  new RegExp('\\btarget\\s*=\\s*["\']?_blank', 'i'),
+  new RegExp(`\\blocation(?:\\.href)?\\s*=\\s*["'\`]${far}`, 'i'),
+  new RegExp(`\\blocation\\.(?:assign|replace)\\s*\\(\\s*["'\`]${far}`, 'i'),
+  new RegExp(`\\bwindow\\.open\\s*\\(\\s*["'\`]${far}`, 'i'),
+];
+for (const f of fs.readdirSync(dir).filter(n => /\.html?$/i.test(n)).sort()) {
+  const t = fs.readFileSync(path.join(dir, f), 'utf8');
+  check(`${f}: no link or script navigates the WebUI to an outside site`, !nav.some(r => r.test(t)));
+}
 const oe = vm.runInContext('typeof openExt === "function" ? openExt : null', ctx);
 check('openExt exists', !!oe);
 if (oe) {
