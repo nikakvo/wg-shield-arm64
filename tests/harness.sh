@@ -2142,6 +2142,17 @@ EOF
         PATH="$RUN/mvconf:$PATH" $TSH "$MOD/post-fs-data.sh" >/dev/null 2>&1
         check "rename fails ($c settings in the new place): the newer settings are still there" 1 "$(newer)"
     done
+    # the rename works: the newer old file takes the new place, it is gone
+    for c in none older; do
+        reset_state; mkdir -p "$WGS_DATA/state" "$WGS_ADB"
+        if [ "$c" = older ]; then
+            printf '%s\n' ACTIVE= LAST= KILLSWITCH=1 > "$WGS_DATA/settings.conf"
+            touch -d '@'"$(( $(date +%s) - 600 ))" "$WGS_DATA/settings.conf"
+        fi
+        printf '%s\n' ACTIVE= LAST=wg-MF-1 KILLSWITCH=0 > "$WGS_ADB/wg-shield.conf"
+        $TSH "$MOD/post-fs-data.sh" >/dev/null 2>&1
+        check "rename works ($c settings in the new place): taken, 600, the old file gone" "0 600 no" "$(sed -n 's/^KILLSWITCH=//p' "$WGS_DATA/settings.conf") $(stat -c %a "$WGS_DATA/settings.conf") $([ -e "$WGS_ADB/wg-shield.conf" ] && echo yes || echo no)"
+    done
     rm -rf "$RUN/mvconf" "$WGS_ADB/wg-shield.conf"
 fi
 
