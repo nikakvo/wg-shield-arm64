@@ -564,6 +564,13 @@ async function ctl(args, timeoutMs) {
     if (++_busyN === 1) { $('busy-bar').classList.add('on'); document.body.classList.add('locked'); }
   }
   try { return await sh(CTL + ' ' + args, timeoutMs); }
+  catch (e) {
+    // the command could not be run or gave no answer in time (it may still
+    // finish): an action says so; poll's banner and the background reads
+    // have their own display
+    if (fg) toast('No answer from the module: ' + ((e && e.message) || e), 'err');
+    throw e;
+  }
   finally {
     if (fg) {
       if (btn) btn.classList.remove('working');

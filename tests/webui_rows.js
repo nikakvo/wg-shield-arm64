@@ -11,7 +11,7 @@ const html = fs.readFileSync(process.argv[2], 'utf8');
 const js = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
 // the page script runs against a do-nothing DOM; only its functions are used
 const stub = new Proxy(function () {}, { get: (t, k) => k === Symbol.toPrimitive ? () => '' : stub, apply: () => stub, construct: () => stub, set: () => true });
-const ctx = { document: stub, window: stub, localStorage: stub, navigator: stub, location: stub, setInterval: () => 0, setTimeout: () => 0, console };
+const ctx = { document: stub, window: stub, localStorage: stub, navigator: stub, location: stub, setInterval: () => 0, setTimeout: () => 0, performance: { now: () => 0 }, console };
 vm.createContext(ctx);
 vm.runInContext(js, ctx);
 const dec = s => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -102,5 +102,22 @@ process.on('exit', () => { if (!asyncDone) { console.log('  FAIL the openExt che
   delete ctx.ksu;
   x = await run('https://www.example.org/', [0, ok, '']);
   check('no root bridge: an error toast', x.err.length === 1 && !x.threw);
+  // ctl: a command whose exec fails (an exception, no answer in time) is
+  // reported for an action; poll keeps its banner, no toast every 4 s
+  const ctl = vm.runInContext('ctl', ctx);
+  const ctlRun = async (args, exec) => {
+    vm.runInContext('EXEC_MODE = "legacy"', ctx);
+    ctx.ksu = { exec }; toasts.length = 0;
+    let threw = false;
+    try { await ctl(args); } catch (e) { threw = true; }
+    return { threw, err: toasts.filter(t => t[1] === 'err').map(t => t[0]) };
+  };
+  x = await ctlRun('backup', () => { throw new Error('bridge gone'); });
+  check('an action whose command fails to run: an error toast', x.threw && x.err.length === 1 && /bridge gone/.test(x.err[0]));
+  x = await ctlRun('poll', () => { throw new Error('bridge gone'); });
+  check('poll whose command fails to run: no toast (the banner says it)', x.threw && x.err.length === 0);
+  x = await ctlRun('backup', () => 'b2s9MQ==');
+  check('an action that runs: no toast from ctl', !x.threw && x.err.length === 0);
+  delete ctx.ksu;
 })().catch(e => check(`openExt checks: no exception (${e && e.message})`, false))
   .finally(() => { asyncDone = true; process.exit(fail ? 1 : 0); });
