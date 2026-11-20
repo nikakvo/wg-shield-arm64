@@ -1010,7 +1010,8 @@ async function clearTunnels(b) {
 }
 let BK = { exists: false, n: 0 };
 async function loadBackup() {
-  const r = parseKV(await ctl('backupinfo', 20000));
+  // a read that fails (no answer from the module) shows the error line below
+  const r = parseKV(await ctl('backupinfo', 20000).catch(() => ''));
   if (r.ok !== '1') { $('bk-body').innerHTML = '<div class="empty">Could not read the backup folder.</div>'; return; }
   BK = { exists: r.exists === '1', n: num(r.tunnels) };
   if (BK.exists) {
@@ -1058,7 +1059,7 @@ async function toggleFav(b, name, on) {
   } finally { _tunBusy = false; _tunSig = ''; await poll(); }
 }
 async function loadFiles() {
-  const r = parseKV(await ctl('files', 20000));
+  const r = parseKV(await ctl('files', 20000).catch(() => ''));   // a failed read: the error line
   if (r.ok !== '1') { $('file-body').innerHTML = '<div class="empty">Could not read Download.</div>'; return; }
   if (!r.file.length) { $('file-body').innerHTML = '<div class="empty">No tunnel export in Download.<br>WireGuard app: ⋮ → Export tunnels, or put an AmneziaWG .conf there.</div>'; return; }
   $('file-body').innerHTML = r.file.map((line, i) => {

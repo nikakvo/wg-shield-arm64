@@ -119,5 +119,17 @@ process.on('exit', () => { if (!asyncDone) { console.log('  FAIL the openExt che
   x = await ctlRun('backup', () => 'b2s9MQ==');
   check('an action that runs: no toast from ctl', !x.threw && x.err.length === 0);
   delete ctx.ksu;
+  // the Tunnels tab's lists: a read that fails shows their error line instead
+  // of "Looking for ..." for good, and nothing is rejected (showTab does not wait)
+  const els = {}, doc = ctx.document;
+  ctx.document = { getElementById: id => els[id] || (els[id] = { innerHTML: '', textContent: '', disabled: false }) };
+  for (const [fn, id, txt] of [['loadFiles', 'file-body', 'Could not read Download'], ['loadBackup', 'bk-body', 'Could not read the backup folder']]) {
+    vm.runInContext('EXEC_MODE = "legacy"', ctx);
+    ctx.ksu = { exec: () => { throw new Error('bridge gone'); } };
+    let threw = false;
+    try { await vm.runInContext(fn, ctx)(); } catch (e) { threw = true; }
+    check(`${fn}: a read that fails shows "${txt}", no rejection`, !threw && (els[id] || {}).innerHTML.includes(txt));
+  }
+  ctx.document = doc; delete ctx.ksu;
 })().catch(e => check(`openExt checks: no exception (${e && e.message})`, false))
   .finally(() => { asyncDone = true; process.exit(fail ? 1 : 0); });
