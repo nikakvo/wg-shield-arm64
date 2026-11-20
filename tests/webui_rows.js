@@ -119,6 +119,20 @@ process.on('exit', () => { if (!asyncDone) { console.log('  FAIL the openExt che
   x = await ctlRun('backup', () => 'b2s9MQ==');
   check('an action that runs: no toast from ctl', !x.threw && x.err.length === 0);
   delete ctx.ksu;
+  // no answer in time (callback form, the timer fires): openExt stays quiet
+  // (the browser took the screen), an action says the module gave no answer
+  const st0 = ctx.setTimeout;
+  ctx.setTimeout = f => { Promise.resolve().then(f); return 0; };
+  vm.runInContext('EXEC_MODE = "callback"', ctx);
+  ctx.ksu = { exec: (c) => { cmd = c; } };
+  toasts.length = 0; cmd = null;
+  const oeR = await oe('https://www.example.org/');
+  check('openExt, no answer in time: no toast', cmd !== null && oeR === true && toasts.length === 0);
+  toasts.length = 0;
+  let toThrew = false;
+  try { await ctl('backup'); } catch (e) { toThrew = true; }
+  check('an action, no answer in time: an error toast', toThrew && toasts.filter(t => t[1] === 'err' && /timeout/.test(t[0])).length === 1);
+  ctx.setTimeout = st0; delete ctx.ksu;
   // the Tunnels tab's lists: a read that fails shows their error line instead
   // of "Looking for ..." for good, and nothing is rejected (showTab does not wait)
   const els = {}, doc = ctx.document;
