@@ -368,6 +368,12 @@ layout_migrate() {
     mkdir -p "$DATA" "$LOGDIR" "$STATE" 2>/dev/null
     took=""
     _lm_take "$LEGACY_CONF" "$CONF" && took="$took settings"
+    _lm_none=" nothing newer"
+    # a rename that failed keeps the old file for the next boot (_lm_take)
+    if [ -e "$LEGACY_CONF" ]; then
+        _lm_none=" nothing"
+        wlog WARN "settings: $LEGACY_CONF could not be moved to $CONF - kept there, the next boot tries again"
+    fi
     chmod 600 "$CONF" 2>/dev/null
     rm -f "$LEGACY_CONF".tmp.* 2>/dev/null
     if [ -f "$LEGACY_LOG" ]; then   # the old log is the history: keep it first
@@ -376,7 +382,8 @@ layout_migrate() {
         mv -f "$LEGACY_LOG" "$LOG" 2>/dev/null && took="$took log"
     fi
     [ "$LEGACY_STATE" != "$STATE" ] && rm -rf "$LEGACY_STATE" 2>/dev/null   # runtime only
-    wlog INFO "files moved into one folder, $DATA. Taken from the old places:${took:- nothing newer}"
+    wlog INFO "files moved into one folder, $DATA. Taken from the old places:${took:-$_lm_none}"
+    unset _lm_none
 }
 
 module_desc() {  # keep the manager's description line in sync with the state

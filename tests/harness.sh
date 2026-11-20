@@ -2141,6 +2141,7 @@ EOF
         printf '%s\n' ACTIVE= LAST=wg-MF-1 KILLSWITCH=0 > "$WGS_ADB/wg-shield.conf"
         PATH="$RUN/mvconf:$PATH" $TSH "$MOD/post-fs-data.sh" >/dev/null 2>&1
         check "rename fails ($c settings in the new place): the newer settings are still there" 1 "$(newer)"
+        check "rename fails ($c): the log says the settings were not moved, not 'nothing newer'" "1 0" "$(grep -c 'WARN.*wg-shield.conf could not be moved' "$WGS_DATA/logs/wg-shield.log" 2>/dev/null) $(grep -c 'nothing newer' "$WGS_DATA/logs/wg-shield.log" 2>/dev/null)"
     done
     # the rename works: the newer old file takes the new place, it is gone
     for c in none older; do
