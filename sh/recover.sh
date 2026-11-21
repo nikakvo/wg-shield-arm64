@@ -83,10 +83,10 @@ screen_on() {
 # missing answer means "dead" (a server that drops ICMP must not be
 # restarted forever; for it the handshake rule alone decides)
 # (Checks off: nothing is pinged, so no tunnel counts - the handshake decides)
-tun_pingable() { [ "$S_CHECKS" != off ] && grep -qxF "$1" "$STATE/pingable" 2>/dev/null; }
+tun_pingable() { [ "$S_CHECKS" != off ] && grep -qxF -e "$1" "$STATE/pingable" 2>/dev/null; }
 heal_active() { [ -f "$STATE/heal" ] && ! grep -q '^done=1' "$STATE/heal" 2>/dev/null; }
 
-live_reset() { rm -f "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at"; }
+live_reset() { rm -f "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at"; }
 
 # dns_fo_check DNS - called by live_check when the tunnel answered its ping;
 # DNS = the status key dns. 0 when the active DNS server was changed (tick
@@ -121,10 +121,15 @@ dns_fo_check() {
         # no reply twice in a row: the next server of the line, the first after the last
         _fx=$(echo "$_fa" | awk -v s="$_fs" '{ for (i = 1; i <= NF; i++) if ($i == s) { print $(i % NF + 1); exit } }')
         if [ -n "$_fx" ] && [ "$_fx" != "$_fs" ]; then
-            printf '%s\n%s\n' "$_fx" "$_fl" > "$STATE/dns_srv.tmp.$$" && mv -f "$STATE/dns_srv.tmp.$$" "$STATE/dns_srv"
-            rm -f "$STATE/dns_fo_fail"
-            wlog WARN "DNS: $_fs does not answer through the tunnel (asked twice, $DNS_FO_NAME) - switching to $_fx"
-            _fr=0
+            if printf '%s\n%s\n' "$_fx" "$_fl" > "$STATE/dns_srv.tmp.$$" && mv -f "$STATE/dns_srv.tmp.$$" "$STATE/dns_srv"; then
+                rm -f "$STATE/dns_fo_fail"
+                wlog WARN "DNS: $_fs does not answer through the tunnel (asked twice, $DNS_FO_NAME) - switching to $_fx"
+                _fr=0
+            else
+                # not saved: dns_active still names $_fs, so no switch and no rebuild
+                rm -f "$STATE/dns_srv.tmp.$$"
+                wlog WARN "DNS: $_fs does not answer through the tunnel (asked twice, $DNS_FO_NAME) - could not save the switch to $_fx"
+            fi
         fi
     fi
     unset _fa _fn _fl _fs _fx
@@ -238,6 +243,7 @@ heal_save() {
         echo "orig=$H_ORIG"; echo "cur=$H_CUR"; echo "step=$H_STEP"; echo "at=$H_AT"
         echo "tried=$H_TRIED"; echo "done=$H_DONE"; echo "notified=$H_NOTIFIED"; echo "def=$H_DEF"
     } > "$STATE/heal.tmp.$$" && mv -f "$STATE/heal.tmp.$$" "$STATE/heal"
+    [ ! -e "$STATE/heal.tmp.$$" ] || rm -f "$STATE/heal.tmp.$$"
 }
 
 heal_clear() { rm -f "$STATE/heal"; H_ORIG=""; H_CUR=""; H_STEP=0; H_DONE=0; H_NOTIFIED=0; H_TRIED=""; }

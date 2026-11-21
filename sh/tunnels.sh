@@ -68,9 +68,13 @@ tun_parse() {
     [ "$_psk" = 2 ] && { T_ERR="PresharedKey is not a valid WireGuard key"; return 1; }
     [ "$_hpk" = 2 ] && { T_ERR="HeaderProtectionKey is not a valid key (44 characters ending in =)"; return 1; }
     [ "$_awg" = 1 ] && T_TYPE=amneziawg
+    # set -f: an entry like 10.2.0.? is checked as written, not matched
+    # against the files of the current folder (also in the DNS loop below)
+    set -f
     for _a in $(echo "$_addr" | tr ',' ' '); do
         case "$_a" in *:*) [ -z "$T_ADDR6" ] && T_ADDR6=$_a ;; *) [ -z "$T_ADDR" ] && T_ADDR=$_a ;; esac
     done
+    set +f
     case "$T_ADDR" in
         "") T_ERR="no IPv4 Address"; return 1 ;;
         *[!0-9./]*) T_ERR="bad Address '$T_ADDR'"; return 1 ;;
@@ -78,6 +82,9 @@ tun_parse() {
         *) T_ADDR="$T_ADDR/32" ;;
     esac
     _pl=${T_ADDR#*/}
+    # leading zeros (/08): `ip` reads a prefix and an MTU as octal - /08 is
+    # refused, /010 is /8, MTU 01400 is 768. Taken as the decimal number
+    case "$_pl" in 0?*) _pl=${_pl#"${_pl%%[!0]*}"}; _pl=${_pl:-0}; T_ADDR="${T_ADDR%%/*}/$_pl" ;; esac
     ipv4_ok "${T_ADDR%%/*}" && case "$_pl" in ""|*[!0-9]*) false ;; *) [ "${#_pl}" -le 2 ] && [ "$_pl" -le 32 ] ;; esac ||
         { T_ERR="bad Address '$T_ADDR'"; return 1; }
     # Endpoint: IPv4 literal, an IPv6 literal in brackets, or a host name
@@ -110,9 +117,24 @@ tun_parse() {
     # IPv6 through the tunnel: an IPv6 address and ::/0
     if [ -n "$T_ADDR6" ]; then
         case "$T_ADDR6" in *[!0-9A-Fa-f:/]*) T_WARN="$T_WARN bad-IPv6-address-ignored"; T_ADDR6="" ;; */*) : ;; *) T_ADDR6="$T_ADDR6/128" ;; esac
+        _pl=${T_ADDR6##*/}
+        case "$_pl" in 0?*) _pl=${_pl#"${_pl%%[!0]*}"}; T_ADDR6="${T_ADDR6%/*}/${_pl:-0}" ;; esac
+        # what `ip -6 addr add` refuses (a prefix over 128 or not a number,
+        # a second /, a malformed address, ::, ::1, multicast) is ignored with
+        # a note: else the tunnel was listed with IPv6 and came up without an
+        # IPv6 address
+        if [ -n "$T_ADDR6" ]; then
+            _a6=${T_ADDR6%%/*}; _pl=${T_ADDR6#*/}
+            case "$_pl" in ""|*[!0-9]*) _a6="" ;; *) [ "${#_pl}" -le 3 ] && [ "$_pl" -le 128 ] || _a6="" ;; esac
+            if ! ipv6_ok "$_a6" host; then
+                T_WARN="$T_WARN bad-IPv6-address-ignored"; T_ADDR6=""
+            fi
+            unset _a6
+        fi
     fi
     case ",$_aips," in *,::/0,*) [ -n "$T_ADDR6" ] && T_V6=1 ;; esac
     [ -n "$T_ADDR6" ] && [ "$T_V6" = 0 ] && T_WARN="$T_WARN IPv6-address-without-::/0-ignored"
+    case "$_mtu" in 0?*) _mtu=${_mtu#"${_mtu%%[!0]*}"}; _mtu=${_mtu:-0} ;; esac
     case "$_mtu" in "") : ;; *[!0-9]*) T_WARN="$T_WARN bad-MTU-ignored" ;;
         *) if [ "$_mtu" -ge 1280 ] && [ "$_mtu" -le 1500 ]; then T_MTU=$_mtu; else T_WARN="$T_WARN MTU-out-of-range-ignored"; fi ;;
     esac
@@ -121,14 +143,18 @@ tun_parse() {
     # domains are not used. T_DNSALL: every IPv4 server in the line's order -
     # the next one takes over when the active one stops answering (sh/recover.sh
     # dns_fo_check)
+    set -f
     for _d in $(echo "$_dns" | tr ',' ' '); do
         if ipv4_ok "$_d"; then
             [ -z "$T_DNS" ] && T_DNS=$_d
             case " $T_DNSALL " in *" $_d "*) : ;; *) T_DNSALL="$T_DNSALL${T_DNSALL:+ }$_d" ;; esac
         else
-            case "$_d" in *:*:*) case "$_d" in *[!0-9A-Fa-f:]*|*:::*) : ;; *) [ -z "$T_DNS6" ] && [ "${#_d}" -le 39 ] && T_DNS6=$_d ;; esac ;; esac
+            # the first IPv6 one that is an address (one that is not would go to
+            # ip6tables, which refuses it, and keep the next one from being used)
+            ipv6_ok "$_d" && [ -z "$T_DNS6" ] && T_DNS6=$_d
         fi
     done
+    set +f
     [ -n "$_dns" ] && [ -z "$T_DNS" ] && T_WARN="$T_WARN DNS-without-IPv4-ignored"
     [ -n "$T_EPHOST" ] && T_WARN="$T_WARN host-name-endpoint(resolved-at-connect)"
     case "$T_EPIP" in *:*) T_WARN="$T_WARN IPv6-endpoint(the-network-needs-IPv6)" ;; esac
@@ -148,7 +174,8 @@ tun_parse() {
 # resolved address. Lines start at column 0: awg keeps the spaces inside
 # I1-I5 only when the line begins with the key.
 tun_setconf() {
-    umask 077
+    # umask 077 only for this file (a subshell): the caller's files keep their modes
+    ( umask 077
     tr -d '\r' 2>/dev/null < "$1" | awk -v addka="$( [ -z "$T_KA" ] && echo 1 || echo 0 )" -v ep="$3" '
         {
             line = $0; sub(/^[ \t]+/, "", line); k = line
@@ -158,17 +185,22 @@ tun_setconf() {
             print line
             h = line; gsub(/[ \t]/, "", h)
             if (tolower(h) == "[peer]" && addka == "1") print "PersistentKeepalive = 25"
-        }' > "$2"
+        }' > "$2" )
 }
 
-tun_file() { echo "$TUNDIR/$1.conf"; }
+tun_file() { printf '%s\n' "$TUNDIR/$1.conf"; }   # printf: a name from the folder may hold a backslash
 
 tun_exists() { tunnel_name_ok "$1" && [ -f "$TUNDIR/$1.conf" ]; }
 
+# only names tunnel_name_ok accepts: a file placed by hand under another name
+# (spaces, "*", a backslash, over 40 characters) cannot be used by up,
+# remove or star, and its name split into several words in the callers'
+# unquoted $(tun_names)
 tun_names() {
     for f in "$TUNDIR"/*.conf; do
         [ -f "$f" ] || continue
-        n=${f##*/}; echo "${n%.conf}"
+        n=${f##*/}; n=${n%.conf}
+        tunnel_name_ok "$n" && printf '%s\n' "$n"
     done
 }
 
@@ -177,19 +209,20 @@ tun_names() {
 # file can not inject anything into the poll rows), 0600 like the settings.
 fav_names() {
     [ -f "$FAVS" ] || return 0
-    while IFS= read -r _fn; do
+    while IFS= read -r _fn || [ -n "$_fn" ]; do      # also a last line without a line break
         _fn=$(printf '%s' "$_fn" | tr -d '\r')
-        tunnel_name_ok "$_fn" && echo "$_fn"
+        tunnel_name_ok "$_fn" && printf '%s\n' "$_fn"
     done < "$FAVS" 2>/dev/null | sort -u
 }
-fav_has() { fav_names | grep -qxF "$1"; }
+# names may start with "-": printed with printf, patterns after -e
+fav_has() { fav_names | grep -qxF -e "$1"; }
 _fav_write() {  # names on stdin -> $FAVS (removed when empty)
     _ft="$FAVS.tmp.$$"
     sort -u > "$_ft" && chmod 600 "$_ft" || { rm -f "$_ft"; return 1; }
-    if [ -s "$_ft" ]; then mv -f "$_ft" "$FAVS"; else rm -f "$_ft" "$FAVS"; fi
+    if [ -s "$_ft" ]; then mv -f "$_ft" "$FAVS" || { rm -f "$_ft"; return 1; }; else rm -f "$_ft" "$FAVS"; fi
 }
-fav_add() { { fav_names; echo "$1"; } | _fav_write; }
-fav_del() { fav_names | grep -vxF "$1" | _fav_write; }
+fav_add() { { fav_names; printf '%s\n' "$1"; } | _fav_write; }
+fav_del() { fav_names | grep -vxF -e "$1" | _fav_write; }
 
 # ---- backup (2.6) -------------------------------------------------------------
 # One zip, like the WireGuard app's export: <name>.conf per tunnel +
@@ -253,17 +286,35 @@ bk_fix() {  # leftovers: an interrupted backup, the folder of 2.6-test1
     rm -f "$BACKUP_ROOT/.wg-shield-backup.zip.tmp" "$BACKUP_ROOT/.wg-shield-backup.zip.tmp.list" 2>/dev/null
 }
 bk_count() { if [ -f "$BKZIP" ]; then _bk_unzip -l "$BKZIP" 2>/dev/null | grep -cE '\.conf$'; else echo 0; fi; }
-bk_created() { _bk_unzip -p "$BKZIP" backup-info.txt 2>/dev/null | sed -n 's/^created_epoch=//p' | head -n 1; }
+# when the backup was made (epoch): backup-info.txt's created_epoch, digits
+# only (the zip lies in shared storage, where apps can change it), else the
+# zip's time
+bk_created() {
+    _bc=$(_bk_unzip -p "$BKZIP" backup-info.txt 2>/dev/null | sed -n 's/^created_epoch=\([0-9][0-9]*\)$/\1/p' | head -n 1)
+    [ -n "$_bc" ] || _bc=$(stat -c %Y "$BKZIP" 2>/dev/null)
+    printf '%s\n' "$_bc"; unset _bc
+}
 bk_favs() { _bk_unzip -p "$BKZIP" favorites.txt 2>/dev/null | grep -c .; }
 
 # bk_make - prints backed_up=N; returns 1 (with error=) when nothing was written
 bk_make() {
-    _bn=0; for _bf in "$TUNDIR"/*.conf; do [ -f "$_bf" ] && _bn=$((_bn + 1)); done
+    # the files whose name a zip entry carries (zip_store: [A-Za-z0-9._-]);
+    # one placed by hand under another name ("my vpn.conf") is left out -
+    # split into words in the list below, it failed the whole backup
+    _bl=""; _bn=0; _bsk=0
+    for _bf in "$TUNDIR"/*.conf; do
+        [ -f "$_bf" ] || continue
+        case "${_bf##*/}" in
+            *[!A-Za-z0-9._-]*) _bsk=$((_bsk + 1)) ;;
+            *) _bl="$_bl${_bl:+ }${_bf##*/}"; _bn=$((_bn + 1)) ;;
+        esac
+    done
     [ "$_bn" -gt 0 ] || { echo "error=no tunnels to back up"; return 1; }
+    [ "$_bsk" -gt 0 ] && wlog WARN "backup: $_bsk tunnel files skipped - their names hold characters other than A-Z a-z 0-9 . _ - (placed in tunnels/ by hand)"
     bk_fix
     mkdir -p "$BACKUP_ROOT" 2>/dev/null || { echo "error=cannot create $BACKUP_ROOT"; return 1; }
     _bs="$STATE/bk.$$"; rm -rf "$_bs"; mkdir -p "$_bs"; chmod 700 "$_bs"
-    for _bf in "$TUNDIR"/*.conf; do [ -f "$_bf" ] && cp -f "$_bf" "$_bs/"; done
+    for _bf in $_bl; do cp -f "$TUNDIR/$_bf" "$_bs/"; done
     fav_names > "$_bs/favorites.txt"
     _bnow=$(date +%s)
     { echo "WG Shield backup - $_bn tunnels, $(date '+%Y-%m-%d %H:%M')"
@@ -271,7 +322,7 @@ bk_make() {
       echo "or import this zip in the WireGuard / AmneziaWG app."
       echo "created_epoch=$_bnow"
       echo "tunnels=$_bn"; } > "$_bs/backup-info.txt"
-    _bl=$(cd "$_bs" && ls *.conf | sort); [ -s "$_bs/favorites.txt" ] && _bl="$_bl favorites.txt"
+    [ -s "$_bs/favorites.txt" ] && _bl="$_bl favorites.txt"
     _bt="$BACKUP_ROOT/.wg-shield-backup.zip.tmp"
     if ! zip_store "$_bt" "$_bs" $_bl backup-info.txt; then
         rm -rf "$_bs"; bk_fix; echo "error=cannot write $BACKUP_ROOT (storage full?)"; return 1
@@ -297,24 +348,26 @@ bk_restore() {
     _br="$STATE/restore.$$"; rm -rf "$_br"; mkdir -p "$_br"; chmod 700 "$_br"
     _bk_unzip -o -q "$BKZIP" -d "$_br" >/dev/null 2>&1
     _br_ok=0; _br_bad=0; _br_names=""
-    # one file per line: names with spaces stay whole, nothing is globbed
+    # one file per line: names with spaces stay whole, nothing is globbed;
+    # a path with a line break is left out (see tun_import)
     _br_ifs=$IFS; IFS='
 '
     set -f
-    for _bf in $(find "$_br" -type f -name '*.conf' 2>/dev/null | sort); do
+    for _bf in $(find "$_br" -type f -name '*.conf' ! -path '*
+*' 2>/dev/null | sort); do
         IFS=$_br_ifs; set +f
         if tun_import_one "$_bf"; then _br_ok=$((_br_ok + 1)); _br_names="$_br_names $name"; else _br_bad=$((_br_bad + 1)); fi
     done
     IFS=$_br_ifs; set +f
     _br_fav=0
     if [ -f "$_br/favorites.txt" ]; then
-        _br_list=$(tr -d '\r' < "$_br/favorites.txt" | while IFS= read -r _fn; do
+        _br_list=$(tr -d '\r' < "$_br/favorites.txt" | while IFS= read -r _fn || [ -n "$_fn" ]; do
             tunnel_name_ok "$_fn" || continue
-            case " $_br_names " in *" $_fn "*) echo "$_fn" ;; esac
+            case " $_br_names " in *" $_fn "*) printf '%s\n' "$_fn" ;; esac
         done)
         if [ -n "$_br_list" ]; then
-            { fav_names; echo "$_br_list"; } | _fav_write
-            _br_fav=$(echo "$_br_list" | grep -c .)
+            { fav_names; printf '%s\n' "$_br_list"; } | _fav_write
+            _br_fav=$(printf '%s\n' "$_br_list" | grep -c .)
         fi
     fi
     rm -rf "$_br"
@@ -325,9 +378,12 @@ bk_restore() {
 # tun_import_one FILE -> prints result line, returns 0 imported / 1 skipped
 tun_import_one() {
     src=$1
-    base=${src##*/}; base=${base%.conf}
-    name=$(printf '%s' "$base" | sed 's/[^A-Za-z0-9._-]/_/g' | cut -c1-40)
+    base=${src##*/}
+    case "$base" in *.[cC][oO][nN][fF]) base=${base%.*} ;; esac   # .CONF too: the zip search takes any case
+    name=$(printf '%s' "$base" | sed 's/[^A-Za-z0-9._-]/_/g')
     case "$name" in .*|"") name="tunnel_$name" ;; esac
+    # cut after the prefix: tunnel_name_ok takes at most 40 characters
+    name=$(printf '%s' "$name" | cut -c1-40)
     if ! tun_parse "$src"; then
         printf '%s\n' "skipped=$base reason=$T_ERR"    # not echo: mksh's echo reads the backslashes
         wlog WARN "import: $base skipped - $T_ERR"
@@ -335,8 +391,8 @@ tun_import_one() {
     fi
     dst="$TUNDIR/$name.conf"
     what=imported; [ -f "$dst" ] && what=replaced
-    umask 077
-    cp -f "$src" "$dst.tmp.$$" && chmod 600 "$dst.tmp.$$" && mv -f "$dst.tmp.$$" "$dst" || { echo "skipped=$base reason=cannot-write"; return 1; }
+    # a copy that failed midway holds (part of) the private key: removed
+    ( umask 077; cp -f "$src" "$dst.tmp.$$" ) && chmod 600 "$dst.tmp.$$" && mv -f "$dst.tmp.$$" "$dst" || { rm -f "$dst.tmp.$$"; printf '%s\n' "skipped=$base reason=cannot-write"; return 1; }
     echo "$what=$name endpoint=$T_EP type=$T_TYPE${T_WARN:+ notes=$(echo "$T_WARN" | tr ' ' ';')}"
     wlog INFO "tunnel $name $what (endpoint $T_EP, $T_TYPE)${T_WARN:+ - notes: $T_WARN}"
     return 0
@@ -345,25 +401,30 @@ tun_import_one() {
 # tun_import PATH (.zip export from the WireGuard app, or one .conf)
 tun_import() {
     p=$1; ok=0; bad=0
-    [ -f "$p" ] || { echo "ok=0"; echo "error=file not found: $p"; return 1; }
+    [ -f "$p" ] || { echo "ok=0"; printf '%s\n' "error=file not found: $p"; return 1; }
     mkdir -p "$TUNDIR"; chmod 700 "$DATA" "$TUNDIR"
     case "$p" in
         *.zip|*.ZIP)
             tmp="$STATE/import.$$"; rm -rf "$tmp"; mkdir -p "$tmp"; chmod 700 "$tmp"
             if [ -x "$BB" ]; then "$BB" unzip -o -q "$p" -d "$tmp" >/dev/null 2>&1; else unzip -o -q "$p" -d "$tmp" >/dev/null 2>&1; fi
             found=0
-            # one file per line: names with spaces stay whole, nothing is globbed
+            # one file per line: names with spaces stay whole, nothing is globbed.
+            # .conf in any case (.CONF): the file list counts them (is_export).
+            # A path with a line break is left out: busybox unzip keeps one in
+            # an entry's name, and "a<LF>/some/file.conf" split into lines
+            # would make root read /some/file.conf, outside the zip
             _ti_ifs=$IFS; IFS='
 '
             set -f
-            for f in $(find "$tmp" -type f -name '*.conf' 2>/dev/null | sort); do
+            for f in $(find "$tmp" -type f -iname '*.conf' ! -path '*
+*' 2>/dev/null | sort); do
                 IFS=$_ti_ifs; set +f
                 found=1
                 if tun_import_one "$f"; then ok=$((ok + 1)); else bad=$((bad + 1)); fi
             done
             IFS=$_ti_ifs; set +f
             rm -rf "$tmp"
-            [ "$found" = 1 ] || { echo "ok=0"; echo "error=no .conf files in $p"; return 1; }
+            [ "$found" = 1 ] || { echo "ok=0"; printf '%s\n' "error=no .conf files in $p"; return 1; }
             ;;
         *)
             if tun_import_one "$p"; then ok=1; else bad=1; fi

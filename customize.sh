@@ -1,5 +1,6 @@
 # WG Shield Arm64 - installer (runs in the manager, busybox ash)
 SKIPUNZIP=0
+umask 022   # the manager may run this with umask 0000 (the data folders below)
 
 ui_print "- WG Shield Arm64"
 [ "$ARCH" = arm64 ] || abort "! arm64 only (this device: $ARCH)"

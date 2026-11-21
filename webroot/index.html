@@ -4,8 +4,6 @@
   <title>WG Shield</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <!-- Non-blocking font: the page must work with no internet at all -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" media="print" onload="this.media='all'">
   <style>
     /* Same house style as DNSCrypt Proxy Arm64, ipset-arm64 and VPN Hotspot
        Arm64 (one set); this module's own colour is sky blue, warnings orange,
@@ -266,8 +264,8 @@
     <div id="clock">--:--:--</div>
   </div>
   <div class="btn-grid">
-    <a class="button clip" href="https://www.dnsleaktest.com/" target="_blank">DNS Test</a>
-    <a class="button clip" href="https://ipleak.net/" target="_blank">Leak Test</a>
+    <a class="button clip" href="#" data-ext="https://www.dnsleaktest.com/">DNS Test</a>
+    <a class="button clip" href="#" data-ext="https://ipleak.net/">Leak Test</a>
     <a class="button alt clip" href="help.html">Help</a>
   </div>
 </header>
@@ -472,6 +470,40 @@ function callbackExec(cmd, timeoutMs) {
   });
 }
 function legacyExec(cmd) { const r = ksu.exec(cmd); return { errno: 0, stdout: typeof r === 'string' ? r : (r && r.stdout) || '', stderr: '' }; }
+// Outside sites open in the phone's browser. The root manager would load a
+// link in this WebView, where the site's scripts could reach ksu.exec.
+// When the browser does not open (no root bridge, an exception, am start
+// ending non-zero or printing its "Error:" line) a toast says so. No answer
+// in time is not reported: the browser takes the screen, the answer may
+// come late. Never rejects (the click handler does not wait for it).
+async function openExt(url) {
+  if (!/^https:\/\/[a-z0-9.-]+\/[a-z0-9._\/-]*$/i.test(url)) { toast('Not opened: not an https address', 'err'); return false; }
+  const cmd = `am start -a android.intent.action.VIEW -d '${url}' 2>&1`;
+  const fail = m => { toast('Could not open the browser: ' + m, 'err'); return false; };
+  let r;
+  try {
+    if (!hasBridge()) return fail('no root bridge');
+    if (EXEC_MODE === 'legacy') r = legacyExec(cmd);
+    else {
+      try { r = await callbackExec(cmd, 15000); }
+      catch (e) {
+        if (/timeout/.test(String(e && e.message))) return true;
+        if (EXEC_MODE === 'callback') throw e;
+        r = legacyExec(cmd);     // the bridge's form is not known yet: the other one
+      }
+    }
+  } catch (e) { return fail(String((e && e.message) || e)); }
+  const out = (r.stdout || '') + (r.stderr || '');
+  const err = out.split('\n').find(l => /^Error/.test(l));
+  if (r.errno !== 0 || err) return fail(err || 'am start ended with ' + r.errno);
+  return true;
+}
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('a[data-ext]');
+  if (!a) return;
+  e.preventDefault();
+  openExt(a.getAttribute('data-ext'));
+});
 // The callback form runs off the page's thread; the legacy one blocks the
 // whole page until the command ends. A slow first root shell (cold start)
 // must not push the page into legacy mode for good, so the callback form
@@ -532,6 +564,13 @@ async function ctl(args, timeoutMs) {
     if (++_busyN === 1) { $('busy-bar').classList.add('on'); document.body.classList.add('locked'); }
   }
   try { return await sh(CTL + ' ' + args, timeoutMs); }
+  catch (e) {
+    // the command could not be run or gave no answer in time (it may still
+    // finish): an action says so; poll's banner and the background reads
+    // have their own display
+    if (fg) toast('No answer from the module: ' + ((e && e.message) || e), 'err');
+    throw e;
+  }
   finally {
     if (fg) {
       if (btn) btn.classList.remove('working');
@@ -971,7 +1010,8 @@ async function clearTunnels(b) {
 }
 let BK = { exists: false, n: 0 };
 async function loadBackup() {
-  const r = parseKV(await ctl('backupinfo', 20000));
+  // a read that fails (no answer from the module) shows the error line below
+  const r = parseKV(await ctl('backupinfo', 20000).catch(() => ''));
   if (r.ok !== '1') { $('bk-body').innerHTML = '<div class="empty">Could not read the backup folder.</div>'; return; }
   BK = { exists: r.exists === '1', n: num(r.tunnels) };
   if (BK.exists) {
@@ -1019,18 +1059,20 @@ async function toggleFav(b, name, on) {
   } finally { _tunBusy = false; _tunSig = ''; await poll(); }
 }
 async function loadFiles() {
-  const r = parseKV(await ctl('files', 20000));
+  const r = parseKV(await ctl('files', 20000).catch(() => ''));   // a failed read: the error line
   if (r.ok !== '1') { $('file-body').innerHTML = '<div class="empty">Could not read Download.</div>'; return; }
   if (!r.file.length) { $('file-body').innerHTML = '<div class="empty">No tunnel export in Download.<br>WireGuard app: ⋮ → Export tunnels, or put an AmneziaWG .conf there.</div>'; return; }
   $('file-body').innerHTML = r.file.map((line, i) => {
-    const [name, size, mtime, n] = line.split('|');
+    const { name, size, mtime, n } = fileRow(line);
     const when = new Date(num(mtime) * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
     return `<div class="row"><div class="rn"><b>${esc(name)}</b><span>${num(n)} ${num(n) === 1 ? 'config' : 'configs'} · ${fmtBytes(size)} · ${esc(when)}</span></div>` +
       `<div class="file-btns"><button class="btn-s clip" data-i="${i}" onclick="importFile(this)">Import</button><button class="x-btn" data-i="${i}" title="Delete the file" onclick="delFile(this)">✕</button></div></div>`;
   }).join('');
-  FILES = r.file.map(l => l.split('|')[0]);
+  FILES = r.file.map(l => fileRow(l).name);
 }
 let FILES = [];
+// ctl files row: size|mtime|configs|name - the name last, it may contain "|"
+function fileRow(line) { const f = String(line).split('|'); return { size: f[0], mtime: f[1], n: f[2], name: f.slice(3).join('|') }; }
 async function importFile(b) {
   const name = FILES[num(b.dataset.i)]; if (!name) return;
   const r = parseKV(await ctl('import ' + q(name), 60000));
@@ -1130,7 +1172,8 @@ function fallbackCopy(t, done) {
 const EXIT = {};
 async function checkExit() {
   $('exit-sub').textContent = 'Asking…';
-  const r = parseKV(await ctl('exitip', 60000));
+  // no answer from the module: shown below like the services' own error
+  const r = parseKV(await ctl('exitip', 60000).catch(e => 'error=No answer from the module: ' + ((e && e.message) || e)));
   if (r.ok !== '1') {
     $('exit-ip').textContent = 'no answer'; $('exit-ip').className = 'v r';
     $('exit-sub').textContent = (r.error || 'The IP service did not answer.') + (ST.state === 'down' && ks(ST) ? ' The tunnel is down (kill switch).' : '');
@@ -1139,7 +1182,7 @@ async function checkExit() {
   EXIT.ip = r.ip; EXIT.via = r.via ? ST.tunnel : '';
   $('exit-ip').textContent = r.ip; $('exit-ip').className = 'glitch';
   const place = [r.city, r.country].filter(Boolean).join(', ');
-  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' - ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection') + (r.proto === 'http' ? ' · asked over plain HTTP (HTTPS did not work)' : '');
+  $('exit-sub').textContent = [place, r.isp].filter(Boolean).join(' - ') + (r.via ? ` · through ${ST.tunnel}` : ' · no tunnel: this is your own connection');
   renderRoute(ST);
 }
 

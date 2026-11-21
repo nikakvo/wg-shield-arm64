@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>WG Shield - Help</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" media="print" onload="this.media='all'">
   <style>
     :root {
       --bg: #000; --bg2: #04080b; --surface: #060b0f; --surface2: #07151d;
@@ -149,7 +148,7 @@
     <tr><td><span class="pill ok">protected</span></td><td>The tunnel is up and answers.</td></tr>
     <tr><td><span class="pill warn">connecting</span></td><td>Just switched on, waiting for the first handshake (or for a network).</td></tr>
     <tr><td><span class="pill warn">checking</span></td><td>After a restart or a switch the tunnel has a handshake again; WG Shield waits for an answer through it before it counts as fixed (a few seconds).</td></tr>
-    <tr><td><span class="pill warn">recovering</span></td><td>The tunnel stopped answering and WG Shield is fixing it: a restart, or another tunnel of the same country (see 7). The banner says which step.</td></tr>
+    <tr><td><span class="pill warn">recovering</span></td><td>The tunnel stopped answering and WG Shield is fixing it: a restart, or another tunnel - the same country first (see 7). The banner says which step.</td></tr>
     <tr><td><span class="pill bad">down</span></td><td>Nothing answers through the tunnel (or no handshake for more than 180 s) and self-healing could not fix it. Kill switch on: no internet. Off: direct connection until it answers again.</td></tr>
     <tr><td><span class="pill warn">paused</span></td><td>You paused it, or another VPN app is connected. Direct connection.</td></tr>
     <tr><td><span class="pill bad">error</span></td><td>The tunnel cannot be built (file gone, kernel refused it). Direct connection - the banner says why. With <strong>Kill switch on error</strong> on (see 7): no internet.</td></tr>
@@ -163,7 +162,7 @@
   <h3>Route</h3>
   <p>Where the phone's traffic goes right now. Moving blue line: through the tunnel. Red cut: kill switch holds. Orange: straight to your connection.</p>
   <h3>Exit</h3>
-  <p><strong>Check</strong> asks an IP service once and shows the address websites see, with its place and provider. The question goes over HTTPS (<code>ipinfo.io</code>, then <code>ipwho.is</code>, with Android's <code>curl</code>, certificate checked) - through the tunnel while it is up. Only when both fail, or the phone has no <code>curl</code>, it is asked over plain HTTP as before (<code>ip-api.com</code>, then <code>ipinfo.io</code>), and the line under the address says so: such an answer can be read and changed on the way.</p>
+  <p><strong>Check</strong> asks an IP service once and shows the address websites see, with its place and provider. The question goes over HTTPS only (<code>ipinfo.io</code>, then <code>ipwho.is</code>, then <code>ifconfig.co</code>, with Android's <code>curl</code>, certificate checked) - through the tunnel while it is up. Never over plain HTTP, where the answer could be read and changed on the way: when all three fail, or the phone has no <code>curl</code>, Check shows an error.</p>
   <h3>Tunnel</h3>
   <p>The active tunnel, its type (WireGuard or AmneziaWG, with the kernel's AmneziaWG version), its server, the last handshake, data received and sent, and which network carries the tunnel. <strong>Other networks</strong>: the networks that are up besides that one - internet ones go through the tunnel (also while Android is still checking them), carrier service networks stay outside. <strong>Self-healing</strong>: ready, or the step it is on right now (see 7).</p>
   <h3>Networking set</h3>
@@ -193,7 +192,7 @@
   <p>The backup stays when you remove or reinstall the module, and after <strong>Clear all</strong>. <strong>Restore</strong> (tap twice) imports every tunnel of the backup and gives the backed-up favorites their star again; a tunnel with the same name is replaced, tunnels that are not in the backup stay. The tunnel that is on is not changed. <strong>✕</strong> (tap twice) deletes the backup.</p>
   <p>To keep it somewhere else, copy the zip to your computer. The files hold your private keys, like an export in Download: apps with access to all files can read them.</p>
   <h3>Import</h3>
-  <p>Import reads the WireGuard app's export zip, or single <code>.conf</code> files, from Download. Files that do not fit (several peers, no full tunnel, an IPv6 endpoint) are skipped and the Log says why. Importing a tunnel with a name that already exists replaces it. Names keep letters, digits, <code>. _ -</code>; other characters become <code>_</code>.</p>
+  <p>Import reads the WireGuard app's export zip, or single <code>.conf</code> files, from Download. Files that do not fit (several peers, no full tunnel, a bad endpoint) are skipped and the Log says why. Importing a tunnel with a name that already exists replaces it. Names keep letters, digits, <code>. _ -</code>; other characters become <code>_</code>.</p>
   <p>From a file the module uses the WireGuard keys, the addresses and the <code>DNS</code> line. <code>DNS</code>: app DNS that goes into the tunnel is sent to its first IPv4 server, and IPv6 DNS to its first IPv6 server while the tunnel carries IPv6 - unless DNSCrypt Proxy takes the phone's DNS (see 8). With several IPv4 servers in the line, the next one takes over when the one in use stops answering: together with the tunnel check, at most once a minute, it is asked for <code>example.com</code> through the tunnel; no reply twice in a row and the next server is used (after the last one the first again), until that one fails. A tunnel that is loaded again starts with the first server. Of the IPv6 servers only the first is used. A resolver on your Wi-Fi (the router) stays local (unless <strong>LAN DNS through the tunnel</strong> is on, see 7); carrier services, Android's network check and the login page keep the network's DNS. Without this, name lookups fail on mobile data: a carrier's resolvers do not answer queries that come from the VPN server. <code>PostUp</code>, <code>Table</code> and the like are ignored. A tunnel without <code>PersistentKeepalive</code> gets 25 s, so the health check always has fresh handshakes.</p>
   <div class="note warn">Private keys are stored in <code>/data/adb/wg-shield/tunnels/</code>, readable only by root. They never appear in the WebUI, the log, the status or the Report. The export in Download is readable by apps - delete it after importing.</div>
   <h3>AmneziaWG</h3>
@@ -216,7 +215,8 @@
     <li>Names only the router knows (<code>printer.lan</code>, <code>nas.home</code>) stop resolving while the tunnel is up. The devices are still reached by their address.</li>
     <li>While the tunnel is connecting or down - also with the kill switch on - the router's resolver is asked again, and the router sees the lookups made then. This is on purpose: Android's network check and the login page of a hotel / airport Wi-Fi need the network's own resolver, and their lookups cannot be told apart from an app's.</li>
     <li>On a new Wi-Fi with a login page the prompt can come late: until WG Shield has noticed that the tunnel does not answer there (about 40 seconds with the default checks, up to 3 minutes with the checks off), the lookups of Android's check still go to the tunnel's DNS.</li>
-    <li>Not redirected: carrier services (VoLTE / IMS, MMS), a network Android is still checking, and a resolver on the Wi-Fi that is reached over IPv6 - on a Wi-Fi with IPv6 the router can still see lookups. Private DNS (DNS over TLS) is not plain DNS and is not touched.</li>
+    <li>A resolver on the Wi-Fi that is reached over IPv6 (a Wi-Fi with IPv6) is not asked at all: such lookups are refused, and the phone asks the IPv4 one, which goes to the tunnel's DNS. A Wi-Fi that gives the phone only IPv6 resolvers has no name lookups while this is on.</li>
+    <li>Not redirected: carrier services (VoLTE / IMS, MMS) and a network Android is still checking. Private DNS (DNS over TLS) is not plain DNS and is not touched.</li>
     <li>Nothing is done while DNSCrypt Proxy answers the phone's DNS; a tunnel without a <code>DNS</code> line has nothing to redirect to.</li>
   </ul>
   <p>Dashboard → Tunnel → DNS shows <em>tunnel's DNS … + LAN</em> while it is active.</p>
@@ -346,12 +346,12 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
   <div class="tw"><table>
     <tr><th>file</th><th></th></tr>
     <tr><td>/data/adb/wg-shield/</td><td>Everything the module keeps, in one folder:</td></tr>
-    <tr><td>settings.conf</td><td>Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification (kept on update)</td></tr>
+    <tr><td>settings.conf</td><td>Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification, LAN DNS through the tunnel, kill switch on error (kept on update)</td></tr>
     <tr><td>tunnels/</td><td>Imported tunnels with their keys, root only (kept on update)</td></tr>
     <tr><td>favorites</td><td>Favorite tunnel names, one per line (kept on update)</td></tr>
     <tr><td>speedtest</td><td>Last speed test result per server address (kept on update and reboot)</td></tr>
     <tr><td>logs/wg-shield.log</td><td>Log (<strong>Clear</strong> in the Log tab empties it)</td></tr>
-    <tr><td>state/</td><td>Runtime state, cleared at boot; <code>state/status</code> is read by the sibling modules</td></tr>
+    <tr><td>state/</td><td>Runtime state; boot removes the last run's keys and leftovers, caches such as the tunnel list stay; <code>state/status</code> is read by the sibling modules</td></tr>
     <tr><td>/storage/emulated/0/wg-shield/wg-shield-backup.zip</td><td>The backup (see 6): one .conf per tunnel, favorites.txt, backup-info.txt. Kept when the module is removed</td></tr>
   </table></div>
   <p><strong>Update:</strong> flash the new zip, reboot. Tunnels and settings stay.</p>

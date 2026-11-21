@@ -1,7 +1,11 @@
 # WG Shield Arm64 - shared helpers (sourced by every script)
 # Works under busybox ash (KSU module scripts) and mksh (ksu.exec / su -c).
 
-MODID=wg-shield
+# The root manager starts the module's scripts with umask 0000 (seen on
+# KernelSU: module.prop, state/ and the log came out 666). Every entry point
+# sources this file: new files are 644 / dirs 755 unless chmod says otherwise
+umask 022
+
 MODDIR="${WGS_MODDIR:-/data/adb/modules/wg-shield}"
 # 1.0-r4: everything in ONE folder (up to r3: /data/adb/wg-shield.conf and
 # /data/adb/wg-shield-state/ next to it - see LEGACY_* and layout_migrate):
@@ -123,6 +127,27 @@ ipv4_ok() {
     unset _x
 }
 
+# ipv6_ok ADDRESS [host] - an IPv6 address as `ip` and ip6tables read it
+# (no prefix): hex groups of at most four digits, eight of them, or fewer
+# around one "::"; no zone, no dotted IPv4 part. With "host" also not the
+# unspecified (::) or the loopback (::1) address and not multicast (ff00::/8):
+# `ip -6 addr add` refuses those on an interface
+ipv6_ok() {
+    case "$1" in ""|*[!0-9A-Fa-f:]*|*:::*|*::*::*|:[!:]*|*[!:]:) return 1 ;; esac
+    [ "${#1}" -le 39 ] || return 1
+    printf '%s\n' "$1" | awk -F: -v h="$2" '{
+        n = 0; z = 1
+        for (i = 1; i <= NF; i++) {
+            if ($i == "") continue
+            if (length($i) > 4) exit 1
+            n++; g = $i; sub(/^0+/, "", g)
+            if (g != "" && !(i == NF && g == "1")) z = 0
+        }
+        if (index($0, "::") ? n > 7 : n != 8) exit 1
+        if (h != "" && (z || (length($1) == 4 && tolower(substr($1, 1, 2)) == "ff"))) exit 1
+    }'
+}
+
 # ipv6_canon ADDRESS - prints the address the way the kernel's tools list it
 # (`ip -6 rule` shows 2001:0DB8:0:0:0:0:0:1 as 2001:db8::1): lower case, no
 # leading zeros, the longest run of two or more zero groups as "::" (the
@@ -169,7 +194,8 @@ ipv6_canon() {
 settings_load() {
     S_ACTIVE=""; S_LAST=""; S_KILLSWITCH=1; S_AUTOSWITCH=0; S_NOTIFY=1; S_PROFILE=battery; S_CHECKS=30; S_LANDNS=0; S_KS_ERROR=0
     [ -f "$CONF" ] || return 0
-    while IFS='=' read -r k v; do
+    # "|| [ -n ]": a last line without a line break (edited by hand) counts too
+    while IFS='=' read -r k v || [ -n "$k" ]; do
         v=$(printf '%s' "$v" | tr -d '\r')
         case "$k" in
             ACTIVE) tunnel_name_ok "$v" && S_ACTIVE=$v ;;
@@ -198,7 +224,8 @@ settings_save() {
         echo "CHECKS=$S_CHECKS"
         echo "LANDNS=$S_LANDNS"
         echo "KS_ERROR=$S_KS_ERROR"
-    } > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$CONF"
+    } > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$CONF" && return 0
+    rm -f "$tmp"; return 1
 }
 
 # ---- lock (mkdir + pid, stale takeover) ---------------------------------------
@@ -235,10 +262,11 @@ lock_try() {
 }
 
 lock_get() {  # lock_get [seconds]
-    n=${1:-20}
-    while [ "$n" -gt 0 ]; do
+    # a counter of its own: callers count in n (wait_up ticks through here)
+    _lg=${1:-20}
+    while [ "$_lg" -gt 0 ]; do
         lock_try && return 0
-        sleep 1; n=$((n - 1))
+        sleep 1; _lg=$((_lg - 1))
     done
     return 1
 }
@@ -274,6 +302,7 @@ status_compat() {
         mkdir -p "$LEGACY_STATE" 2>/dev/null
         cp -f "$STATE/status" "$LEGACY_STATE/status.tmp.$$" 2>/dev/null &&
             mv -f "$LEGACY_STATE/status.tmp.$$" "$LEGACY_STATE/status"
+        [ ! -e "$LEGACY_STATE/status.tmp.$$" ] || rm -f "$LEGACY_STATE/status.tmp.$$"
     elif [ -d "$LEGACY_STATE" ]; then
         rm -rf "$LEGACY_STATE"
     fi
@@ -313,6 +342,8 @@ status_write() {
             "dns_lan=$ST_DNS_LAN" \
             "ks_error=$S_KS_ERROR"
     } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$STATE/status"
+    # a write that failed: its temp file goes (no process when it did not)
+    [ ! -e "$tmp" ] || rm -f "$tmp"
     status_compat
 }
 
@@ -323,8 +354,11 @@ status_write() {
 _lm_take() { # <old> <new> -> 0 if the old one was taken
     [ -e "$1" ] || return 1
     if [ ! -e "$2" ] || [ "$(stat -c %Y "$1" 2>/dev/null || echo 0)" -gt "$(stat -c %Y "$2" 2>/dev/null || echo 0)" ]; then
-        rm -rf "$2" 2>/dev/null
+        # the rename replaces a file; only a folder or a link is removed
+        # first. A rename that fails keeps both (the next boot tries again)
+        if [ -d "$2" ] || [ -L "$2" ]; then rm -rf "$2" 2>/dev/null; fi
         mv -f "$1" "$2" 2>/dev/null && return 0
+        return 1
     fi
     rm -rf "$1" 2>/dev/null
     return 1
@@ -334,6 +368,12 @@ layout_migrate() {
     mkdir -p "$DATA" "$LOGDIR" "$STATE" 2>/dev/null
     took=""
     _lm_take "$LEGACY_CONF" "$CONF" && took="$took settings"
+    _lm_none=" nothing newer"
+    # a rename that failed keeps the old file for the next boot (_lm_take)
+    if [ -e "$LEGACY_CONF" ]; then
+        _lm_none=" nothing"
+        wlog WARN "settings: $LEGACY_CONF could not be moved to $CONF - kept there, the next boot tries again"
+    fi
     chmod 600 "$CONF" 2>/dev/null
     rm -f "$LEGACY_CONF".tmp.* 2>/dev/null
     if [ -f "$LEGACY_LOG" ]; then   # the old log is the history: keep it first
@@ -342,7 +382,8 @@ layout_migrate() {
         mv -f "$LEGACY_LOG" "$LOG" 2>/dev/null && took="$took log"
     fi
     [ "$LEGACY_STATE" != "$STATE" ] && rm -rf "$LEGACY_STATE" 2>/dev/null   # runtime only
-    wlog INFO "files moved into one folder, $DATA. Taken from the old places:${took:- nothing newer}"
+    wlog INFO "files moved into one folder, $DATA. Taken from the old places:${took:-$_lm_none}"
+    unset _lm_none
 }
 
 module_desc() {  # keep the manager's description line in sync with the state
@@ -360,4 +401,5 @@ module_desc() {  # keep the manager's description line in sync with the state
     grep -qxF "$line" "$prop" 2>/dev/null && return 0
     tmp="$prop.tmp.$$"
     { grep -v '^description=' "$prop"; printf '%s\n' "$line"; } > "$tmp" 2>/dev/null && mv -f "$tmp" "$prop"
+    [ ! -e "$tmp" ] || rm -f "$tmp"
 }

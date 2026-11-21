@@ -30,7 +30,7 @@ usage() {
         '  resume              end a pause now' \
         '  set killswitch 0|1  1 = no internet while the tunnel is down (default)' \
         '  set ks_error 0|1    1 = with the kill switch on, no internet also while the tunnel cannot be built (error); 0 = direct then (default)' \
-        '  set autoswitch 0|1  1 = when restarts do not help, try other tunnels of the same country' \
+        '  set autoswitch 0|1  1 = when restarts do not help, try other tunnels (the same country first)' \
         '  set notify 0|1      1 = a notification when the tunnel could not be fixed (default)' \
         '  set profile battery|always  checks only with the screen on (default) / day and night' \
         '  set checks 5|30|off  ping through the tunnel every 5 s / 30 s (default) / never' \
@@ -39,9 +39,9 @@ usage() {
         '  notifytest          show a test notification' \
         '  log [lines|clear]   last log lines (default 40) / empty the log' \
         '  poll                everything the WebUI shows (key=value)' \
-        '  files               tunnel exports found in Download' \
+        '  files               tunnel exports found in Download (file=size|mtime|configs|name)' \
         '  delfile <name>      delete an export from Download (it holds private keys)' \
-        '  exitip              public exit address (one request to an IP service, over HTTPS; plain HTTP only if that fails)' \
+        '  exitip              public exit address (one request to an IP service, over HTTPS only)' \
         '  diag                report for troubleshooting (no keys)' \
         '  version'
 }
@@ -109,14 +109,12 @@ lanc_rows() {
             esac
         done 2>/dev/null < "$_lf"
     fi
-    echo "lancloak_state=$_ls"
-    echo "lancloak_reason=$_lr"
-    echo "lancloak_dhcp=$_ld"
-    echo "lancloak_announce=$_la"
-    echo "lancloak_wifi=$_lw"
+    # printf, not echo: the values are another module's text (mksh's echo reads backslashes)
+    printf '%s\n' "lancloak_state=$_ls" "lancloak_reason=$_lr" "lancloak_dhcp=$_ld" "lancloak_announce=$_la" "lancloak_wifi=$_lw"
     case "$_lu" in
         ''|*[!0-9]*) echo "lancloak_age=" ;;
-        *) echo "lancloak_age=$(( $(epoch_now) - _lu ))" ;;
+        # without leading zeros: bash and busybox ash read 010 as octal, 08 as an error (poll stopped)
+        *) _lu=${_lu#"${_lu%%[!0]*}"}; echo "lancloak_age=$(( $(epoch_now) - ${_lu:-0} ))" ;;
     esac
     unset _lf _ls _lr _ld _la _lw _lu _lk _lv
 }
@@ -126,14 +124,6 @@ watchdog_alive() {
     [ -n "$p" ] && kill -0 "$p" 2>/dev/null && grep -q service.sh "/proc/$p/cmdline" 2>/dev/null
 }
 
-_http_get() {  # <host> <path>
-    if command -v curl >/dev/null 2>&1; then
-        curl -s -m 8 "http://$1$2" 2>/dev/null && return 0
-    fi
-    if [ -x "$BB" ]; then "$BB" wget -q -T 8 -O - "http://$1$2" 2>/dev/null && return 0; fi
-    return 1
-}
-_json_str() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" | head -n 1; }
 # exitip over HTTPS: Android's own curl (the root manager's busybox wget has
 # no TLS), the certificate is checked (no -k)
 CURL="${WGS_CURL:-/system/bin/curl}"
@@ -154,18 +144,21 @@ _exit_https() {
 # ~80 files on every poll (every 4 s while the WebUI is open) took seconds, so
 # the rows are kept in $STATE/tunrows and made again only when a file in
 # tunnels/ changed (name, inode, size, time) or the favorites changed.
+# "rows 2": tun_names leaves out names tunnel_name_ok refuses since then; a
+# cache made before lists them, so its key no longer matches once.
 tun_rows() {
-    _k=$({ stat -c '%n %i %s %Y' "$TUNDIR"/*.conf 2>/dev/null; echo "favorites"; fav_names; } | cksum)
+    _k=$({ echo "rows 2"; stat -c '%n %i %s %Y' "$TUNDIR"/*.conf 2>/dev/null; echo "favorites"; fav_names; } | cksum)
     _c="$STATE/tunrows"
     if [ "$(head -n 1 "$_c" 2>/dev/null)" != "$_k" ]; then
         _fl=$(fav_names)
         {
             echo "$_k"
             for n in $(tun_names); do
-                _f=0; printf '%s\n' "$_fl" | grep -qxF "$n" && _f=1
-                if tun_parse "$(tun_file "$n")"; then echo "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE|$_f"; else echo "t=$n|-|-|0|0|-|$_f"; fi
+                _f=0; printf '%s\n' "$_fl" | grep -qxF -e "$n" && _f=1
+                if tun_parse "$(tun_file "$n")"; then printf '%s\n' "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE|$_f"; else printf '%s\n' "t=$n|-|-|0|0|-|$_f"; fi
             done
         } > "$_c.tmp.$$" && mv -f "$_c.tmp.$$" "$_c"
+        [ ! -e "$_c.tmp.$$" ] || rm -f "$_c.tmp.$$"
     fi
     tail -n +2 "$_c" 2>/dev/null
 }
@@ -193,7 +186,7 @@ print_status() {
 # after "up": give the first handshake a few seconds
 wait_up() {
     n=0
-    while [ "$n" -lt 6 ]; do
+    while [ "$n" -lt "${WGS_UP_WAIT:-6}" ]; do
         tick_now
         case "$(sed -n 's/^state=//p' "$STATE/status" 2>/dev/null)" in handshaking) : ;; *) break ;; esac
         sleep 1; n=$((n + 1))
@@ -214,7 +207,7 @@ case "$cmd" in
             a=0; [ "$n" = "$S_ACTIVE" ] && a=1
             f=0; fav_has "$n" && f=1
             if tun_parse "$(tun_file "$n")"; then
-                echo "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 type=$T_TYPE active=$a fav=$f"
+                printf '%s\n' "tunnel=$n endpoint=$T_EP address=$T_ADDR ipv6=$T_V6 type=$T_TYPE active=$a fav=$f"
             else
                 printf '%s\n' "tunnel=$n invalid=1 active=$a fav=$f error=$(printf '%s' "$T_ERR" | tr ' ' '_')"
             fi
@@ -260,6 +253,7 @@ case "$cmd" in
         ;;
     remove)
         tun_exists "$1" || fail "no such tunnel: $1"
+        test_running && fail "a speed test is running - wait until it ends"
         ctl_lock
         settings_load
         if [ "$S_ACTIVE" = "$1" ]; then S_ACTIVE=""; fi
@@ -310,8 +304,7 @@ case "$cmd" in
         n=$(bk_count)
         echo "ok=1"; echo "file=$BKZIP"
         if [ "$n" -gt 0 ]; then
-            c=$(bk_created); [ -n "$c" ] || c=$(stat -c %Y "$BKZIP" 2>/dev/null)
-            echo "exists=1"; echo "tunnels=$n"; echo "created=$c"; echo "favorites=$(bk_favs)"
+            echo "exists=1"; echo "tunnels=$n"; echo "created=$(bk_created)"; echo "favorites=$(bk_favs)"
             echo "size=$(stat -c %s "$BKZIP" 2>/dev/null)"
         else
             echo "exists=0"
@@ -329,6 +322,8 @@ case "$cmd" in
     fav)
         case "$1" in add|del) : ;; *) fail "usage: fav add|del <name>" ;; esac
         tunnel_name_ok "$2" || fail "not a valid tunnel name: $2"
+        # under the lock: a restore (also under it) rewrites the favorites too
+        ctl_lock
         if [ "$1" = add ]; then
             tun_exists "$2" || fail "no such tunnel: $2"
             fav_has "$2" || fav_add "$2" || fail "cannot write $FAVS"
@@ -337,6 +332,7 @@ case "$cmd" in
             ! fav_has "$2" || fav_del "$2" || fail "cannot write $FAVS"
             f=0
         fi
+        lock_release
         echo "ok=1"; echo "tunnel=$2"; echo "fav=$f"
         ;;
     test)
@@ -352,10 +348,12 @@ case "$cmd" in
         ;;
     pause)
         case "$1" in ""|*[!0-9]*) fail "usage: pause <minutes 1-1440>" ;; esac
-        [ "$1" -ge 1 ] && [ "$1" -le 1440 ] || fail "minutes must be 1-1440"
+        # without leading zeros: bash and busybox ash read 010 as octal, 08 as an error
+        m=${1#"${1%%[!0]*}"}; m=${m:-0}
+        [ "$m" -ge 1 ] && [ "$m" -le 1440 ] || fail "minutes must be 1-1440"
         settings_load; [ -n "$S_ACTIVE" ] || fail "tunnel is off - nothing to pause"
-        echo $(( $(mono_now) + $1 * 60 )) > "$STATE/pause_until"
-        wlog INFO "ctl: pause $1 min"
+        echo $(( $(mono_now) + m * 60 )) > "$STATE/pause_until"
+        wlog INFO "ctl: pause $m min"
         tick_now; print_status
         ;;
     resume)
@@ -425,7 +423,7 @@ case "$cmd" in
         wlog INFO "ctl: restart"
         "$IP" link del "$IFACE" 2>/dev/null
         rm -f "$STATE/loaded" "$STATE/heal" "$STATE/rules.key" "$STATE/resolved_at" \
-              "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused"
+              "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused"
         lock_release
         # 3. a new watchdog, in its own session: it keeps running after the
         #    WebUI / terminal that started it is gone
@@ -453,15 +451,16 @@ case "$cmd" in
         echo "dnscrypt=$(sib_state dnscrypt-proxy-android)"
         # DNSCrypt Proxy r22+ keeps everything in /data/adb/dnscrypt-proxy/, older versions at the top of /data/adb
         h="$ADB/dnscrypt-proxy/state/health"; [ -f "$h" ] || h="$ADB/dnscrypt-proxy-state/health"
-        echo "dnscrypt_state=$(sed -n 's/^state=//p' "$h" 2>/dev/null | head -n1)"
-        echo "dnscrypt_ipmode=$(sed -n 's/^IP_MODE=//p' "$(dnsc_conf)" 2>/dev/null | tail -n1)"
+        # the other modules' values with printf (mksh's echo reads backslashes)
+        printf '%s\n' "dnscrypt_state=$(sed -n 's/^state=//p' "$h" 2>/dev/null | head -n1)"
+        printf '%s\n' "dnscrypt_ipmode=$(sed -n 's/^IP_MODE=//p' "$(dnsc_conf)" 2>/dev/null | tail -n1)"
         echo "ipset=$(sib_state ipset_arm64)"
         echo "vhs=$(sib_state vpn-hotspot)"
         # VPN Hotspot r15+ keeps its status in /data/adb/vpn-hotspot/state/
         vs="$ADB/vpn-hotspot/state/status"; [ -f "$vs" ] || vs="$ADB/vpn-hotspot-state/status"
-        echo "vhs_state=$(sed -n 's/^state=//p' "$vs" 2>/dev/null | head -n1)"
-        echo "vhs_code=$(sed -n 's/^versionCode=//p' "$MODULES/vpn-hotspot/module.prop" 2>/dev/null | head -n1)"
-        echo "vhs_source=$(sed -n 's/^vpn_source=//p' "$vs" 2>/dev/null | head -n1)"
+        printf '%s\n' "vhs_state=$(sed -n 's/^state=//p' "$vs" 2>/dev/null | head -n1)"
+        printf '%s\n' "vhs_code=$(sed -n 's/^versionCode=//p' "$MODULES/vpn-hotspot/module.prop" 2>/dev/null | head -n1)"
+        printf '%s\n' "vhs_source=$(sed -n 's/^vpn_source=//p' "$vs" 2>/dev/null | head -n1)"
         lanc_rows
         test_rows
         if test_running; then echo "test_run=$(cat "$TEST_PROG" 2>/dev/null)"; fi
@@ -476,10 +475,15 @@ case "$cmd" in
         echo "dir=$DL"
         for f in "$DL"/*.zip "$DL"/*.ZIP "$DL"/*.conf "$DL"/*.CONF; do
             [ -f "$f" ] || continue
+            # a line break in the name would add lines of its own to this
+            # key=value output (another app can put such a file there)
+            case "$f" in *"
+"*) continue ;; esac
             is_export "$f" || continue
             set -- $(stat -c '%s %Y' "$f" 2>/dev/null)
             n=0; case "$f" in *.zip|*.ZIP) n=$(zip_list "$f" | grep -ciE '\.conf$') ;; *) n=1 ;; esac
-            echo "$2|file=${f##*/}|$1|$2|$n"
+            # the name last: it may contain "|" (not echo: mksh's echo reads a backslash in it)
+            printf '%s\n' "$2|file=$1|$2|$n|${f##*/}"
         done | sort -rn | cut -d'|' -f2-
         ;;
     delfile)
@@ -489,34 +493,23 @@ case "$cmd" in
         is_export "$f" || fail "not a tunnel export: $1"
         rm -f "$f" || fail "cannot delete $1"
         wlog INFO "ctl: export $1 deleted from Download"
-        echo "ok=1"; echo "deleted=$1"
+        echo "ok=1"; printf '%s\n' "deleted=$1"
         ;;
     exitip)
         via=""; [ "$(sed -n 's/^state=//p' "$STATE/status" 2>/dev/null)" = up ] && via=$IFACE
-        # HTTPS first: ipinfo.io (ip, country, city, org), then ipwho.is (ip,
-        # country, city, isp). Plain HTTP - where anyone on the way can read
-        # and change the answer - only without curl or when both fail.
-        # proto= says which it was (via= is taken: the tunnel's interface).
+        # HTTPS only, certificate checked: ipinfo.io (ip, country, city, org),
+        # then ipwho.is (isp), then ifconfig.co (asn_org). Never plain HTTP:
+        # anyone on the way could read and change the answer (and busybox
+        # wget checks no certificate). proto= stays, always https (via= is
+        # taken: the tunnel's interface).
         # The answer's values are printed with printf, not echo: mksh's echo
         # would read a backslash in them ("\n" = a line of its own)
         ip=""; proto=https
-        if [ -x "$CURL" ]; then
-            _exit_https https://ipinfo.io/json org || _exit_https https://ipwho.is/ isp
-        fi
-        if [ -n "$ip" ]; then
-            printf '%s\n' "ip=$ip" "country=$e_country" "city=$e_city" "isp=$e_isp"
-        else
-            proto=http
-            j=$(_http_get ip-api.com '/json/?fields=status,country,countryCode,city,isp,query')
-            ip=$(_json_str "$j" query)
-            if [ -n "$ip" ]; then
-                printf '%s\n' "ip=$ip" "country=$(_json_str "$j" country)" "city=$(_json_str "$j" city)" "isp=$(_json_str "$j" isp)"
-            else
-                j=$(_http_get ipinfo.io /json); ip=$(_json_str "$j" ip)
-                [ -n "$ip" ] || fail "no answer from ipinfo.io, ipwho.is or ip-api.com"
-                printf '%s\n' "ip=$ip" "country=$(_json_str "$j" country)" "city=$(_json_str "$j" city)" "isp=$(_json_str "$j" org)"
-            fi
-        fi
+        [ -x "$CURL" ] || fail "no curl for HTTPS ($CURL)"
+        _exit_https https://ipinfo.io/json org || _exit_https https://ipwho.is/ isp ||
+            _exit_https https://ifconfig.co/json asn_org ||
+            fail "no answer from ipinfo.io, ipwho.is or ifconfig.co"
+        printf '%s\n' "ip=$ip" "country=$e_country" "city=$e_city" "isp=$e_isp"
         echo "via=$via"; echo "proto=$proto"; echo "ok=1"
         ;;
     diag)
@@ -533,7 +526,7 @@ case "$cmd" in
         echo; echo "== favorites"; fav_names
         echo; echo "== backup"; if [ "$(bk_count)" -gt 0 ]; then echo "$BKZIP: $(bk_count) tunnels, created $(bk_created)"; else echo "none ($BKZIP)"; fi
         echo; echo "== speed test (address|handshake ms|ping ms|result|epoch|tunnels)"; cat "$TEST_FILE" 2>/dev/null
-        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then echo "$n $T_EP $T_ADDR $T_TYPE"; else printf '%s\n' "$n INVALID: $T_ERR"; fi; done
+        echo; echo "== tunnels"; for n in $(tun_names); do if tun_parse "$(tun_file "$n")"; then printf '%s\n' "$n $T_EP $T_ADDR $T_TYPE"; else printf '%s\n' "$n INVALID: $T_ERR"; fi; done
         k=$(iface_kind)
         if [ "$k" = amneziawg ]; then
             echo; echo "== awg (keys hidden)"; "$AWG" show "$IFACE" 2>&1 | grep -viE 'private key|preshared|protection key'

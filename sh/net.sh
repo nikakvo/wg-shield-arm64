@@ -145,6 +145,7 @@ nets_classify() {
         done
         IFS=$_oifs
         { echo "$_key"; mono_now; printf '%s' "$_body"; } > "$_c.tmp.$$" && mv -f "$_c.tmp.$$" "$_c"
+        [ ! -e "$_c.tmp.$$" ] || rm -f "$_c.tmp.$$"
     fi
     _oifs=$IFS; IFS='
 '
@@ -206,7 +207,8 @@ v6_ensure() {
     [ "$T_V6" = 1 ] && [ -n "$T_ADDR6" ] || return 0
     v6_kernel_on || return 0
     [ "$(cat "$PROC6/$IFACE/disable_ipv6" 2>/dev/null)" = 0 ] || return 0
-    a=${T_ADDR6%/*}
+    # compared as `ip` lists it (FD00:0:0:0::2 is shown as fd00::2)
+    a=$(ipv6_canon "${T_ADDR6%/*}") || a=${T_ADDR6%/*}
     "$IP" -6 addr show dev "$IFACE" 2>/dev/null | grep -q "inet6 $a/" ||
         "$IP" -6 addr add "$T_ADDR6" dev "$IFACE" nodad 2>/dev/null
     "$IP" -6 addr show dev "$IFACE" 2>/dev/null | grep -q "inet6 $a/" || return 0
@@ -231,6 +233,7 @@ exempt_uids() {
         if [ -n "$_p" ]; then
             _u=$(echo "$_p" | grep -i captiveportal | sed -n 's/.*uid:\([0-9][0-9]*\).*/\1/p' | sort -un | tr '\n' ' ')
             echo "$NETSTACK_UID $_u" > "$_f.tmp.$$" && mv -f "$_f.tmp.$$" "$_f"
+            [ ! -e "$_f.tmp.$$" ] || rm -f "$_f.tmp.$$"
             wlog INFO "kept on their own network: Android's network check (uid $NETSTACK_UID)${_u:+, captive portal login (uid ${_u% })}"
         fi
     fi
@@ -315,7 +318,7 @@ rules_apply() {
         ip_batch "$_b.del"
         ip_batch "$_b.new"
     fi
-    mv -f "$_b.new" "$STATE/rules.want"
+    mv -f "$_b.new" "$STATE/rules.want" || rm -f "$_b.new"
     rm -f "$_b.fast" "$_b.old" "$_b.sorted" "$_b.del"
     rules_check || {
         # an ip without -batch? one by one, then look again
@@ -432,7 +435,7 @@ resolve_host() {
             "$IP" rule add pref 5001 iif lo to "$srv/32" lookup "$DEFN" 2>/dev/null
         out=$("$BB" timeout 6 "$BB" nslookup "$1" "$srv" 2>/dev/null)
         while "$IP" rule del pref 5001 2>/dev/null; do :; done
-        a=$(echo "$out" | awk '
+        a=$(printf '%s\n' "$out" | awk '
             /^Name:/ { n = 1; next }
             n { for (i = 1; i <= NF; i++) { f = $i; sub(/:53$/, "", f)
                 if (f ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { print f; exit } } }')
@@ -494,13 +497,18 @@ resolve_host() {
 # lookups go to the tunnel's DNS as well. The IPv4 re-route after the
 # redirect does not look at the uid, so they do arrive there. The IPv6 one
 # does (measured), a redirected lookup of Android's check would leave on the
-# network and be lost: a LAN resolver reached over IPv6 is left alone.
+# network and be lost; and an IPv4-only tunnel has no IPv6 DNS at all. So
+# IPv6 DNS to a resolver on the LAN is refused instead (dnsb_sync).
 IPT="${WGS_IPT:-/system/bin/iptables}"
 IPT6="${WGS_IPT6:-/system/bin/ip6tables}"
 IPTS="${WGS_IPTS:-/system/bin/iptables-save}"
 IPTS6="${WGS_IPTS6:-/system/bin/ip6tables-save}"
 DNSCHAIN=wgs_dns
 DNSSNAT=wgs_dnss    # nat POSTROUTING, only with LAN DNS through the tunnel; removed otherwise
+# while the chains are rebuilt, a copy of the new rules under these names
+# takes the DNS (_dns_sync); gone again once the chains are back
+DNSCOPY=wgs_dns_n
+DNSSCOPY=wgs_dnss_n
 
 # _nat_dump SAVE TOOL - the nat table as "-A ..." lines (iptables-save, else -S)
 _nat_dump() { "$1" -t nat 2>/dev/null || "$2" -w -t nat -S 2>/dev/null; }
@@ -513,14 +521,15 @@ dnsc_dnat() { printf '%s\n' "$1" | grep -E '^-A OUTPUT ' | grep -F -e '--dport 5
 # dns_dnat_to SERVER - DNAT target (IPv6 in brackets)
 dns_dnat_to() { case "$1" in *:*) echo "[$1]:53" ;; *) echo "$1:53" ;; esac; }
 
-dns_present() { [ -f "$STATE/dns.want" ] || [ -f "$STATE/dns6.want" ]; }
+dns_present() { [ -f "$STATE/dns.want" ] || [ -f "$STATE/dns6.want" ] || [ -f "$STATE/dns6b.want" ]; }
 dns_del() {
     _dns_del "$IPT" "$IPTS" dns
     # IPv6: only when it was set up (no ip6tables-save on every teardown)
     [ -f "$STATE/dns6.want" ] && _dns_del "$IPT6" "$IPTS6" dns6
+    [ -f "$STATE/dns6b.want" ] && dnsb_del
     return 0
 }
-_dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP]
+_dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP [keep]] - keep: STATENAME.want stays
     _dd=${4-$(_nat_dump "$2" "$1")}
     _dj=$(_nat_cnt "$_dd" "-A OUTPUT -j $DNSCHAIN")
     while [ "${_dj:-0}" -gt 0 ]; do "$1" -w -t nat -D OUTPUT -j "$DNSCHAIN" 2>/dev/null || break; _dj=$((_dj - 1)); done
@@ -528,8 +537,21 @@ _dns_del() {  # _dns_del TOOL SAVE STATENAME [DUMP]
     _dj=$(_nat_cnt "$_dd" "-A POSTROUTING -j $DNSSNAT")
     while [ "${_dj:-0}" -gt 0 ]; do "$1" -w -t nat -D POSTROUTING -j "$DNSSNAT" 2>/dev/null || break; _dj=$((_dj - 1)); done
     _nat_has "$_dd" "$DNSSNAT" && { "$1" -w -t nat -F "$DNSSNAT" 2>/dev/null; "$1" -w -t nat -X "$DNSSNAT" 2>/dev/null; }
-    rm -f "$STATE/$3.want"
+    _dns_copy_del "$1" "$_dd"
+    [ "$5" = keep ] || rm -f "$STATE/$3.want"
     unset _dd _dj
+}
+# _dns_copy_del TOOL DUMP - the rebuild's copy (DNSCOPY / DNSSCOPY), when
+# DUMP lists it: also one a killed rebuild left
+_dns_copy_del() {
+    if _nat_has "$2" "$DNSCOPY"; then
+        while "$1" -w -t nat -D OUTPUT -j "$DNSCOPY" 2>/dev/null; do :; done
+        "$1" -w -t nat -F "$DNSCOPY" 2>/dev/null; "$1" -w -t nat -X "$DNSCOPY" 2>/dev/null
+    fi
+    if _nat_has "$2" "$DNSSCOPY"; then
+        while "$1" -w -t nat -D POSTROUTING -j "$DNSSCOPY" 2>/dev/null; do :; done
+        "$1" -w -t nat -F "$DNSSCOPY" 2>/dev/null; "$1" -w -t nat -X "$DNSSCOPY" 2>/dev/null
+    fi
 }
 # _dns_to DUMP SERVER - the DNAT target of our rules as the kernel prints
 # it: SERVER:53 for IPv4; for IPv6 the address in ip6tables' own short form
@@ -688,6 +710,7 @@ dns_ensure() {
         fi
     fi
     _dns_sync "$IPT" "$IPTS" dns "$_w4" "$_d4" "" "$DNS_KEY" && [ -n "$_w4" ] && { ST_DNS=tunnel; ST_DNS_SERVER=$_w4; [ -n "$DNS_LAN" ] && ST_DNS_LAN=$DNS_OIFS; }
+    if [ -n "$ST_DNS_LAN" ]; then dnsb_sync "$DNS_OIFS|$DNS_OUT|$DNS_CHK"; else dnsb_sync ""; fi
     if [ -n "$_w6" ] || [ -f "$STATE/dns6.want" ]; then
         _dns_sync "$IPT6" "$IPTS6" dns6 "$_w6" "$(_nat_dump "$IPTS6" "$IPT6")" " for IPv6" &&
             [ -n "$_w6" ] && [ "$ST_DNS" = tunnel ] && ST_DNS_SERVER="$ST_DNS_SERVER $_w6"
@@ -699,7 +722,7 @@ _dns_sync() {
     _x=$1; _s=$2; _n=$3; _t=$4; _du=$5; _w=$6; _lk=$7
     if [ -z "$_t" ]; then
         rm -f "$STATE/$_n.bad"
-        if [ -f "$STATE/$_n.want" ] || _nat_has "$_du" "$DNSCHAIN" || _nat_has "$_du" "$DNSSNAT"; then
+        if [ -f "$STATE/$_n.want" ] || _nat_has "$_du" "$DNSCHAIN" || _nat_has "$_du" "$DNSSNAT" || _nat_has "$_du" "$DNSCOPY" || _nat_has "$_du" "$DNSSCOPY"; then
             [ -f "$STATE/$_n.want" ] && wlog INFO "DNS$_w: left to $( [ "$ST_DNS" = dnscrypt ] && echo 'DNSCrypt Proxy' || echo 'the network')"
             _dns_del "$_x" "$_s" "$_n" "$_du"
         fi
@@ -708,15 +731,38 @@ _dns_sync() {
     # $STATE/<name>.want: the server as the config has it (with several
     # servers and / or LAN DNS through the tunnel: and "|" + DNS_KEY), then
     # the DNAT target as the kernel printed it when the chain was set up
+    # a copy left by a rebuild that was killed (see below) goes first: the
+    # check for "as wanted" does not see it
+    if _nat_has "$_du" "$DNSCOPY" || _nat_has "$_du" "$DNSSCOPY"; then
+        _dns_copy_del "$_x" "$_du"; _du=$(_nat_dump "$_s" "$_x")
+    fi
     _k=$_t${_lk:+|$_lk}
     _old=$(sed -n 1p "$STATE/$_n.want" 2>/dev/null)
     if [ "$_old" = "$_k" ] && _dns_ok "$_du" "$(sed -n 2p "$STATE/$_n.want" 2>/dev/null)" "$_lk"; then unset _x _s _n _t _du _w _lk _k _old; return 0; fi
     # something is off (new server, other networks, or rules changed by
-    # someone else): rebuild
-    _dns_del "$_x" "$_s" "$_n" "$_du"
+    # someone else): rebuild. While our chain is there, the new rules go in
+    # first as a copy under other names, its jump after ours: from the
+    # moment our chain is deleted until its new jump is in, DNS would go
+    # where the routing sends it (with LAN DNS through the tunnel: to the
+    # router). The copy goes once the chain is back.
+    # <name>.want is there for the whole rebuild (it says that chains of ours
+    # may exist: dns_present, dns_del's IPv6 half and the cleanup above look
+    # only at it): a rebuild killed midway leaves no chain nothing removes.
+    # Its key stays the old one (or empty): the next tick checks the chain.
+    [ -f "$STATE/$_n.want" ] || : > "$STATE/$_n.want"
+    _cp=0
+    if _nat_has "$_du" "$DNSCHAIN"; then
+        _cp=1; _oc=$DNSCHAIN; _os=$DNSSNAT; DNSCHAIN=$DNSCOPY; DNSSNAT=$DNSSCOPY
+        _dns_apply "$_x" "$_t" "$_lk"
+        "$_x" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
+        DNSCHAIN=$_oc; DNSSNAT=$_os
+    fi
+    _dns_del "$_x" "$_s" "$_n" "$_du" keep
     _dns_apply "$_x" "$_t" "$_lk"
     "$_x" -w -t nat -A OUTPUT -j "$DNSCHAIN" 2>/dev/null
-    _du=$(_nat_dump "$_s" "$_x"); _to=$(_dns_to "$_du" "$_t")
+    _du=$(_nat_dump "$_s" "$_x")
+    [ "$_cp" = 1 ] && { _dns_copy_del "$_x" "$_du"; _du=$(_nat_dump "$_s" "$_x"); }
+    _to=$(_dns_to "$_du" "$_t")
     if _dns_ok "$_du" "$_to" "$_lk"; then
         printf '%s\n%s\n' "$_k" "$_to" > "$STATE/$_n.want"; rm -f "$STATE/$_n.bad"
         if [ "$_old" = "$_k" ]; then wlog WARN "DNS$_w: the redirect to the tunnel's DNS was changed by someone else - repaired"
@@ -739,8 +785,94 @@ _dns_sync() {
         fi
         _r=1
     fi
-    unset _x _s _n _t _du _w _lk _k _old _to _ol _nl
+    unset _x _s _n _t _du _w _lk _k _old _to _ol _nl _cp _oc _os
     return $_r
+}
+
+# IPv6 DNS to the LAN while LAN DNS goes through the tunnel (ST_DNS_LAN):
+# it cannot be sent to the tunnel's DNS (see above), so it is refused -
+# filter OUTPUT, its first rule a jump to our chain: -o <interface of every
+# captured network> udp/tcp 53 REJECT. The resolver gets "port unreachable"
+# at once and asks the network's next server, the IPv4 one, which goes to
+# the tunnel's DNS. Left alone like by the IPv4 chain: networks that stay
+# outside and those Android is still checking (their marks RETURN first).
+# A Wi-Fi whose only resolvers are reached over IPv6 has no plain DNS then.
+# A new layout (or a chain changed by someone else): the new chain, under
+# the other of the two names, and its jump go in before the old ones go -
+# no lookup gets through meanwhile. $STATE/dns6b.want: the chain in use,
+# then the layout; there from before the first chain is made until the
+# last one is gone.
+DNSB=wgs_dnsb
+DNSB2=wgs_dnsb_n
+_dnsb_dump() { "$IPTS6" -t filter 2>/dev/null || "$IPT6" -w -t filter -S 2>/dev/null; }
+# _dnsb_rm DUMP CHAIN - the chain and its jumps, when DUMP lists it
+_dnsb_rm() {
+    _nat_has "$1" "$2" || return 0
+    while "$IPT6" -w -t filter -D OUTPUT -j "$2" 2>/dev/null; do :; done
+    "$IPT6" -w -t filter -F "$2" 2>/dev/null; "$IPT6" -w -t filter -X "$2" 2>/dev/null
+}
+dnsb_del() {
+    _bd=$(_dnsb_dump); _dnsb_rm "$_bd" "$DNSB"; _dnsb_rm "$_bd" "$DNSB2"
+    rm -f "$STATE/dns6b.want"; unset _bd
+}
+# _dnsb_ok DUMP CHAIN - one jump to CHAIN, none to the other name, CHAIN
+# holds the RETURN rules of DNS_OUT / DNS_CHK and the REJECT rules of DNS_OIFS
+_dnsb_ok() {
+    [ -n "$2" ] || return 1
+    _ow=0; for _m in $DNS_OUT $DNS_CHK; do _ow=$((_ow + 1)); done
+    _ow="1 0 $_ow"; _oc=0
+    for _d in $DNS_OIFS; do _oc=$((_oc + 2)); done
+    _ow="$_ow $_oc"
+    _oh=$(printf '%s\n' "$1" | awk -v c="$2" -v a="$DNSB" -v b="$DNSB2" '
+        $1 != "-A" { next }
+        NF == 4 && $2 == "OUTPUT" && $3 == "-j" && $4 == c { j++; next }
+        NF == 4 && $2 == "OUTPUT" && $3 == "-j" && ($4 == a || $4 == b) { x++; next }
+        $2 == c && $NF == "RETURN" && index($0, " --mark ") { r++; next }
+        $2 == c && index($0, " -j REJECT") && index($0, " --dport 53 ") && index($0, " -o ") { d++ }
+        END { print j + 0, x + 0, r + 0, d + 0 }')
+    [ "$_oh" = "$_ow" ]; _or=$?
+    unset _ow _oh _oc _m _d
+    return $_or
+}
+# dnsb_sync LAYOUT - the IPv6 DNS refusal as DNS_OIFS / DNS_OUT / DNS_CHK
+# say (LAYOUT: their key), or none (empty)
+dnsb_sync() {
+    if [ -z "$1" ]; then
+        [ -f "$STATE/dns6b.want" ] && dnsb_del
+        rm -f "$STATE/dns6b.bad"; return 0
+    fi
+    _bd=$(_dnsb_dump)
+    _bo=$(sed -n 1p "$STATE/dns6b.want" 2>/dev/null)
+    if [ "$(sed -n 2p "$STATE/dns6b.want" 2>/dev/null)" = "$1" ] && _dnsb_ok "$_bd" "$_bo"; then unset _bd _bo; return 0; fi
+    # the new chain takes the name that is not there (with both there - a
+    # rebuild killed before the old one went - the other one than the
+    # file's): never the only chain left, also when a killed rebuild left
+    # the file naming one that is gone
+    if _nat_has "$_bd" "$DNSB" && { ! _nat_has "$_bd" "$DNSB2" || [ "$_bo" = "$DNSB" ]; }; then _bn=$DNSB2; _bx=$DNSB; else _bn=$DNSB; _bx=$DNSB2; fi
+    [ -f "$STATE/dns6b.want" ] || : > "$STATE/dns6b.want"
+    _dnsb_rm "$_bd" "$_bn"
+    "$IPT6" -w -t filter -N "$_bn" 2>/dev/null
+    for _m in $DNS_OUT $DNS_CHK; do
+        "$IPT6" -w -t filter -A "$_bn" -m mark --mark "$_m/0xffff" -j RETURN 2>/dev/null
+    done
+    for _d in $DNS_OIFS; do
+        for _p in udp tcp; do
+            "$IPT6" -w -t filter -A "$_bn" -o "$_d" -p "$_p" --dport 53 -j REJECT 2>/dev/null
+        done
+    done
+    "$IPT6" -w -t filter -I OUTPUT -j "$_bn" 2>/dev/null
+    _dnsb_rm "$_bd" "$_bx"
+    if _dnsb_ok "$(_dnsb_dump)" "$_bn"; then
+        [ -n "$_bo" ] || wlog INFO "DNS: IPv6 DNS leaving through $(echo "$DNS_OIFS" | sed 's/ /, /g') refused - the resolvers are asked over IPv4"
+        printf '%s\n%s\n' "$_bn" "$1" > "$STATE/dns6b.want"; rm -f "$STATE/dns6b.bad"
+    else
+        dnsb_del
+        if [ "$1" != "$(cat "$STATE/dns6b.bad" 2>/dev/null)" ]; then
+            echo "$1" > "$STATE/dns6b.bad"
+            wlog WARN "DNS: could not refuse IPv6 DNS leaving through $(echo "$DNS_OIFS" | sed 's/ /, /g') (${IPT6##*/}) - a resolver there reached over IPv6 sees lookups"
+        fi
+    fi
+    unset _bd _bo _bn _bx _m _d _p
 }
 
 # boot guard (post-fs-data): block everything not bound to a network until the tunnel is up
@@ -772,8 +904,8 @@ teardown() {
     "$IP" route flush table "$TABLE" 2>/dev/null
     "$IP" -6 route flush table "$TABLE" 2>/dev/null
     "$IP" link del "$IFACE" 2>/dev/null
-    rm -f "$STATE/dns.bad" "$STATE/dns6.bad"
-    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
+    rm -f "$STATE/dns.bad" "$STATE/dns6.bad" "$STATE/dns6b.bad"
+    rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/rules.key" "$STATE/rules.sig" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/last_nets" "$STATE/rules.want" "$STATE/rules.bad" "$STATE/rules.fast" "$STATE/rules.dirty" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
 }
 
 # error_blocks - state error, and the user wants the kill switch to hold
@@ -794,12 +926,14 @@ error_blocks() { [ "$ST_STATE" = error ] && [ "$S_KILLSWITCH" = 1 ] && [ "$S_KS_
 # or one of the two settings off = teardown.
 error_block() {
     if iface_exists || [ -f "$STATE/loaded" ] || [ -f "$STATE/tunnel.info" ]; then
+        # with wgs0 its routes go; the IPv6 unreachable default stays: until
+        # rules_sync below makes 5020-5022 unreachable, IPv6 they take into
+        # table 51820 would otherwise find it empty and go around (netd's rules)
         "$IP" link del "$IFACE" 2>/dev/null
-        "$IP" -6 route flush table "$TABLE" 2>/dev/null
-        rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/live_rx" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
+        rm -f "$STATE/loaded" "$STATE/tunnel.info" "$STATE/up_since" "$STATE/resolved_at" "$STATE/iftype" "$STATE/dead_at" "$STATE/live_probe_at" "$STATE/alive_at" "$STATE/live_paused" "$STATE/dns_srv" "$STATE/dns_fo_fail"
     fi
     dns_present && dns_del
-    rm -f "$STATE/dns.bad" "$STATE/dns6.bad"
+    rm -f "$STATE/dns.bad" "$STATE/dns6.bad" "$STATE/dns6b.bad"
     for _p in 5000 5001; do
         while "$IP" rule del pref "$_p" 2>/dev/null; do :; done
         while "$IP" -6 rule del pref "$_p" 2>/dev/null; do :; done
@@ -1030,7 +1164,8 @@ wgs_tick() {
             # at shutdown netd and the links go away - not a tunnel error
             shutting_down && return 2
             ST_STATE=error; ST_REASON=$ERR
-            if error_blocks; then error_block || return 2; else teardown; fi
+            # teardown only when something is left (not at every tick in error)
+            if error_blocks; then error_block || return 2; elif anything_present; then teardown; fi
         else
             st_endpoint
             [ -n "$T_EPHOST" ] && ST_EPHOST=$T_EP
@@ -1051,7 +1186,7 @@ wgs_tick() {
                 fi
                 [ -n "$DEF" ] || { [ "$ST_STATE" = up ] || ST_REASON=no_network; }
                 if [ -n "$T_EPHOST" ] && [ -n "$DEF" ]; then
-                    case "$ST_STATE" in down) reresolve; ST_ENDPOINT="$T_EPIP:$T_PORT" ;; esac
+                    case "$ST_STATE" in down) reresolve ;; esac   # the endpoint key follows below (st_endpoint)
                 fi
             fi
             # self-healing (sh/recover.sh): restarts, maybe another tunnel
