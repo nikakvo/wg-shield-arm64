@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.9.3
+
+Help reads better on the phone.
+
+* **Help reads better on the phone** - table rows are stacked (the name on top, its text under it at full width, no more sideways scrolling), every example command sits in a box with its own **COPY** button (only that one command is copied, never its comment), and an arrow at the bottom right jumps back to the top
+* **Help ‹ BACK returns to the dashboard** also after a jump through the contents (it went back only to the top of Help)
+* The module's scripts and the WebUI are unchanged
+
+---
+
 ## 2.9.2
 
 Fixes after 2.9.1 - most of them by [ivangotoy](https://github.com/ivangotoy) (PR #4): security, IPv6, file handling and WebUI messages.

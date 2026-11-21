@@ -33,7 +33,7 @@
     .box h3:first-child { margin-top: 0; }
     .box ul, .box ol { margin: 6px 0 10px 18px; } .box li { margin-bottom: 5px; }
     strong { color: var(--hi); font-weight: 600; }
-    code { font-family: var(--mono); font-size: 12px; color: var(--amber); background: var(--surface2); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; word-break: break-all; }
+    code { font-family: var(--mono); font-size: 12px; color: var(--amber); background: var(--surface2); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; overflow-wrap: anywhere; }
     pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 12px; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--text); margin: 8px 0; white-space: pre; }
     pre .cm { color: var(--dim); }
     .tw { overflow-x: auto; margin: 6px 0; }
@@ -52,6 +52,42 @@
     .flow .dn { color: var(--dnsc); } .flow .ip { color: var(--ipset); } .flow .vh { color: var(--vhs); }
     .footer { text-align: center; padding: 28px 16px 8px; font-size: 10px; font-family: var(--mono); color: var(--dim); }
     .footer a { color: var(--acc); text-decoration: none; }
+  
+    /* Commands: mac-style box; COPY copies one command, never its comment */
+    .code-block { --cb: var(--acc); background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 10px 0; }
+    .code-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 10px 6px 12px; border-bottom: 1px solid var(--border); background: var(--surface2); }
+    .code-label { font-family: var(--mono); font-size: 9.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .code-header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .code-dots { display: flex; gap: 4px; }
+    .code-dot { width: 7px; height: 7px; border-radius: 50%; display: block; }
+    .code-dot:nth-child(1) { background: #ff5f57; }
+    .code-dot:nth-child(2) { background: #febc2e; }
+    .code-dot:nth-child(3) { background: #28c840; }
+    .copy-btn { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; background: transparent; border: 1px solid var(--border2); color: var(--cb); border-radius: 4px; padding: 3px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .05em; cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; }
+    .copy-btn:active { background: var(--surface2); }
+    .copy-btn.copied { color: #28c840; border-color: rgba(40,200,64,.45); }
+    .copy-btn.failed { color: var(--red); border-color: var(--red); }
+    .code-block pre { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 0; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; }
+    .code-body { padding: 10px 12px; }
+    .cmd-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+    .cmd-row:last-child { border-bottom: 0; }
+    .cmd-main { flex: 1; min-width: 0; }
+    .code-block pre .sub { color: var(--cb); }
+    .cmd-note { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 2px; }
+    /* Back to top */
+    .to-top { position: fixed; right: 16px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--border2); background: var(--surface2); color: var(--acc); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 40; opacity: 0; pointer-events: none; transition: opacity .2s; -webkit-tap-highlight-color: transparent; }
+    .to-top.show { opacity: 1; pointer-events: auto; }
+    /* Tables on a phone: each row stacked, the name on top and its text under it */
+    @media (max-width: 640px) {
+      .tw { overflow-x: visible; }
+      .tw table, .tw tbody, .tw tr, .tw td { display: block; width: 100%; }
+      .tw tr.th-row { display: none; }
+      .tw tr { padding: 9px 0; border-bottom: 1px solid var(--border); }
+      .tw tr:last-child { border-bottom: none; }
+      .tw td { border-bottom: none; padding: 0; }
+      .tw td:first-child { white-space: normal; overflow-wrap: anywhere; padding: 0 0 3px; }
+      .tw table.multi td[data-label]::before { content: attr(data-label) ': '; color: var(--dim); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+    }
   </style>
 </head>
 <body>
@@ -86,7 +122,7 @@
   <p>Android does not see a VPN. There is no VPN key icon, apps see a normal network, and nothing depends on Android's VPN service - the tunnel is plain Linux routing below it. Calls over the mobile network (VoLTE, Wi-Fi calling), SMS and MMS keep using the carrier's own networks.</p>
   <p>Tunnels come from the official WireGuard app (or an AmneziaWG config): export them there, import them here, then switch one on. Which kind a tunnel is, WG Shield sees by itself from the file (see 6).</p>
   <div class="tw"><table>
-    <tr><th>needs</th><th></th></tr>
+    <tr class="th-row"><th>needs</th><th></th></tr>
     <tr><td>Kernel</td><td>WireGuard built in (<code>CONFIG_WIREGUARD</code>). The installer checks it and stops if it is missing. For AmneziaWG tunnels the kernel also needs AmneziaWG (<code>CONFIG_AMNEZIAWG</code>); without it only those tunnels cannot start, WireGuard tunnels work as usual.</td></tr>
     <tr><td>Tunnels</td><td>wg-quick format as the WireGuard app or a VPN provider exports them (a zip or single <code>.conf</code> files): one <code>[Peer]</code>, <code>AllowedIPs</code> with <code>0.0.0.0/0</code>, an <code>Endpoint</code> as an IPv4 address, an IPv6 address in brackets or a host name. An IPv6 address with <code>::/0</code> carries IPv6 too. Proton VPN's configs work as downloaded.</td></tr>
     <tr><td>Root</td><td>SukiSU Ultra, KernelSU, APatch or Magisk (WebUI through MMRL / KSU WebUI Standalone).</td></tr>
@@ -119,7 +155,7 @@
   <p>One interface, <code>wgs0</code>, always the same name whichever tunnel is on. A routing table (<code>51820</code>) that sends everything into it, with an <strong>unreachable</strong> route underneath: if the tunnel disappears, traffic has nowhere to go - it never falls back to your normal connection.</p>
   <p>Routing rules with priorities 5000–5022 sit in front of Android's (which start at 10000):</p>
   <div class="tw"><table>
-    <tr><th>rule</th><th>what for</th></tr>
+    <tr class="th-row"><th>rule</th><th>what for</th></tr>
     <tr><td>5000</td><td>The tunnel's own encrypted packets to the server go out through your network.</td></tr>
     <tr><td>5010–5013</td><td>Local destinations stay local: your Wi-Fi LAN (router, printer, SSH from a laptop), hotspot devices, the local range of every other network.</td></tr>
     <tr><td>5014</td><td>Android's own network check and the hotel / airport login page stay on the network they are for.</td></tr>
@@ -144,7 +180,7 @@
 <div class="sec-title" id="states">4 · states and the banner</div>
 <div class="box">
   <div class="tw"><table>
-    <tr><th>state</th><th>meaning</th></tr>
+    <tr class="th-row"><th>state</th><th>meaning</th></tr>
     <tr><td><span class="pill ok">protected</span></td><td>The tunnel is up and answers.</td></tr>
     <tr><td><span class="pill warn">connecting</span></td><td>Just switched on, waiting for the first handshake (or for a network).</td></tr>
     <tr><td><span class="pill warn">checking</span></td><td>After a restart or a switch the tunnel has a handshake again; WG Shield waits for an answer through it before it counts as fixed (a few seconds).</td></tr>
@@ -287,33 +323,35 @@
 <div class="sec-title" id="cli">10 · command line</div>
 <div class="box">
   <p>Every WebUI action is a <code>ctl.sh</code> command. From Termux:</p>
-<pre>su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh status'   <span class="cm"># state, tunnel, handshake</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh list'   <span class="cm"># imported tunnels</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh import &lt;zip|conf&gt;'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh up [name]'   <span class="cm"># last used when no name</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh switch &lt;name&gt;'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh down'   <span class="cm"># normal connection</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh pause &lt;minutes&gt;'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh resume'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set killswitch 0|1'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set ks_error 0|1'   <span class="cm"># kill switch also when the tunnel cannot be built</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set autoswitch 0|1'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set notify 0|1'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set profile battery|always'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set checks 5|30|off'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh set landns 0|1'   <span class="cm"># LAN DNS through the tunnel</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restart'   <span class="cm"># watchdog + tunnel again</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh notifytest'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh remove &lt;name&gt;'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh removeall'   <span class="cm"># delete every imported tunnel; the tunnel turns off</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh backup'   <span class="cm"># save all tunnels to /storage/emulated/0/wg-shield/wg-shield-backup.zip (replaces the old one)</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh restore'   <span class="cm"># import the tunnels of the backup</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh backupinfo'   <span class="cm"># is there a backup, how many tunnels, when</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh delbackup'   <span class="cm"># delete the backup</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh test BG'   <span class="cm"># speed test of a box: country code, others or favorites</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh fav add &lt;name&gt;'   <span class="cm"># favorite (☆ → ★); fav del &lt;name&gt; removes it</span>
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh log [lines|clear]'
-su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm"># report, no keys</span></pre>
+<div class="code-block"><div class="code-header"><span class="code-label">From Termux</span><div class="code-header-right"><div class="code-dots"><span class="code-dot"></span><span class="code-dot"></span><span class="code-dot"></span></div></div></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">status</span>'</pre><div class="cmd-note">state, tunnel, handshake</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">list</span>'</pre><div class="cmd-note">imported tunnels</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">import &lt;zip|conf&gt;</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">up [name]</span>'</pre><div class="cmd-note">last used when no name</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">switch &lt;name&gt;</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">down</span>'</pre><div class="cmd-note">normal connection</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">pause &lt;minutes&gt;</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">resume</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">set killswitch 0|1</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">set ks_error 0|1</span>'</pre><div class="cmd-note">kill switch also when the tunnel cannot be built</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">set autoswitch 0|1</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">set notify 0|1</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">set profile battery|always</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">set checks 5|30|off</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">set landns 0|1</span>'</pre><div class="cmd-note">LAN DNS through the tunnel</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">restart</span>'</pre><div class="cmd-note">watchdog + tunnel again</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">notifytest</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">remove &lt;name&gt;</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">removeall</span>'</pre><div class="cmd-note">delete every imported tunnel; the tunnel turns off</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">backup</span>'</pre><div class="cmd-note">save all tunnels to /storage/emulated/0/wg-shield/wg-shield-backup.zip (replaces the old one)</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">restore</span>'</pre><div class="cmd-note">import the tunnels of the backup</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">backupinfo</span>'</pre><div class="cmd-note">is there a backup, how many tunnels, when</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">delbackup</span>'</pre><div class="cmd-note">delete the backup</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">test BG</span>'</pre><div class="cmd-note">speed test of a box: country code, others or favorites</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">fav add &lt;name&gt;</span>'</pre><div class="cmd-note">favorite (☆ → ★); fav del &lt;name&gt; removes it</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">log [lines|clear]</span>'</pre></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+<div class="cmd-row"><div class="cmd-main"><pre>su -c '/<wbr>system/<wbr>bin/<wbr>sh /<wbr>data/<wbr>adb/<wbr>modules/<wbr>wg-shield/<wbr>ctl.sh <span class="sub">diag</span>'</pre><div class="cmd-note">report, no keys</div></div><button class="copy-btn" type="button" onclick="copyCode(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY</button></div>
+</div>
   <p>The <code>wg</code> tool is on the path too: <code>su -c '/system/bin/wg show wgs0'</code> (private key hidden). For an AmneziaWG tunnel use <code>awg</code>: <code>su -c '/system/bin/awg show wgs0'</code>. That output shows the header protection key, so do not share it - the Report hides it.</p>
 </div>
 
@@ -344,7 +382,7 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
 <div class="sec-title" id="files">12 · files, update, uninstall</div>
 <div class="box">
   <div class="tw"><table>
-    <tr><th>file</th><th></th></tr>
+    <tr class="th-row"><th>file</th><th></th></tr>
     <tr><td>/data/adb/wg-shield/</td><td>Everything the module keeps, in one folder:</td></tr>
     <tr><td>settings.conf</td><td>Settings: active and last tunnel, kill switch, checks profile and interval, auto-switch, notification, LAN DNS through the tunnel, kill switch on error (kept on update)</td></tr>
     <tr><td>tunnels/</td><td>Imported tunnels with their keys, root only (kept on update)</td></tr>
@@ -360,8 +398,63 @@ su -c '/system/bin/sh /data/adb/modules/wg-shield/ctl.sh diag'   <span class="cm
 
 <div class="footer">WG Shield Arm64 · by Tears Burn · <a href="index.html">back to dashboard</a><br><br>"WireGuard" and the "WireGuard" logo are registered trademarks of Jason A. Donenfeld.<br>WG Shield is not affiliated with or endorsed by the WireGuard or AmneziaWG projects.</div>
 
+<button class="to-top" id="toTop" type="button" onclick="toTop()" aria-label="Back to top"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg></button>
 <script>
-function goBack() { if (history.length > 1) history.back(); else location.href = 'index.html'; }
+// history.back() is right when the user came from index.html. After a tap in
+// the contents it only goes to the previous #section (same page, no pagehide),
+// and some managers open a webroot file directly with no history at all: in
+// both cases nothing has left this page after 300 ms, so go to index.html.
+function goBack() {
+  var left = false;
+  window.addEventListener('pagehide', function () { left = true; });
+  if (window.history.length > 1) {
+    window.history.back();
+    setTimeout(function () { if (!left) window.location.href = 'index.html'; }, 300);
+  } else {
+    window.location.href = 'index.html';
+  }
+}
+
+  // ── Copy a command (comments are not copied) ──
+  var ICON_COPY = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>COPY';
+  function codeText(pre) {
+    var c = pre.cloneNode(true);
+    c.querySelectorAll('.cm').forEach(function (n) { n.remove(); });
+    return c.textContent.replace(/\s+$/, '').replace(/^\s+/, '');
+  }
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.top = '-1000px';
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function copyCode(btn) {
+    var box = btn.closest('.cmd-row') || btn.closest('.code-block');
+    var text = codeText(box.querySelector('pre'));
+    function done(ok) {
+      btn.classList.add(ok ? 'copied' : 'failed');
+      btn.textContent = ok ? 'COPIED' : 'FAILED';
+      setTimeout(function () { btn.classList.remove('copied', 'failed'); btn.innerHTML = ICON_COPY; }, 1600);
+    }
+    // The WebView of some root managers has no navigator.clipboard, or rejects it.
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopy(text)); });
+    } else {
+      done(fallbackCopy(text));
+    }
+  }
+  // ── Back to top ──
+  function toTop() { window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  (function () {
+    var b = document.getElementById('toTop');
+    function upd() { b.classList.toggle('show', (window.scrollY || document.documentElement.scrollTop) > 400); }
+    window.addEventListener('scroll', upd, { passive: true });
+    upd();
+  })();
 </script>
 </body>
 </html>
