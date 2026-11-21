@@ -155,6 +155,9 @@ tun_rows() {
             echo "$_k"
             for n in $(tun_names); do
                 _f=0; printf '%s\n' "$_fl" | grep -qxF -e "$n" && _f=1
+                # deleted while the rows were made (remove, Clear all): no row, not
+                # an "invalid file" one; the next poll builds the list again anyway
+                [ -f "$(tun_file "$n")" ] || continue
                 if tun_parse "$(tun_file "$n")"; then printf '%s\n' "t=$n|$T_EP|$T_ADDR|1|$T_V6|$T_TYPE|$_f"; else printf '%s\n' "t=$n|-|-|0|0|-|$_f"; fi
             done
         } > "$_c.tmp.$$" && mv -f "$_c.tmp.$$" "$_c"
@@ -447,6 +450,8 @@ case "$cmd" in
         if watchdog_alive; then echo "watchdog=running"; else echo "watchdog=stopped"; fi
         t=$(cat "$STATE/tick" 2>/dev/null); [ -n "$t" ] && echo "tick_age=$(( $(epoch_now) - t ))"
         tun_rows
+        # the backup zip's time and size: the WebUI reloads its Backup card when they change
+        printf '%s\n' "backup_sig=$(stat -c '%Y %s' "$BKZIP" 2>/dev/null)"
         echo "awg_kernel=$(awg_kernel_ver)"
         echo "dnscrypt=$(sib_state dnscrypt-proxy-android)"
         # DNSCrypt Proxy r22+ keeps everything in /data/adb/dnscrypt-proxy/, older versions at the top of /data/adb

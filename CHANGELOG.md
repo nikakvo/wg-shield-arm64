@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 2.9.2
 
-Fixes after 2.9.1.
+Fixes after 2.9.1 - most of them by [ivangotoy](https://github.com/ivangotoy) (PR #4): security, IPv6, file handling and WebUI messages.
 
+* **WebUI: a star shows at once** - a star tapped while the 4-second status read was still running showed only at the next one; the list now refreshes right after the change
+* **WebUI: no "invalid file" row while a tunnel is deleted** - a status read that ran during *Delete* could list the tunnel for a moment as "invalid file - import it again"; a tunnel whose file is gone is left out
+* **WebUI: the Backup card follows a backup made in the terminal** - `ctl.sh backup` / `delbackup` showed in the Tunnels tab only after opening it again; the card now reloads when the backup zip changes
 * **A tunnel imported from an export file ending in `.CONF`** (any letter case) kept the ending in its name (`GAMMA.CONF` instead of `GAMMA`); the ending is cut in any case now, as for `.conf`.
 * **A backup with a tunnel file placed by hand under a name a zip cannot hold** (`my vpn.conf`, `a*b.conf`) - *Backup* failed as a whole ("storage full?") and wrote nothing: the name was split into words on the way into the zip. Such files are now left out of the backup with a line in the log; the other tunnels are saved, a name over 40 characters as before
 * **A file in Download with a line break in its name** - `ctl.sh files` printed the name as it is, so its second part became a line of its own in the output; a name ending in `ok=0.zip` made the WebUI's file list show "Could not read Download". Such a file is no longer listed (it could not be imported or deleted from the list anyway)
@@ -60,7 +63,6 @@ Fixes after 2.9.1.
 * README: *How it works* and the networking set no longer say WG Shield uses no iptables rules at all - the DNS redirect has its own chains (`wgs_dns`, `wgs_dnss`, `wgs_dnsb`)
 * **The Tunnels tab's backup and Download lists say when they cannot be read** - when the module gave no answer they kept showing *Looking for a backup...* / *Looking for exports...*; they show their error line now
 * **Dashboard *Check* no longer stays at *Asking...*** when the module gives no answer; it shows the error like a failed IP service
-* **Test harness** - `status_backslash` expects the 2.9 Endpoint error text; new cases `landns6`, `dns_killed`, `dns6_bad`, `build_fetch`, `ks_error6`, `wait_up`, `dash_name`, `v6_address`, `v6_prefix`, `outside_names`, `hand_names`, `error_quiet`, `umask_kept`, `pipe_name`, `remove_test`, `fav_lock`, `boot_leftovers`, `device_umask`, `import_long_dotname`, `leading_zero`, `pause_zero`, `poll_sibling_text`, `backup_names`, `files_newline`, `import_case`, `resolve_backslash`, `import_write_fail`, `zip_newline`, `parse_glob`, `write_fail`, `last_line`, `write_fail_tick`, `no_remote_assets`, `rules_batch_fail`, `zip_links` (symlink entries in an export zip or the backup), `migrate_fail`; `dns_route`, `landns` and `dns6` check the rebuild; `dns_killed` also kills the first IPv6 DNS refusal chain after its jump; `build_fetch` checks the `.wgs-checked` mark; `no_remote_assets` scans every WebUI file for any load from another host; the WebUI checks (`webui`, `tests/webui_rows.js`) read every page and drive the page's failure messages with a fake root bridge, which hands back am's stderr only when `am start` carries `2>&1`
 
 ---
 ## 2.9.1

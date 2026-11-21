@@ -626,6 +626,14 @@ function showTab(name) {
   if (name === 'log') loadLog();
   if (name === 'tun') { loadFiles(); loadBackup(); }
 }
+// the backup zip's time and size from poll: a backup made elsewhere (the
+// terminal, a restore of the zip by hand) refreshes the Backup card too
+let BK_SIG = null;
+function backupSig(st) {
+  const sig = st.backup_sig || '';
+  if (BK_SIG !== null && sig !== BK_SIG && currentTab === 'tun') loadBackup();
+  BK_SIG = sig;
+}
 
 // ── Render ──────────────────────────────────────────────────────────────
 let ST = {};
@@ -958,6 +966,7 @@ function renderSettings(st) {
 }
 
 function render(st) {
+  backupSig(st);
   // an exit result belongs to the tunnel it was measured on
   const via = st.state === 'up' ? st.tunnel : '';
   if (EXIT.ip && via !== EXIT.via) {
@@ -971,15 +980,30 @@ function render(st) {
 
 // ── Poll every 4 s ──────────────────────────────────────────────────────
 let _polling = false;
+// a poll asked for while one runs (an action's own refresh after the timer's
+// poll started) runs right after it, so the page shows the action's result
+// at once and not one timer period later
+let _pollAgain = null;
 async function poll() {
-  if (_polling || document.hidden) return;
+  if (document.hidden) return;
+  if (_polling) {
+    if (!_pollAgain) _pollAgain = new Promise(res => { _pollAgain_res = res; });
+    return _pollAgain;
+  }
   _polling = true;
   try {
     const st = parseKV(await ctl('poll', 20000));
     if (st.ok === '1') render(st);
   } catch (e) { setBanner('b-error', 'No answer from the module: ' + esc(e.message)); }
-  finally { _polling = false; }
+  finally {
+    _polling = false;
+    if (_pollAgain) {
+      const res = _pollAgain_res; _pollAgain = null; _pollAgain_res = null;
+      poll().finally(res);
+    }
+  }
 }
+let _pollAgain_res = null;
 
 // ── Tunnels ─────────────────────────────────────────────────────────────
 async function toggleTunnel(cb, name) {
