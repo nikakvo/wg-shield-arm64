@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/ARM64-only-7dd3fc?style=flat-square" />
-  <img src="https://img.shields.io/badge/v2.9.3-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/v2.9.4-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/SukiSU%20%2F%20KernelSU%20%2F%20Magisk-compatible-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/WireGuard%20%2B%20AmneziaWG-kernel-7dd3fc?style=flat-square" />
   <img src="https://img.shields.io/badge/WebUI-built%20in-7dd3fc?style=flat-square" />

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.9.4
+
+One phone Back leaves Help.
+
+* **One phone Back leaves Help** - the contents and the links to other sections no longer add steps to the phone's Back, however many sections you opened
+* The module's scripts are unchanged
+
+---
+
 ## 2.9.3
 
 Help reads better on the phone.
